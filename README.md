@@ -61,6 +61,139 @@ OpenClaw 的所有设计都围绕一条第一原则展开：
 
 这样一来，换一个 agent 就是换一个 JSON 配置，不用改一行平台代码。
 
+### 🤐 Agent-系统交互最小化
+
+Agent 写**内容**，系统提取**结构** —— **不是**让 Agent 写 JSON 驱动系统。
+
+系统从可观察信号（文件写入、工具调用、执行轨迹、自然语言标记）提取状态，**不信任 Agent 自报**：
+
+- Planner 写 Markdown 计划 → 系统从 `## Phase 1` 提取 `stagePlan`
+- Worker 写产出文件 → 系统从文件存在判定 `completed`
+- Agent 需要驱动系统时用 `[ACTION] wake researcher` 这种轻结构自然语言，**不是**写 `system_action.json`
+
+连接点从 27+ 硬协议文件缩到 **3+2 个**活跃接口。Agent 需要"懂"的系统协议越少，越不容易写错，注入 token 也越少。
+
+### 🎭 SOUL 是通用机，不是专用机
+
+每个 Agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程、生命周期），**领域知识全部通过 skill 注入**。
+
+- ❌ 禁止：SOUL 里出现 `analyze user table schema` / `check field "age" is present` 这种领域细节
+- ✅ 正确：SOUL 只写 `读 inbox → 处理 → 写 outbox → 停止`；领域细节由 `skills/foo/SKILL.md` 提供
+
+换一个领域 = 换一套 skill，SOUL 一字不改。这是"通用机"而非"专用机"的本质。
+
+### 👑 消除 God Role
+
+系统**只有两种结构角色**：`bridge`（外部入口）与 `worker`（执行单元）。
+
+原先的 planner / researcher / evaluator 不再是独立角色类型，而是通过 `executionPolicy + skills` 组合在通用 worker 上实现：
+
+- `planMode: true` → 这个 worker 具备规划能力
+- `skills: [research-methodology]` → 这个 worker 会做研究
+- `skills: [review-findings]` → 这个 worker 会做评审
+
+角色类型从 N 种收敛到 2 种。新能力通过组合实现，不改角色系统。
+
+### 🕸️ Graph 是运行时真值，不是 UI 装饰
+
+`COLLABORATION-GRAPH.md` 定义的 agent 协作边是**强制执行的授权**：
+
+- Agent A 想给 Agent B 发东西 → Graph 上没边 → 运行时**直接拒绝**
+- UI 上显示的拓扑与运行时**完全一致**
+- 不存在"图是给人看的，代码里另一套"
+
+修拓扑不是改代码，是改 graph 描述文件（或在 Dashboard Edit Mode 里拖）。
+
+### 💰 Token Economy（为什么"小模型友好"）
+
+LLM 每次唤醒都要**重新支付全部上下文 token 成本**（1 KB ≈ 250 tokens）。系统通过以下手段把成本压到底：
+
+- **Workspace 瘦身**：执行类 agent 只注入 `SOUL + HEARTBEAT`，不塞通用教程
+- **角色差异化注入**：`workspace-guidance-writer` 按角色生成文件；planner 拿规划知识、worker 拿执行知识，不串
+- **Skill 按需装配**：agent 只加载配置里列出的 skill，不全量加载
+- **连接面最小化**：Agent 需要懂的系统协议越少，注入 token 越少
+
+效果：**默认模型是 MiniMax M2.5 这种中等开销模型**，非 Claude Opus / GPT-4 级也能稳定跑完整链路。需要更强模型时通过 [`model-switcher`](skills/model-switcher/SKILL.md) skill 按任务切换（写代码 → Doubao Seed Code、长文分析 → Kimi K2.5、复杂推理 → DeepSeek V3.2……）。
+
+### 🛡️ 防御纵深（Defense in Depth）
+
+不依赖单一机制保证安全，多层兜底：
+
+| 层 | 机制 | 粒度 |
+|---|---|---|
+| 结构层 | Graph edge 授权 | 谁能投给谁 |
+| 工具层 | `before_tool_call` hook | 拦截任意工具调用 |
+| Agent 层 | `tools.allow` / `.deny` | 粒度到每个 agent |
+| 内容层 | 敏感信息拦截 hook | 扫描输入/输出内容 |
+
+每层独立生效，一层失守后面继续拦。
+
+---
+
+## 🧠 Harness — 执行层的拼图（Jigsaw）
+
+Harness 是**执行层工具箱**，不是平台总控。它存在的理由只有一句话：
+
+> **让一次执行可限制、可采证、让上层吃到统一的 `HarnessRun`。**
+
+### 极简对象集（当前只允许持有 3 类正式对象）
+
+| 对象 | 作用 |
+|---|---|
+| `HarnessSelection` | 本次执行选中哪些 module |
+| `HarnessRun` | 一次执行的完整轨迹（谁、跑了啥、产出了啥、用了多少 token） |
+| `HarnessModuleResult` | 单个 module 的产出 |
+
+多一个对象都要先问"它真的不是这三个之一吗"。对象集膨胀 = 概念蔓延。
+
+### 4 种 active module kind（多一种都没有）
+
+| Kind | 作用 |
+|---|---|
+| `guard` | 预算 / 工具 / 作用域限制 |
+| `collector` | artifact / trace 采集 |
+| `gate` | 完成 / 验证门控 |
+| `normalizer` | evaluator 输入与失败归一化 |
+
+新需求来先问："能不能组合现有 kind 解决？"不能才考虑新 kind。
+
+### Jigsaw 精神：拒绝 Mega Orchestrator
+
+Harness 选择**拼图式组合**而非"一个全能大脑"：
+
+- 每块拼图只干一件事，可独立测试、可独立替换
+- 一次执行按需**选中几块拼图拼起来**，没选的不加载
+- 宁可多几个小 module，不要一个 mega-module 包打天下
+- **"让 harness 更大"不是目标**，"让执行可限可证"才是目标
+
+### 明确的边界：Harness 不做的事
+
+Harness **不定义**：
+
+- ❌ 谁与谁协作 → 那是 **Graph** 的事
+- ❌ 合约回给谁 → 那是 **Delivery** 的事
+- ❌ Loop 是否继续 → 那是 **Loop-session / Evaluator** 的事
+- ❌ 模式如何结晶为稳定能力 → 那是 **Automation of Automation** 的事
+
+每一层只对自己那一格负责。权责混淆 = 大泥球。
+
+### 在系统里的位置
+
+```
+                Automation of Automation
+                          ▲
+                          │ 消费 HarnessRun
+                          │ 产出 AutomationDecision
+                          │
+                       Harness  ◀──── 平行：Graph / Loop / Delivery
+                          ▲
+                          │ 观察工具调用、文件写入
+                          │
+                     Agent 执行
+```
+
+详见 [`wiki/concepts/harness.md`](wiki/concepts/harness.md) — 当前状态：**设计方向稳定、接口冻结中**。
+
 ---
 
 ## 🎯 它能干嘛
@@ -171,6 +304,65 @@ Conclude → 结论交付
 │  Agent 只看到文件协议，完全不感知 watchdog 代码    │
 └───────────────────────────────────────────────────┘
 ```
+
+---
+
+## 🖥️ Dashboard — 前端怎么用
+
+![OpenClaw Mission Control Dashboard](docs/screenshots/dashboard-idle.png)
+
+> ☝️ 上图是 Gateway 刚启动、WebSocket 尚未握手时的初始界面（`CONNECTING...`），展示 UI 骨架。
+> 真实运行中，中间面板会有 agent 节点、消息沿 graph 边流动，右侧事件流实时滚动，统计栏数字变化。
+
+### 访问
+
+```
+http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
+```
+
+Token 取自 `openclaw.json → gateway.auth.token`。
+
+### 设计语言：NASA-Punk
+
+- 深黑标题栏 + 奶油色主体 + **橙色**强调色
+- 等宽字体、网格衬底、极简边框
+- **零圆角、零阴影、零毛玻璃** —— 信息密度优先于视觉糖分
+- 主文件：`extensions/watchdog/dashboard.{html,css,js}` + `dashboard-*.js` 子模块
+
+### 三大主面板
+
+| 面板 | 位置 | 功能 |
+|---|---|---|
+| **WORK ITEM LIFECYCLE** | 左 | 合约生命周期列表：谁在做什么、当前阶段、状态 |
+| **DISPATCH PIPELINE** | 中 | 实时 SVG graph 拓扑 + 消息流动可视化 |
+| **EVENT STREAM // LIVE** | 右 | 事件流滚动：inbox 投递 / outbox 提交 / wake / end / tool call… |
+
+### 顶部状态条
+
+`ACTIVE` · `WORK ITEMS` · `COMPLETED` · `QUEUE` · `POOL x/n` · `EVENTS` · `UPTIME`
+每项都是系统真实状态的实时投影，不是定时刷新的快照。
+
+### EDIT MODE / SETTINGS
+
+- **EDIT MODE** — 直接在 Dashboard 上**拖 agent 节点、加/删 edge、切 agent 模型**。改动通过 Admin Change Sets 持久化，可预览、可回滚
+- **SETTINGS → RUNTIME OPERATOR** — 打开 Operator 浮窗，手动触发 `wake` / `assign` / `force-complete` 等运维动作
+- **SETTINGS → TEST TOOLS** — 打开 Devtools 面板，直接跑 test-runner 预设、看 change-set 历史、审 test-runs 报告
+
+### 子页（通过顶部 nav-bar 访问）
+
+- `/watchdog/agents` — Agent 详情页（配置、近期事件、工具调用轨迹）
+- Harness Atlas — Harness module 选择与 Run 历史
+- Operator Catalog — 可用运维动作目录
+- Flow Protocols — 协议流线查看
+
+### 典型使用流程
+
+1. `bash ~/.openclaw/start.sh` → 打开 Dashboard → 连接状态由 `CONNECTING...` 变成 `ONLINE`
+2. 从 WebUI / QQ Bot / 飞书 发消息 → 左面板出现新 work item
+3. 中间面板：对应 agent 节点被唤醒，消息沿 graph edge 流动
+4. 右面板事件流滚动每一次 tool call / inbox deliver / outbox commit
+5. 完成后 work item 变 `COMPLETED`，POOL 计数回落
+6. 出问题？→ `SETTINGS → TEST TOOLS → TEST RUNS` 看最新一次测试报告
 
 ---
 
