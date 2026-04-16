@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐾 OpenClaw
+# OpenClaw
 
 **一个基于"传送带原则"的多 Agent 协作平台**
 
@@ -23,13 +23,13 @@ _代码控制流程，LLM 负责内容_
 
 > 这不是一个成熟的产品，而是一个**持续演进中的个人研究项目**。
 >
-> - 核心传送带（inbox/outbox + graph-driven dispatch）**可用且稳定**
+> - 核心（inbox/outbox + graph-driven dispatch）**可用且稳定**
 > - Watchdog 编排、并发 worker 池、研究回路、Dashboard **可用**
 > - Pipeline → Loop 溶解、Wake Event、AgentGroup 等**仍在设计/实施中**
 > - 部分模块存在 legacy 兼容层，代码红线是"下一个 stable tag 前固化并删除"
 > - 仅在 macOS 环境日常使用，其他平台未做兼容性验证
 >
-> 想在生产环境部署的同学请慎重。想一起玩 Agent 架构实验的欢迎 Star / Fork / 提 Issue。
+> - 想在生产环境部署的同学请慎重，工业有效是该系统的理想状态，也是最初方向。想一起玩 Agent 架构实验的欢迎 Star / Fork / 提 Issue。
 
 ---
 
@@ -47,11 +47,11 @@ OpenClaw 的所有设计都围绕一条第一原则展开：
 | 安全（before_tool_call、敏感信息拦截） | 实验结论解释 |
 | 质量门控（阈值判定、阶段迁移） | — |
 
-### 🏭 传送带原则（Conveyor Belt）
+### 🏭 信息分发原则（Conveyor Belt）
 
 **绝对禁止在回路里硬编码 agent 名称或角色特化分支。**
 
-传送带是唯一的 transport 原语：
+唯一的 transport 原语：
 
 - **Agent** 只负责：读 `inbox/` → 处理 → 写 `outbox/` → 停止
 - **平台** 只负责：检查 graph 授权 → 排队 → 目标闲时自动投递 → 唤醒
@@ -323,15 +323,6 @@ node test-runner.js --suite benchmark
 - [Pipeline 溶解](wiki/decisions/pipeline-dissolution.md) — 删除 1717 行的大重构
 - [God Role 消除](wiki/decisions/god-role-elimination.md) — 只留 bridge + worker
 
----
-
-## 🔒 安全须知
-
-- **`openclaw.json` 必须本地维护，绝不提交仓库**（`.gitignore` 已排除）
-- 本仓库只提供 `openclaw.example.json` 脱敏模板
-- `workspaces/`、`test-reports/`、`research-lab/`、`memory/`、`logs/` 均为运行态目录，自动忽略
-- SSH 远程地址、服务器 IP 已全部替换为 `YOUR_REMOTE_HOST` 占位符，请按需填自己的
-- 接入 QQ / 飞书渠道前，请先到对应开放平台拿到 appId / secret，填入本地 `openclaw.json`
 
 ---
 
@@ -339,15 +330,9 @@ node test-runner.js --suite benchmark
 
 欢迎 Issue 讨论架构、指出问题、或者单纯聊聊多 Agent 怎么玩。
 
-- 设计讨论优先去 Issue，实现 PR 欢迎但建议先开 Issue 对齐
+- 设计讨论优先去 Issue，实现 PR 欢迎
 - 提交前先跑一遍 `node test-runner.js --preset single` 与 `--preset concurrent`，确认链路不红
 - 代码红线请参考 [`CLAUDE.md`](CLAUDE.md)（不留遗留代码、兼容层必须标注生命周期、一条路径原则）
-
----
-
-## 📄 License
-
-本项目为个人研究用途，默认暂无开源许可证。如需二次分发或商用，请先通过 Issue 联系作者。
 
 ---
 
