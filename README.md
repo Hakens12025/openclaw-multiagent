@@ -323,6 +323,69 @@ node test-runner.js --suite benchmark
 - [Pipeline 溶解](wiki/decisions/pipeline-dissolution.md) — 删除 1717 行的大重构
 - [God Role 消除](wiki/decisions/god-role-elimination.md) — 只留 bridge + worker
 
+---
+
+## 📍 Maybe TODO（可能会做）
+
+> 这是"想做，但还没动手 / 还在设计 / 还没跑通"的清单。不承诺时间，不承诺做不做，纯粹写给自己看。
+
+### 🔧 更多 Harness Modules
+
+当前 Harness 只有 4 种 active module kind：
+
+| Kind | 作用 |
+|---|---|
+| `guard` | 预算、工具、作用域限制 |
+| `collector` | artifact / trace 采集 |
+| `gate` | 完成/验证门控 |
+| `normalizer` | evaluator 输入与失败归一化 |
+
+想扩展的方向：
+
+- **retry-strategist** — 把重试策略从散落在各处的 retry-jitter 里抽出来，变成一类 module
+- **cost-tracker** — 在 guard 之上抽独立的成本归因层（跨 agent、跨 session 汇总）
+- **side-effect-recorder** — 工具调用的副作用轨迹（写文件 / 发消息 / 调 API）显式化
+- **provenance-stamper** — 给每个 artifact 盖来源印章，evaluator / automation 可追溯
+
+前置条件是先按 [`wiki/concepts/harness.md`](wiki/concepts/harness.md) 把"接口冻结"真正做完，否则扩展会变成又一轮技术债。
+
+### 🧩 AgentGroup（Graph 空间原语）
+
+Graph 目前只有 **edge**（授权）与 **loop**（时间重复），缺一个**空间封装原语**：
+
+- `passthrough` — 每个 agent 输出独立传递给下游
+- `aggregate` — 所有 agent 输出合并为单一结果
+- `race` — 第一个完成的 agent 胜出，其余取消
+
+AgentGroup **与 Loop 正交**：group 管"谁在一起"，loop 管"重复多少次"，两者可独立组合。
+本质是 graph 语言的语法糖，展开为 edges + binding policies，不引入新的运行时概念。
+
+详见 [`wiki/concepts/agent-group.md`](wiki/concepts/agent-group.md) — 当前状态：**待实现**。
+
+### 🤖 Automation of Automation
+
+长期演化层。**不是**"跑更多自动化任务"，也**不是**"让 harness 更大"，而是：
+
+- 哪些成功可以**复用**
+- 哪些失败可以被**吸收**
+- 哪些模式可以**结晶**为稳定能力
+
+目标是"渐进硬化"流程：
+
+```
+unknown → provisional → experimental → stable → (retired)
+```
+
+消费对象：`HarnessRun` + `EvaluationResult` + `AutomationDecision`。每次晋升都需要 evidence。
+
+详见 [`wiki/concepts/automation-of-automation.md`](wiki/concepts/automation-of-automation.md) — 当前状态：**方向稳定、未开工**。
+
+### ⏳ 其他排队中的想法
+
+- **WakeEvent** — 运行时状态驱动的控制面唤醒（替代当前部分轮询逻辑）
+- **Session 管理完整化** — 合约独立 session 的 deterministic key 路径未完全打通
+- **零知识验证** — Hook 观测约束下的可验证执行（执行轨迹 + 承诺检测）
+- **CLI System 扩展** — 已有第一版，后续 observe / inspect / apply / verify 的完整面
 
 ---
 
