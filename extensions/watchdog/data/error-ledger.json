@@ -1,0 +1,32 @@
+{
+  "patterns": [
+    {
+      "errorType": "unknown",
+      "count": 89,
+      "firstSeen": 1775722544201,
+      "lastSeen": 1776173630202,
+      "lastAgent": "contractor",
+      "lastTask": "retry crash keeps contract active",
+      "lastTools": []
+    },
+    {
+      "errorType": "timeout",
+      "count": 19,
+      "firstSeen": 1776137877745,
+      "lastSeen": 1776144519057,
+      "lastAgent": "error-ledger-a",
+      "lastTask": "timeout task",
+      "lastTools": []
+    },
+    {
+      "errorType": "file_not_found",
+      "count": 17,
+      "firstSeen": 1776138067256,
+      "lastSeen": 1776144519063,
+      "lastAgent": "error-ledger-b",
+      "lastTask": "missing file task",
+      "lastTools": []
+    }
+  ],
+  "version": 1
+}

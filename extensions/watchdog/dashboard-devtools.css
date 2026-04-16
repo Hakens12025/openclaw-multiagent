@@ -1,0 +1,616 @@
+  /* ── DEVTOOLS ── */
+  .devtool-header-meta {
+    font-family: "Courier New", monospace;
+    font-size: 12px; letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+  }
+  .devtool-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(240px, 300px);
+    gap: 12px;
+    padding: 12px 24px 14px;
+  }
+  .devtool-box {
+    border: 1px solid var(--border-secondary);
+    background: rgba(254,249,236,0.84);
+    min-height: 180px;
+    padding: 12px;
+  }
+  .devtool-box-title {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 4px 10px 4px 12px;
+    border: 1px solid rgba(139,115,85,0.2);
+    background: rgba(237,227,196,0.72);
+    font-family: "Courier New", monospace;
+    font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
+    font-size: 15px; letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+    margin-bottom: 12px;
+    text-transform: none;
+  }
+  .devtool-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .devtool-btn {
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 10px 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .devtool-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: var(--accent-orange);
+    background: #fffdf6;
+  }
+  .devtool-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .devtool-btn.busy {
+    border-color: var(--accent-orange);
+    animation: dispatch-pulse 2s infinite;
+  }
+  .devtool-btn-title {
+    display: block;
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--accent-orange);
+    text-transform: uppercase;
+  }
+  .devtool-btn-desc {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .devtool-summary-head, .devtool-history-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+  }
+  .devtool-run-label {
+    font-family: "Courier New", monospace;
+    font-size: 13px; letter-spacing: 0.08em;
+    color: var(--accent-orange);
+    text-transform: uppercase;
+  }
+  .devtool-run-id, .devtool-history-meta, .devtool-case-meta {
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
+  .devtool-run-status, .devtool-case-status {
+    font-family: "Courier New", monospace;
+    font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .status-running, .status-cleaning {
+    color: var(--accent-blue);
+    background: rgba(46,95,168,0.12); padding: 2px 6px;
+  }
+  .status-completed, .status-pass {
+    color: var(--accent-green);
+    background: rgba(58,122,74,0.12); padding: 2px 6px;
+  }
+  .status-failed, .status-fail {
+    color: var(--accent-red);
+    background: rgba(168,48,48,0.12); padding: 2px 6px;
+  }
+  .status-blocked {
+    color: var(--accent-amber);
+    background: rgba(184,134,11,0.12); padding: 2px 6px;
+  }
+  .status-queued, .status-preparing {
+    color: var(--accent-orange);
+    background: rgba(200,117,51,0.12); padding: 2px 6px;
+  }
+  .devtool-kv-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+  }
+  .devtool-kv-grid div {
+    border-top: 1px solid var(--bg-tertiary);
+    padding-top: 6px;
+  }
+  .devtool-kv-grid span {
+    display: block;
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .devtool-kv-grid strong {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+  .devtool-section-title {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 3px 8px 3px 10px;
+    border: 1px solid rgba(139,115,85,0.2);
+    background: rgba(237,227,196,0.72);
+    font-family: "Courier New", monospace;
+    font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin: 14px 0 8px;
+    text-transform: none;
+  }
+  .devtool-case-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .devtool-case-row {
+    width: 100%;
+    border: 1px solid var(--bg-tertiary);
+    border-left: 3px solid var(--border-secondary);
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.5);
+    text-align: left;
+    cursor: pointer;
+    appearance: none;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .devtool-case-row:hover {
+    border-color: var(--accent-orange);
+    background: rgba(255,255,255,0.75);
+    transform: translateY(-1px);
+  }
+  .devtool-case-row.selected {
+    border-color: var(--accent-orange);
+    background: rgba(196,169,106,0.16);
+    box-shadow: inset 0 0 0 1px rgba(200,117,51,0.18);
+  }
+  .devtool-case-row.status-pass { border-left: 3px solid var(--accent-green); }
+  .devtool-case-row.status-fail { border-left: 3px solid var(--accent-red); }
+  .devtool-case-row.status-blocked { border-left: 3px solid var(--accent-amber); }
+  .devtool-case-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+  }
+  .devtool-case-id {
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+  .devtool-detail-shell {
+    display: grid;
+    gap: 10px;
+  }
+  .devtool-runtime-grid {
+    display: grid;
+    gap: 10px;
+  }
+  .devtool-detail-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--bg-tertiary);
+    background: rgba(255,255,255,0.42);
+  }
+  .devtool-detail-card {
+    border: 1px solid var(--bg-tertiary);
+    background: rgba(255,255,255,0.42);
+    padding: 10px 12px;
+  }
+  .devtool-detail-card.diagnosis.fail {
+    border-left: 3px solid var(--accent-red);
+  }
+  .devtool-detail-card.diagnosis.blocked {
+    border-left: 3px solid var(--accent-amber);
+  }
+  .devtool-detail-card.diagnosis.pass,
+  .devtool-detail-card.diagnosis.ok {
+    border-left: 3px solid var(--accent-green);
+  }
+  .devtool-detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .devtool-detail-head strong {
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+  .devtool-detail-line {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(139,115,85,0.12);
+  }
+  .devtool-detail-line:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+  .devtool-detail-line span {
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .devtool-detail-line strong {
+    color: var(--text-primary);
+    text-align: right;
+    word-break: break-word;
+  }
+  .devtool-detail-text {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .devtool-detail-evidence {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: rgba(28,26,18,0.06);
+    border: 1px solid rgba(139,115,85,0.18);
+    color: var(--text-secondary);
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .devtool-checkpoint-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .devtool-checkpoint-row {
+    border: 1px solid var(--bg-tertiary);
+    border-left: 3px solid var(--border-secondary);
+    background: rgba(255,255,255,0.42);
+    padding: 9px 10px;
+  }
+  .devtool-checkpoint-row.status-pass,
+  .devtool-checkpoint-row.status-completed {
+    border-left-color: var(--accent-green);
+  }
+  .devtool-checkpoint-row.status-fail,
+  .devtool-checkpoint-row.status-failed,
+  .devtool-checkpoint-row.status-error {
+    border-left-color: var(--accent-red);
+  }
+  .devtool-checkpoint-row.status-blocked,
+  .devtool-checkpoint-row.status-skipped {
+    border-left-color: var(--accent-amber);
+  }
+  .devtool-checkpoint-row.status-running,
+  .devtool-checkpoint-row.status-active {
+    border-left-color: var(--accent-blue);
+  }
+  .devtool-checkpoint-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .devtool-checkpoint-id {
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .devtool-checkpoint-name {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+  .devtool-checkpoint-status {
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .devtool-checkpoint-meta {
+    margin-top: 6px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .devtool-checkpoint-detail {
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .devtool-history-item {
+    width: 100%;
+    border: 1px solid var(--bg-tertiary);
+    background: rgba(255,255,255,0.48);
+    padding: 9px 10px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    margin-bottom: 8px;
+  }
+  .devtool-history-item:hover {
+    border-color: var(--accent-orange);
+    background: rgba(255,255,255,0.72);
+  }
+  .devtool-history-item.selected {
+    border-color: var(--accent-orange);
+    border-left: 3px solid var(--accent-orange);
+    background: rgba(196,169,106,0.16);
+  }
+  .devtool-report {
+    margin-top: 8px;
+    max-height: 260px;
+    overflow: auto;
+    background: var(--bg-dark-panel);
+    color: var(--text-on-dark);
+    border: 1px solid #3A3422;
+    padding: 10px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .devtool-detail-card .devtool-report {
+    margin-top: 0;
+    max-height: 180px;
+  }
+  .devtool-empty {
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-muted);
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    position: relative;
+    overflow: hidden;
+  }
+  .devtool-empty::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; width: 60%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(200,117,51,0.04), transparent);
+    animation: devtool-scan 3s ease-in-out infinite;
+  }
+  @keyframes devtool-scan {
+    0% { left: -60%; }
+    100% { left: 100%; }
+  }
+  .devtool-empty.compact {
+    min-height: 60px;
+  }
+
+  @media (max-width: 1180px) {
+    .devtool-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .devtool-kv-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .devtool-detail-summary {
+      grid-template-columns: 1fr;
+    }
+    .devtool-checkpoint-head {
+      flex-wrap: wrap;
+    }
+  }
+
+  .devtools-page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 20px 24px 40px;
+    animation: system-boot 0.5s ease-out;
+  }
+  .devtool-viewbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .devtool-viewtab {
+    border: 1px solid var(--border-primary);
+    background: rgba(255, 249, 236, 0.76);
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+  }
+  .devtool-viewtab:hover {
+    border-color: var(--accent-orange);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+  .devtool-viewtab.active {
+    background: var(--accent-orange);
+    border-color: var(--accent-orange);
+    color: var(--bg-primary);
+  }
+  .devtools-page .devtool-grid {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(240px, 300px);
+    padding: 12px 0 14px;
+  }
+  @media (max-width: 1180px) {
+    .devtools-page .devtool-grid {
+      grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    }
+    .devtools-page .devtool-grid > :last-child {
+      grid-column: 1 / -1;
+    }
+  }
+  .devtools-page .devtool-case-list {
+    max-height: 400px;
+  }
+  .devtools-page .devtool-report {
+    max-height: 420px;
+  }
+  .devtools-page .devtool-kv-grid.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  .devtools-page .devtool-note {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(139, 115, 85, 0.18);
+    background: rgba(28, 26, 18, 0.05);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .devtools-page .devtool-history-item.status-pass,
+  .devtools-page .devtool-history-item.status-passed,
+  .devtools-page .devtool-history-item.status-completed {
+    border-left: 3px solid var(--accent-green);
+  }
+  .devtools-page .devtool-history-item.status-fail,
+  .devtools-page .devtool-history-item.status-failed {
+    border-left: 3px solid var(--accent-red);
+  }
+  .devtools-page .devtool-history-item.status-blocked {
+    border-left: 3px solid var(--accent-amber);
+  }
+  .devtools-page .devtool-history-item.status-running,
+  .devtools-page .devtool-history-item.status-cleaning,
+  .devtools-page .devtool-history-item.status-active {
+    border-left: 3px solid var(--accent-blue);
+  }
+  .devtools-page .devtool-history-item.status-draft,
+  .devtools-page .devtool-history-item.status-queued,
+  .devtools-page .devtool-history-item.status-preparing {
+    border-left: 3px solid var(--accent-orange);
+  }
+  .devtools-page .status-draft {
+    color: var(--accent-orange);
+  }
+  .devtools-page .devtool-link-btn {
+    width: 100%;
+    margin-top: 10px;
+  }
+  .devtools-page .devtool-form-label {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--text-secondary);
+  }
+  .devtools-page .devtool-form-control {
+    width: 100%;
+    border: 1px solid var(--border-primary);
+    background: rgba(255, 249, 236, 0.86);
+    color: var(--text-primary);
+    padding: 9px 10px;
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    box-sizing: border-box;
+  }
+  .devtools-page .devtool-form-control:focus {
+    outline: none;
+    border-color: var(--accent-orange);
+  }
+  .devtools-page .devtool-form-textarea {
+    min-height: 160px;
+    resize: vertical;
+  }
+  .devtools-page .devtool-form-textarea.compact {
+    min-height: 72px;
+  }
+  .devtools-page .devtool-inline-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .devtools-page .devtool-form-grid {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .devtools-page .devtool-field-shell {
+    border: 1px solid rgba(139, 115, 85, 0.18);
+    background: rgba(255, 249, 236, 0.52);
+    padding: 10px 12px 12px;
+  }
+  .devtools-page .devtool-field-help {
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .devtools-page .devtool-checkbox-grid {
+    display: grid;
+    gap: 8px;
+    max-height: 220px;
+    overflow: auto;
+  }
+  .devtools-page .devtool-checkbox-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(139, 115, 85, 0.16);
+    background: rgba(255, 255, 255, 0.54);
+    cursor: pointer;
+  }
+  .devtools-page .devtool-checkbox-item input {
+    margin-top: 2px;
+  }
+  .devtools-page .devtool-checkbox-copy {
+    display: grid;
+    gap: 2px;
+  }
+  .devtools-page .devtool-checkbox-copy strong {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+  .devtools-page .devtool-checkbox-copy small {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+  .devtools-page .devtool-btn.compact {
+    min-height: 0;
+  }

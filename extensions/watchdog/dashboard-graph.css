@@ -1,0 +1,673 @@
+  /* ── PIPELINE GRAPH ── */
+  .pipeline-label-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pipeline-loop-state,
+  .pipeline-progress-state {
+    display: none;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 1px 8px;
+    border: 1px solid var(--border-secondary);
+    color: var(--text-secondary);
+    background: rgba(254,249,236,0.9);
+  }
+  .pipeline-loop-state.visible,
+  .pipeline-progress-state.visible {
+    display: inline-block;
+  }
+  .pipeline-loop-state.active {
+    color: var(--bg-primary);
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+  }
+  .pipeline-loop-state.ready {
+    color: var(--bg-primary);
+    background: var(--accent-orange);
+    border-color: var(--accent-orange);
+  }
+  .pipeline-loop-state.idle {
+    color: var(--text-secondary);
+    background: rgba(245,239,223,0.92);
+  }
+  .pipeline-loop-state.broken {
+    color: var(--bg-primary);
+    background: var(--accent-red);
+    border-color: var(--accent-red);
+  }
+  .pipeline-progress-state.active {
+    color: var(--bg-primary);
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+  }
+  .pipeline-progress-state.done {
+    color: var(--bg-primary);
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+  }
+  .pipeline-progress-state.hold {
+    color: var(--accent-amber);
+    border-color: rgba(184,134,11,0.55);
+    background: rgba(184,134,11,0.1);
+  }
+  .pipeline-progress-state.agent {
+    color: var(--bg-primary);
+    background: var(--accent-orange);
+    border-color: var(--accent-orange);
+  }
+  .pipeline-progress-state.error {
+    color: var(--bg-primary);
+    background: var(--accent-red);
+    border-color: var(--accent-red);
+  }
+  .pipeline-progress-state.idle {
+    color: var(--text-secondary);
+    background: rgba(245,239,223,0.92);
+  }
+
+  /* ── CENTER PANEL: PIPELINE ── */
+  .panel-center {
+    padding: 0; overflow: hidden;
+    display: flex; flex-direction: column;
+    animation: system-boot 0.6s ease-out 0.2s both;
+  }
+  .pipeline-wrap {
+    position: relative;
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding-top: var(--pipeline-wrap-padding-top, 16px);
+    padding-right: var(--pipeline-wrap-padding-right, 12px);
+    padding-bottom: var(--pipeline-wrap-padding-bottom, 16px);
+    padding-left: var(--pipeline-wrap-padding-left, 12px);
+    min-height: 460px;
+    overflow: hidden;
+  }
+  .pipeline-svg {
+    width: 100%; height: auto;
+    max-height: var(--pipeline-svg-max-height, calc(100vh - 210px));
+    cursor: grab;
+  }
+  .pipeline-svg:active { cursor: grabbing; }
+
+  /* SVG node styles */
+  .svg-node-box {
+    fill: var(--bg-tertiary); stroke: var(--border-primary); stroke-width: 2;
+    transition: stroke 0.3s, fill 0.3s, stroke-width 0.15s;
+  }
+  .pipeline-node:hover .svg-node-box {
+    stroke-width: 3;
+    stroke: var(--accent-orange);
+  }
+  /* svg-role-bar removed */
+  .svg-node-box.active { stroke: var(--accent-orange); fill: var(--bg-primary); }
+  .svg-node-box.receiving { stroke: var(--accent-green); fill: var(--bg-primary); }
+  .svg-node-box.node-result { fill: var(--bg-secondary); stroke-width: 1.5; }
+  .svg-node-box.dispatching {
+    stroke: var(--accent-amber);
+    animation: dispatch-pulse 2s infinite;
+  }
+  /* .link-armed styles moved to LINK ARMED MODE section below */
+
+  .svg-node-name {
+    font-family: "Courier New", monospace; font-size: 12px; font-weight: bold;
+    fill: var(--text-primary); text-anchor: middle; letter-spacing: 0.04em;
+  }
+  .svg-node-role {
+    font-family: "Courier New", monospace; font-size: 10px;
+    fill: var(--text-muted); text-anchor: middle; letter-spacing: 0.1em;
+  }
+  .svg-node-model {
+    font-family: "Courier New", monospace; font-size: 10px;
+    fill: var(--accent-orange); text-anchor: middle; letter-spacing: 0.02em;
+  }
+  .svg-node-status {
+    font-family: "Courier New", monospace; font-size: 11px;
+    fill: var(--text-secondary); text-anchor: middle;
+    transition: fill 0.3s;
+  }
+  .queue-bookmark {
+    fill: rgba(200,117,51,0.45);
+    stroke: var(--accent-orange);
+    stroke-width: 1;
+  }
+  .queue-bookmark.primary {
+    fill: var(--accent-orange);
+  }
+  .queue-bookmark-count {
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    fill: var(--accent-orange);
+    letter-spacing: 0.04em;
+  }
+  .svg-status-dot { fill: var(--border-secondary); transition: fill 0.3s; }
+  .svg-status-dot.idle { fill: var(--accent-amber); }
+  .svg-status-dot.running { fill: var(--accent-green); animation: data-refresh 1.5s infinite; }
+  .svg-status-dot.error { fill: var(--accent-red); }
+  .svg-status-dot.dispatching { fill: var(--accent-amber); animation: dispatch-pulse 2s infinite; }
+
+  /* SVG flow lines — V4: ALL hidden by default */
+  .svg-flow-line {
+    stroke: transparent; stroke-width: 3; fill: none;
+    transition: stroke 0.3s;
+  }
+  .svg-flow-line.active {
+    stroke: var(--accent-orange);
+    stroke-dasharray: 14 7;
+    animation: svg-dash-flow 1s linear infinite;
+    transition: none;
+  }
+  .svg-flow-line.path-fast { stroke-width: 2.5; }
+  .svg-flow-arrow { fill: transparent; transition: fill 0.3s; }
+  .svg-flow-arrow.active { fill: var(--accent-orange); }
+  .svg-flow-label {
+    font-family: "Courier New", monospace; font-size: 10px;
+    fill: transparent; text-anchor: middle; letter-spacing: 0.1em;
+    transition: fill 0.3s;
+    paint-order: stroke fill;
+    stroke: var(--bg-primary); stroke-width: 3px;
+  }
+  .svg-flow-label.active { fill: var(--accent-orange); }
+
+  @keyframes svg-dash-flow {
+    to { stroke-dashoffset: -21; }
+  }
+
+  /* SVG reply line (reverse/return — green) */
+  .svg-reply-line {
+    stroke: transparent; stroke-width: 2.5; fill: none;
+    transition: stroke 0.4s;
+  }
+  .svg-reply-line.active {
+    stroke: var(--accent-green);
+    stroke-dasharray: 10 6;
+    animation: svg-dash-flow 1s linear infinite;
+    transition: none;
+  }
+  .svg-reply-arrow { fill: transparent; transition: fill 0.4s; }
+  .svg-reply-arrow.active { fill: var(--accent-green); }
+  .svg-reply-label {
+    font-family: "Courier New", monospace; font-size: 10px;
+    fill: transparent; text-anchor: middle; letter-spacing: 0.1em;
+    transition: fill 0.4s;
+    paint-order: stroke fill;
+    stroke: var(--bg-primary); stroke-width: 3px;
+  }
+  .svg-reply-label.active { fill: var(--accent-green); }
+
+  /* Specialist nodes use the amber accent without changing the global graph truth. */
+  .svg-node-box.node-specialist {
+    fill: var(--bg-tertiary); stroke: var(--border-primary); stroke-width: 2;
+    transition: stroke 0.4s, fill 0.4s;
+  }
+  .svg-node-box.node-specialist.specialist-active {
+    stroke: var(--accent-amber); stroke-width: 2;
+    fill: var(--bg-primary);
+  }
+  .svg-node-box.node-specialist.specialist-active.running {
+    stroke: var(--accent-green);
+    animation: dispatch-pulse 2s infinite;
+  }
+
+  /* ── DYNAMIC FLOW LINES — data-driven, runtime created ── */
+  .flow-dynamic-group {
+    opacity: 0;
+    transition: opacity 0.5s ease-in;
+  }
+  .flow-dynamic-group.flow-active {
+    opacity: 1;
+  }
+  .flow-dynamic-group.flow-fading {
+    opacity: 0;
+    transition: opacity 1.2s ease-out;
+  }
+  .flow-dynamic {
+    fill: none;
+  }
+  .flow-dynamic.flow-graph-route {
+    stroke: var(--accent-orange);
+    stroke-width: 2.5;
+    stroke-dasharray: 14 7;
+    animation: svg-dash-flow 1s linear infinite;
+  }
+  .flow-dynamic.flow-graph-route-fast {
+    stroke: var(--accent-amber);
+    stroke-width: 2.25;
+    stroke-dasharray: 10 5;
+    animation: svg-dash-flow 0.85s linear infinite;
+  }
+  .flow-dynamic.flow-terminal-delivery {
+    stroke: var(--accent-green);
+    stroke-width: 2;
+    stroke-dasharray: 10 6;
+    animation: svg-dash-flow 1s linear infinite;
+  }
+  .flow-dynamic.flow-system-action-delivery {
+    stroke: #2b9a8f;
+    stroke-width: 2.2;
+    stroke-dasharray: 11 6;
+    animation: svg-dash-flow 0.95s linear infinite;
+  }
+  .flow-dynamic.flow-direct-dispatch {
+    stroke: var(--accent-amber);
+    stroke-width: 2;
+    stroke-dasharray: 4 8;
+    animation: flow-pulse 1s ease-in-out;
+  }
+  .flow-dynamic-label {
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    text-anchor: middle;
+    letter-spacing: 0.1em;
+    paint-order: stroke fill;
+    stroke: var(--bg-primary);
+    stroke-width: 3px;
+  }
+  .flow-dynamic-label.flow-graph-route { fill: var(--accent-orange); }
+  .flow-dynamic-label.flow-graph-route-fast { fill: var(--accent-amber); }
+  .flow-dynamic-label.flow-terminal-delivery { fill: var(--accent-green); }
+  .flow-dynamic-label.flow-system-action-delivery { fill: #2b9a8f; }
+  .flow-dynamic-label.flow-direct-dispatch { fill: var(--accent-amber); }
+
+  /* ── LOOP FLOW LINES ── */
+  .flow-dynamic.flow-pipeline-progress {
+    stroke: rgba(90, 70, 160, 0.8);
+    stroke-width: 2.5;
+    stroke-dasharray: 12 6;
+    animation: svg-dash-flow 1.2s linear infinite;
+  }
+  .flow-dynamic-label.flow-pipeline-progress {
+    fill: rgba(90, 70, 160, 0.9);
+  }
+
+  .flow-dynamic-group.highlight .flow-dynamic {
+    stroke-width: 3.5;
+    filter: brightness(1.2);
+  }
+  .flow-dynamic-group.highlight .flow-dynamic-label {
+    font-weight: bold;
+  }
+
+  @keyframes flow-pulse {
+    0% { stroke-opacity: 0; }
+    50% { stroke-opacity: 1; }
+    100% { stroke-opacity: 0; }
+  }
+
+  /* ── INTERACTIVE: TOOLBAR ── */
+  .pipeline-toolbar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 8;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    max-width: calc(100% - 24px);
+    pointer-events: none;
+  }
+  .toolbar-btn {
+    font-family: "Courier New", monospace; font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent-orange); background: transparent;
+    border: 1px solid var(--accent-orange); padding: 3px 10px;
+    cursor: pointer; transition: background 0.2s, color 0.2s;
+  }
+  .toolbar-btn:hover { background: var(--accent-orange); color: var(--bg-primary); }
+
+  /* ── INTERACTIVE: MODEL PICKER ── */
+  .model-picker {
+    position: absolute; z-index: 100;
+    background: var(--bg-dark-panel); border: 1px solid var(--accent-orange);
+    min-width: 160px; max-height: 240px; overflow-y: auto;
+    font-family: "Courier New", monospace; font-size: 12px;
+    scrollbar-width: thin; scrollbar-color: #4A4030 #1C1A12;
+  }
+  .model-picker-item {
+    padding: 6px 10px; color: var(--text-on-dark); cursor: pointer;
+    border-bottom: 1px solid #2A2618; letter-spacing: 0.03em;
+  }
+  .model-picker-item:hover { background: rgba(200,117,51,0.2); color: var(--accent-orange); }
+
+  /* ── INTERACTIVE: DRAGGABLE NODES ── */
+  .pipeline-node { cursor: default; }
+  .svg-node-model.clickable { cursor: pointer; }
+  .svg-node-model.clickable:hover { fill: var(--accent-orange); }
+
+  /* ── EDIT MODE ── */
+  .edit-mode-btn {
+    font-family: "Courier New", monospace; font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); background: transparent;
+    border: 1px solid var(--border-secondary); padding: 3px 10px;
+    cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s;
+  }
+  .edit-mode-btn:hover { border-color: var(--accent-orange); color: var(--accent-orange); }
+  .edit-mode-btn.active {
+    background: var(--accent-orange); color: var(--bg-primary);
+    border-color: var(--accent-orange);
+  }
+  .edit-toolbar {
+    display: none;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    pointer-events: auto;
+  }
+  body.edit-mode {
+    --dashboard-left-column: 248px;
+    --dashboard-right-column: 300px;
+    --pipeline-wrap-padding-top: 72px;
+    --pipeline-wrap-padding-right: 10px;
+    --pipeline-wrap-padding-bottom: 10px;
+    --pipeline-wrap-padding-left: 10px;
+    --pipeline-svg-max-height: calc(100vh - 178px);
+  }
+  body.edit-mode .edit-toolbar { display: flex; }
+  body.edit-mode .pipeline-svg { outline: 2px dashed var(--accent-orange); outline-offset: -2px; }
+  body.edit-mode .pipeline-node { cursor: grab; }
+  .pipeline-node.dragging { cursor: grabbing; opacity: 0.8; }
+  body:not(.edit-mode) .svg-node-model.clickable { cursor: default; }
+  body:not(.edit-mode) .svg-node-model.clickable:hover { fill: var(--accent-orange); text-decoration: none; }
+
+
+  /* ── CONTEXT MENU ── */
+  .context-menu {
+    position: fixed; z-index: 400;
+    background: var(--bg-dark-panel); border: 1px solid var(--accent-orange);
+    min-width: 140px;
+    font-family: "Courier New", monospace; font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+  .context-menu-item {
+    padding: 7px 14px; color: var(--text-on-dark);
+    cursor: pointer; transition: background 0.15s;
+  }
+  .context-menu-item:hover { background: rgba(200,117,51,0.2); color: var(--accent-orange); }
+  .context-menu-item.danger { color: var(--accent-red); }
+  .context-menu-item.danger:hover { background: rgba(168,48,48,0.2); }
+  .context-menu-sep { height: 1px; background: #3A3422; margin: 2px 0; }
+
+  /* ── NODE TOOLTIP ── */
+  .node-tooltip {
+    position: absolute; z-index: 300;
+    background: var(--bg-dark-panel); border: 1px solid var(--border-primary);
+    padding: 10px 14px; min-width: 180px; max-width: 280px;
+    font-family: "Courier New", monospace; font-size: 11px;
+    color: var(--text-on-dark);
+    opacity: 0; transform: translateY(4px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: auto;
+  }
+  .node-tooltip.show { opacity: 1; transform: translateY(0); }
+  .tip-header {
+    font-size: 13px; font-weight: bold; letter-spacing: 0.12em;
+    color: var(--accent-orange); margin-bottom: 6px;
+    border-bottom: 1px solid #3A3422; padding-bottom: 4px;
+  }
+  .tip-row {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 2px 0; color: var(--text-on-dark);
+  }
+  .tip-label { color: var(--text-muted); letter-spacing: 0.08em; flex-shrink: 0; }
+  .tip-desc {
+    color: var(--text-muted); font-size: 10px;
+    padding: 4px 0; line-height: 1.4;
+  }
+  .tip-active { color: var(--accent-green); }
+
+  /* ── HOVER HIGHLIGHT (flow lines) ── */
+  .svg-flow-line.highlight {
+    stroke: var(--accent-orange) !important; opacity: 1 !important;
+    stroke-dasharray: 14 7;
+    animation: svg-dash-flow 1s linear infinite;
+    transition: none;
+  }
+  .svg-reply-line.highlight {
+    stroke: var(--accent-green) !important; opacity: 1 !important;
+    stroke-dasharray: 10 6;
+    animation: svg-dash-flow 1s linear infinite;
+    transition: none;
+  }
+  .svg-flow-label.highlight { fill: var(--accent-orange) !important; }
+  .svg-reply-label.highlight { fill: var(--accent-green) !important; }
+  .pipeline-node { transition: opacity 0.3s; }
+  .pipeline-node.dimmed { opacity: 0.4; }
+
+  /* ── INTERACTIVE: AGENT DIALOG ── */
+  .agent-dialog {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 200; background: var(--bg-dark-panel); border: 2px solid var(--accent-orange);
+    padding: 20px 24px; min-width: 280px;
+    font-family: "Courier New", monospace; color: var(--text-on-dark);
+  }
+  .agent-dialog-title {
+    font-size: 14px; letter-spacing: 0.15em; color: var(--accent-orange);
+    margin-bottom: 14px; border-bottom: 1px solid #3A3422; padding-bottom: 8px;
+  }
+  .agent-dialog label {
+    display: block; font-size: 11px; letter-spacing: 0.1em; color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .agent-dialog input, .agent-dialog select {
+    display: block; width: 100%; margin-top: 4px;
+    font-family: "Courier New", monospace; font-size: 13px;
+    background: #2A2618; color: var(--text-on-dark);
+    border: 1px solid var(--border-primary); padding: 6px 8px;
+  }
+  .agent-dialog input:focus, .agent-dialog select:focus {
+    outline: none; border-color: var(--accent-orange);
+  }
+  .agent-dialog-actions {
+    display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end;
+  }
+  .agent-dialog-actions button {
+    font-family: "Courier New", monospace; font-size: 11px;
+    letter-spacing: 0.1em; padding: 5px 14px; cursor: pointer;
+    border: 1px solid var(--accent-orange); background: transparent;
+    color: var(--accent-orange); transition: background 0.2s, color 0.2s;
+  }
+  .agent-dialog-actions button:first-child { background: var(--accent-orange); color: var(--bg-primary); }
+  .agent-dialog-actions button:hover { background: var(--accent-orange); color: var(--bg-primary); }
+
+  @media (max-width: 1100px) {
+    .panel-center {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      max-height: 440px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .panel-center {
+      grid-column: 1;
+      max-height: 400px;
+    }
+    .pipeline-label-meta {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+  }
+
+  /* ── AGENT GRAPH: Persistent topology edges ── */
+  .graph-edge-persistent {
+    stroke: var(--accent-amber);
+    stroke-width: 1.5;
+    fill: none;
+    opacity: 0.5;
+    transition: stroke 0.3s, stroke-width 0.3s, opacity 0.3s;
+  }
+  /* .graph-edge-persistent.in-cycle base styles + animation moved to LINK ARMED MODE section */
+  .graph-edge-persistent.in-cycle {
+    stroke: var(--accent-orange);
+    stroke-width: 1.5;
+    opacity: 0.7;
+  }
+  .graph-edge-persistent:hover {
+    stroke-width: 2.5;
+    opacity: 1;
+  }
+
+  .graph-edge-label {
+    font-family: "Courier New", monospace;
+    font-size: 9px;
+    fill: var(--accent-amber);
+    text-anchor: middle;
+    letter-spacing: 0.08em;
+    paint-order: stroke fill;
+    stroke: var(--bg-primary);
+    stroke-width: 3px;
+    opacity: 0.8;
+  }
+  .graph-edge-label.in-cycle {
+    fill: var(--accent-orange);
+    font-weight: bold;
+    opacity: 1;
+  }
+
+  /* Graph arrowhead fills */
+  .graph-arrowhead-fill {
+    fill: var(--accent-amber);
+  }
+  .graph-arrowhead-cycle-fill {
+    fill: var(--accent-orange);
+  }
+
+  /* Drawing mode: temporary edge line */
+  .graph-edge-drawing {
+    stroke: var(--accent-blue);
+    stroke-width: 2;
+    stroke-dasharray: 8 4;
+    opacity: 0.6;
+    fill: none;
+    pointer-events: none;
+  }
+
+  /* Cycle highlight on nodes */
+  .svg-node-box.in-cycle {
+    stroke: var(--accent-orange) !important;
+    stroke-width: 3 !important;
+    animation: cycle-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes cycle-pulse {
+    0%, 100% { stroke-opacity: 1; }
+    50% { stroke-opacity: 0.5; }
+  }
+
+  /* Graph edge group hover */
+  .graph-edge-group:hover .graph-edge-persistent {
+    stroke-width: 3;
+    opacity: 1;
+  }
+  body.edit-mode .graph-edge-group {
+    cursor: pointer;
+  }
+
+  /* Edit mode hint for graph drawing */
+  .graph-edit-hint {
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    line-height: 1.4;
+    text-shadow: 0 1px 0 rgba(254,249,236,0.7);
+    opacity: 0.95;
+    display: none;
+    pointer-events: none;
+  }
+  body.edit-mode .graph-edit-hint {
+    display: block;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* MODEL SELECT MODE — visual feedback when MODEL button is active           */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
+  body.model-select-mode .pipeline-node .svg-node-box {
+    stroke: var(--accent-orange);
+    stroke-width: 2.5;
+    animation: model-select-invite 1.5s ease-in-out infinite;
+  }
+  @keyframes model-select-invite {
+    0%, 100% { stroke-opacity: 0.5; }
+    50% { stroke-opacity: 1; fill: rgba(200, 117, 51, 0.08); }
+  }
+  body.model-select-mode .svg-node-model {
+    animation: model-text-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes model-text-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+  body.model-select-mode .pipeline-node:hover .svg-node-box {
+    stroke-width: 4;
+    fill: rgba(200, 117, 51, 0.12);
+    animation: none;
+  }
+  body.model-select-mode .pipeline-node { cursor: pointer; }
+
+  .model-select-banner {
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--accent-orange);
+    background: rgba(200, 117, 51, 0.1);
+    border: 1px solid var(--accent-orange);
+    padding: 2px 10px;
+    animation: model-text-pulse 1.5s ease-in-out infinite;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* LINK ARMED MODE — source/target selection visual feedback                 */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
+  .svg-node-box.link-armed {
+    stroke: var(--accent-blue);
+    stroke-width: 3;
+    fill: rgba(46, 95, 168, 0.08);
+    animation: link-armed-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes link-armed-pulse {
+    0%, 100% { stroke-width: 3; stroke-opacity: 1; }
+    50% { stroke-width: 4; stroke-opacity: 0.6; }
+  }
+
+  .svg-node-box.link-target-candidate {
+    stroke: var(--accent-blue);
+    stroke-dasharray: 6 3;
+    stroke-opacity: 0.5;
+    animation: link-target-invite 2s ease-in-out infinite;
+  }
+  @keyframes link-target-invite {
+    0%, 100% { stroke-opacity: 0.3; }
+    50% { stroke-opacity: 0.7; }
+  }
+  .pipeline-node:hover .svg-node-box.link-target-candidate {
+    stroke-dasharray: none;
+    stroke-width: 3;
+    stroke-opacity: 1;
+    fill: rgba(46, 95, 168, 0.1);
+    animation: none;
+  }
+  body.link-armed-mode .pipeline-node { cursor: crosshair; }
+
+  /* ── Edge preview line (mouse-follow) ── */
+  .graph-edge-preview {
+    stroke: var(--accent-blue);
+    stroke-width: 2;
+    stroke-dasharray: 8 4;
+    fill: none;
+    opacity: 0.6;
+    pointer-events: none;
+    animation: svg-dash-flow 0.8s linear infinite;
+  }
+
+  /* ── Port dots on edge endpoints ── */
+  .graph-edge-port {
+    fill: var(--accent-amber);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .graph-edge-group:hover .graph-edge-port { opacity: 0.8; }

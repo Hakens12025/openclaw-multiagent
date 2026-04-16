@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPENCLAW // MISSION CONTROL</title>
+<link rel="stylesheet" href="/watchdog/dashboard.css">
+<link rel="stylesheet" href="/watchdog/dashboard-home.css">
+<link rel="stylesheet" href="/watchdog/dashboard-operator-ui.css">
+<link rel="stylesheet" href="/watchdog/dashboard-graph.css">
+<script>
+// Pre-init OC namespace before any ES module evaluates
+window.OC = { on(){}, off(){}, emit(){}, state: {}, svg: {}, ux: { editMode: false }, graph: {} };
+</script>
+</head>
+<body>
+
+<header class="mission-header">
+  <div class="mission-badge">
+    <div class="mission-badge-icon"></div>
+    <div>
+      <div class="mission-title" data-i18n="header.title">OpenClaw // Mission Control</div>
+      <div class="mission-subtitle" data-i18n="header.subtitle">Multi-Agent System Monitor v6.0</div>
+      <div class="conn-status">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connText">CONNECTING...</span>
+      </div>
+    </div>
+  </div>
+  <div class="header-readout">
+    <div class="time" id="headerTime">--:--:--</div>
+    <div id="headerDate">----.--.--</div>
+    <div style="margin-top:4px;" data-i18n="header.port">PORT <span style="color:var(--accent-orange)">:18789</span></div>
+  </div>
+</header>
+
+<nav class="nav-bar" id="navBar"></nav>
+
+<div class="stats-bar">
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.active">ACTIVE</span><span class="stat-value" id="statActive">0</span></div>
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.work_items">WORK ITEMS</span><span class="stat-value" id="statWorkItems">0</span></div>
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.completed">COMPLETED</span><span class="stat-value" id="statCompleted">0</span></div>
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.queue">QUEUE</span><span class="stat-value" id="statQueue">0</span></div>
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.pool">POOL</span><span class="stat-value" id="statPool">0/4</span></div>
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.events">EVENTS</span><span class="stat-value" id="statEvents">0</span></div>
+  <div class="stat-item"><span class="stat-label" data-i18n="stats.uptime">UPTIME</span><span class="stat-value" id="statUptime">00:00:00</span></div>
+  <div class="stat-item" style="margin-left:auto">
+    <div class="header-action-group">
+      <button class="edit-mode-btn" id="editModeBtn" onclick="toggleEditMode()">EDIT MODE</button>
+      <div class="settings-wrap" id="settingsWrap">
+        <button class="settings-btn" id="settingsBtn" onclick="toggleSettingsMenu()">SETTINGS</button>
+        <div class="settings-menu" id="settingsMenu">
+          <button class="settings-menu-item" onclick="toggleOperatorWindow();closeSettingsMenu()">RUNTIME OPERATOR</button>
+          <button class="settings-menu-item" onclick="openDevtools()">TEST TOOLS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="main-grid">
+  <!-- LEFT: WORK ITEM LIFECYCLE -->
+  <div class="panel-left">
+    <div class="panel-label" data-i18n="panel.work_item_lifecycle">WORK ITEM LIFECYCLE</div>
+    <div id="workItemList"></div>
+  </div>
+
+  <!-- CENTER: DISPATCH PIPELINE -->
+  <div class="panel-center">
+    <div class="panel-label" data-i18n="panel.dispatch_pipeline">DISPATCH PIPELINE <span class="pipeline-label-meta"><span class="pipeline-loop-state" id="pipelineLoopState"></span><span class="pipeline-progress-state" id="pipelineProgressState"></span></span></div>
+    <div class="pipeline-wrap">
+      <div class="pipeline-toolbar">
+        <div class="edit-toolbar">
+          <button class="toolbar-btn" onclick="showAddAgentDialog()">+ AGENT</button>
+          <button class="toolbar-btn" onclick="resetLayout()">RESET LAYOUT</button>
+          <button class="toolbar-btn" onclick="startModelSwitch()">MODEL</button>
+          <span class="model-select-banner" id="modelSelectBanner" style="display:none">&#9654; SELECT NODE</span>
+        </div>
+      </div>
+      <svg viewBox="0 0 620 480" class="pipeline-svg" id="pipelineSvg" xmlns="http://www.w3.org/2000/svg">
+        <!-- Generated dynamically -->
+      </svg>
+    </div>
+  </div>
+
+  <!-- RIGHT: EVENT STREAM -->
+  <div class="panel-right">
+    <div class="panel-label" data-i18n="panel.event_stream">EVENT STREAM // LIVE</div>
+    <div id="eventStream"></div>
+  </div>
+</div>
+
+<script type="module" src="/watchdog/dashboard-init.js"></script>
+</body>
+</html>

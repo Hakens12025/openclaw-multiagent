@@ -1,0 +1,78 @@
+# === Secrets / Credentials (NEVER COMMIT) ===
+openclaw.json
+openclaw.*.json
+openclaw.json.bak*
+openclaw.json.backup-*
+openclaw.cherry.json*
+credentials/
+identity/
+certs/
+devices/
+exec-approvals.json
+agent-card.json
+*.pem
+*.key
+.env
+.env.*
+
+# === Runtime state (workspaces, queues, session data) ===
+agents/
+subagents/
+workspaces/
+workspace/
+workspace-main/
+.clawhub/
+research-lab/
+delivery-queue/
+canvas/
+browser/
+cron/
+output/
+completions/
+memory/
+logs/
+test-reports/
+benchmark-results/
+update-check.json
+
+# === Auto-generated agent identity files ===
+*/IDENTITY.md
+*/BOOTSTRAP.md
+*/USER.md
+
+# === Private discussion / memory notes ===
+use guide/
+openclaw_use_guide/
+
+# === Backups ===
+backup/
+bakup/
+*.bak
+*_副本/
+
+# === Dependencies / build artifacts ===
+node_modules/
+dist/
+build/
+venv/
+__pycache__/
+*.pyc
+
+# === Runtime / OS ===
+*.log
+*.lock
+*.tmp
+.DS_Store
+Thumbs.db
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Disabled plugin dirs ===
+plugins/
+
+# === Dev-only tools ===
+http-proxy.py

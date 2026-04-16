@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPENCLAW // TEST TOOLS</title>
+<link rel="stylesheet" href="/watchdog/dashboard.css">
+<link rel="stylesheet" href="/watchdog/dashboard-subpage.css">
+<link rel="stylesheet" href="/watchdog/dashboard-devtools.css">
+</head>
+<body>
+
+<header class="mission-header">
+  <div class="mission-badge">
+    <div class="mission-badge-icon"></div>
+    <div>
+      <div class="mission-title" data-i18n="devtools.title">OpenClaw // Test Tools</div>
+      <div class="mission-subtitle" data-i18n="devtools.subtitle">Isolated Tests, Change Sets & Platform Management Map</div>
+    </div>
+  </div>
+  <div class="header-readout">
+    <div class="devtool-header-meta" id="testDevtoolStatus">LOADING...</div>
+    <div class="time" id="headerTime">--:--:--</div>
+    <div id="headerDate">----.--.--</div>
+  </div>
+</header>
+
+<nav class="nav-bar" id="navBar"></nav>
+
+<section id="pageChrome"></section>
+
+<div class="devtools-page">
+  <div class="devtool-viewbar" id="devtoolViewTabs"></div>
+
+  <div class="devtool-grid">
+    <div class="devtool-box">
+      <div class="devtool-box-title" id="testDevtoolActionsTitle">PRESETS</div>
+      <div class="devtool-actions" id="testDevtoolActions"></div>
+    </div>
+    <div class="devtool-box">
+      <div class="devtool-box-title" id="testDevtoolSummaryTitle">RUN DETAIL</div>
+      <div id="testDevtoolSummary">
+        <div class="devtool-empty">LOADING...</div>
+      </div>
+    </div>
+    <div class="devtool-box">
+      <div class="devtool-box-title" id="testDevtoolHistoryTitle">HISTORY</div>
+      <div id="testDevtoolHistory">
+        <div class="devtool-empty">LOADING...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/watchdog/dashboard-devtools-test-runs.js"></script>
+<script src="/watchdog/dashboard-devtools-management.js"></script>
+<script src="/watchdog/dashboard-devtools-change-sets.js"></script>
+<script src="/watchdog/dashboard-devtools.js"></script>
+<script type="module">
+  import { initDashboardSubpage } from '/watchdog/dashboard-subpage-init.js';
+  initDashboardSubpage({ page: 'devtools' });
+</script>
+</body>
+</html>

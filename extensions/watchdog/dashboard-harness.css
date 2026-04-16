@@ -1,0 +1,694 @@
+  /* ── HARNESS DASHBOARD ── */
+  .harness-page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 18px 24px 40px;
+    animation: system-boot 0.55s ease-out;
+  }
+  .harness-viewbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .harness-viewtab {
+    border: 1px solid var(--border-primary);
+    background: rgba(255, 249, 236, 0.8);
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+  }
+  .harness-viewtab:hover {
+    border-color: var(--accent-orange);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+  .harness-viewtab.active {
+    background: var(--accent-orange);
+    border-color: var(--accent-orange);
+    color: var(--bg-primary);
+  }
+  .harness-viewtab.is-placeholder::after {
+    content: " / NEXT";
+    opacity: 0.7;
+  }
+  .harness-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .harness-summary-card {
+    border: 1px solid var(--border-secondary);
+    background: rgba(255, 249, 236, 0.84);
+    padding: 10px 12px;
+  }
+  .harness-summary-label,
+  .harness-section-title,
+  .harness-box-title,
+  .harness-card-meta,
+  .harness-chip,
+  .harness-legend-copy strong,
+  .harness-legend-copy span,
+  .harness-stage-head,
+  .harness-stage-lane-label,
+  .harness-kv span,
+  .harness-placeholder-title {
+    font-family: "Courier New", monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .harness-summary-label {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .harness-summary-card strong {
+    display: block;
+    font-size: 18px;
+    color: var(--text-primary);
+  }
+  .harness-summary-card small {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+  .harness-focus-card,
+  .harness-box,
+  .harness-stage,
+  .harness-placeholder {
+    border: 1px solid var(--border-secondary);
+    background: rgba(255, 249, 236, 0.84);
+  }
+  .harness-focus-card {
+    margin-bottom: 16px;
+    padding: 14px 16px;
+  }
+  .harness-focus-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .harness-focus-title {
+    font-family: "Courier New", monospace;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+    text-transform: uppercase;
+  }
+  .harness-focus-subtitle {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .harness-focus-grid,
+  .harness-kv-grid {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .harness-focus-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .harness-kv-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .harness-kv {
+    border-top: 1px solid rgba(139,115,85,0.16);
+    padding-top: 6px;
+  }
+  .harness-kv span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+  .harness-kv strong {
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+  .harness-tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .harness-lane-meter {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid rgba(139,115,85,0.16);
+    background: rgba(255,255,255,0.52);
+  }
+  .harness-lane-meter-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .harness-lane-meter-title,
+  .harness-lane-breakdown-item span {
+    font-family: "Courier New", monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .harness-lane-meter-title {
+    color: var(--text-primary);
+    font-size: 11px;
+  }
+  .harness-lane-meter-subtitle,
+  .harness-lane-breakdown-item small {
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .harness-lane-bar {
+    display: flex;
+    height: 14px;
+    overflow: hidden;
+    margin-top: 10px;
+    border: 1px solid rgba(139,115,85,0.18);
+    background: rgba(28,26,18,0.08);
+  }
+  .harness-lane-fill {
+    height: 100%;
+    min-width: 0;
+  }
+  .harness-lane-fill.hardShaped {
+    background: linear-gradient(90deg, #c87533, #df9a5e);
+  }
+  .harness-lane-fill.softGuided {
+    background: linear-gradient(90deg, #2e5fa8, #4f7dc2);
+  }
+  .harness-lane-fill.freeform {
+    background: linear-gradient(90deg, #8b7355, #b39b80);
+  }
+  .harness-lane-breakdown {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .harness-lane-breakdown-item {
+    border: 1px solid rgba(139,115,85,0.14);
+    background: rgba(255,255,255,0.5);
+    padding: 8px 10px;
+  }
+  .harness-lane-breakdown-item span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+  .harness-lane-breakdown-item strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+  .harness-lane-breakdown-item.hardShaped {
+    border-left: 3px solid var(--accent-orange);
+  }
+  .harness-lane-breakdown-item.softGuided {
+    border-left: 3px solid var(--accent-blue);
+  }
+  .harness-lane-breakdown-item.freeform {
+    border-left: 3px solid var(--border-primary);
+  }
+  .harness-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(139, 115, 85, 0.22);
+    background: rgba(255, 255, 255, 0.58);
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  .harness-chip.trust-stable {
+    border-color: rgba(58,122,74,0.34);
+    color: var(--accent-green);
+  }
+  .harness-chip.trust-provisional {
+    border-color: rgba(184,134,11,0.34);
+    color: var(--accent-amber);
+  }
+  .harness-chip.trust-experimental {
+    border-color: rgba(168,48,48,0.34);
+    color: var(--accent-red);
+  }
+  .harness-chip.kind-guard {
+    border-color: rgba(46,95,168,0.34);
+    color: var(--accent-blue);
+  }
+  .harness-chip.kind-collector {
+    border-color: rgba(58,122,74,0.34);
+    color: var(--accent-green);
+  }
+  .harness-chip.kind-gate {
+    border-color: rgba(200,117,51,0.34);
+    color: var(--accent-orange);
+  }
+  .harness-chip.kind-normalizer {
+    border-color: rgba(139,115,85,0.34);
+    color: var(--text-secondary);
+  }
+  .harness-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .harness-grid.atlas {
+    grid-template-columns: minmax(220px, 250px) minmax(360px, 1.05fr) minmax(320px, 0.95fr);
+  }
+  .harness-grid.runs,
+  .harness-grid.placement {
+    grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
+  }
+  .harness-box {
+    min-height: 240px;
+    padding: 12px;
+  }
+  .harness-box-title {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 4px 10px 4px 12px;
+    border: 1px solid rgba(139,115,85,0.2);
+    background: rgba(237,227,196,0.72);
+    font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.05em;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    text-transform: none;
+  }
+  .harness-section-title {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 3px 8px 3px 10px;
+    border: 1px solid rgba(139,115,85,0.2);
+    background: rgba(237,227,196,0.72);
+    font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    text-transform: none;
+  }
+  .harness-list {
+    display: grid;
+    gap: 8px;
+  }
+  .harness-list.scroll {
+    max-height: 960px;
+    overflow: auto;
+    padding-right: 2px;
+  }
+  .harness-card,
+  .harness-stage-item {
+    border: 1px solid rgba(139,115,85,0.16);
+    background: rgba(255,255,255,0.54);
+    padding: 10px 12px;
+  }
+  .harness-card.is-clickable {
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .harness-card.is-clickable:hover {
+    border-color: var(--accent-orange);
+    background: rgba(255,255,255,0.72);
+    transform: translateY(-1px);
+  }
+  .harness-card.active {
+    border-color: var(--accent-orange);
+    background: rgba(196,169,106,0.14);
+    box-shadow: inset 0 0 0 1px rgba(200,117,51,0.16);
+  }
+  .harness-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .harness-card-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.45;
+    font-family: "Courier New", monospace;
+  }
+  .harness-card-meta {
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-top: 4px;
+  }
+  .harness-card-text,
+  .harness-empty,
+  .harness-legend-copy,
+  .harness-stage-item-summary,
+  .harness-placeholder-copy {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .harness-card-text {
+    margin-top: 8px;
+  }
+  .harness-empty {
+    padding: 16px 0;
+  }
+  .harness-coverage-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .harness-legend {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .harness-legend-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border: 1px solid rgba(139,115,85,0.16);
+    background: rgba(255,255,255,0.52);
+    padding: 10px 12px;
+  }
+  .harness-legend-swatch {
+    width: 12px;
+    height: 12px;
+    margin-top: 4px;
+    flex: 0 0 auto;
+  }
+  .harness-legend-swatch.hardShaped {
+    background: var(--accent-orange);
+  }
+  .harness-legend-swatch.softGuided {
+    background: var(--accent-blue);
+  }
+  .harness-legend-swatch.freeform {
+    background: var(--border-primary);
+  }
+  .harness-legend-copy strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 10px;
+    margin-bottom: 3px;
+  }
+  .harness-legend-copy span {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 10px;
+    text-transform: none;
+    letter-spacing: 0.04em;
+  }
+  .harness-stage-board {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .harness-placement-detail {
+    display: grid;
+    gap: 12px;
+  }
+  .harness-runs-track {
+    position: relative;
+    display: grid;
+    gap: 12px;
+    margin-top: 4px;
+    padding-left: 28px;
+  }
+  .harness-runs-track::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background: linear-gradient(180deg, rgba(200,117,51,0.35), rgba(139,115,85,0.14));
+  }
+  .harness-run-card {
+    position: relative;
+    border: 1px solid rgba(139,115,85,0.16);
+    background: rgba(255,255,255,0.6);
+    padding: 14px 14px 14px 16px;
+  }
+  .harness-run-card::before {
+    content: "";
+    position: absolute;
+    left: -27px;
+    top: 18px;
+    width: 13px;
+    height: 13px;
+    border-radius: 999px;
+    background: var(--border-primary);
+    border: 2px solid rgba(255,255,255,0.88);
+    box-shadow: 0 0 0 1px rgba(139,115,85,0.24);
+  }
+  .harness-run-card.status-running::before {
+    background: var(--accent-blue);
+  }
+  .harness-run-card.status-completed::before,
+  .harness-run-card.status-passed::before {
+    background: var(--accent-green);
+  }
+  .harness-run-card.status-failed::before,
+  .harness-run-card.status-error::before {
+    background: var(--accent-red);
+  }
+  .harness-run-card.status-pending::before {
+    background: var(--accent-orange);
+  }
+  .harness-run-card.status-failed,
+  .harness-run-card.status-error {
+    background: rgba(168,48,48,0.06);
+  }
+  .harness-run-card.status-running {
+    background: rgba(46,95,168,0.05);
+  }
+  .harness-run-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .harness-run-card-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: "Courier New", monospace;
+  }
+  .harness-run-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .harness-run-chip-row.metrics {
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+  .harness-run-kv-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-top: 12px;
+  }
+  .harness-run-stack {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(139,115,85,0.16);
+  }
+  .harness-run-block span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  .harness-run-block strong {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.65;
+    word-break: break-word;
+    font-weight: 500;
+  }
+  .harness-stage {
+    padding: 12px;
+    min-height: 180px;
+  }
+  .harness-stage-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--text-primary);
+    font-size: 11px;
+  }
+  .harness-stage-head strong {
+    color: var(--accent-orange);
+    font-size: 12px;
+  }
+  .harness-stage-lane {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(139,115,85,0.16);
+  }
+  .harness-stage-lane:first-of-type {
+    margin-top: 12px;
+  }
+  .harness-stage-lane-label {
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+  .harness-stage-items {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .harness-stage-item {
+    border-left: 3px solid var(--border-secondary);
+  }
+  .harness-stage-item.lane-hardShaped {
+    border-left-color: var(--accent-orange);
+  }
+  .harness-stage-item.lane-softGuided {
+    border-left-color: var(--accent-blue);
+  }
+  .harness-stage-item.lane-freeform {
+    border-left-color: var(--border-primary);
+  }
+  .harness-stage-item.status-failed {
+    background: rgba(168,48,48,0.06);
+  }
+  .harness-stage-item.status-passed {
+    background: rgba(58,122,74,0.06);
+  }
+  .harness-stage-item.status-pending {
+    background: rgba(200,117,51,0.08);
+  }
+  .harness-stage-item-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .harness-stage-item-title {
+    color: var(--text-primary);
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+  }
+  .harness-stage-item-summary {
+    margin-top: 6px;
+  }
+  .harness-placeholder {
+    padding: 22px 20px;
+  }
+  .harness-placeholder-title {
+    color: var(--text-primary);
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+
+  .status-configured,
+  .status-none,
+  .status-open,
+  .status-running,
+  .status-idle,
+  .status-paused,
+  .status-completed,
+  .status-stopped,
+  .status-error,
+  .status-pending,
+  .status-passed,
+  .status-failed {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .status-configured,
+  .status-none,
+  .status-open {
+    color: var(--text-secondary);
+    background: rgba(139,115,85,0.12);
+  }
+  .status-running,
+  .status-paused {
+    color: var(--accent-blue);
+    background: rgba(46,95,168,0.12);
+  }
+  .status-idle,
+  .status-stopped {
+    color: var(--text-secondary);
+    background: rgba(139,115,85,0.12);
+  }
+  .status-completed,
+  .status-passed {
+    color: var(--accent-green);
+    background: rgba(58,122,74,0.12);
+  }
+  .status-pending {
+    color: var(--accent-orange);
+    background: rgba(200,117,51,0.14);
+  }
+  .status-error,
+  .status-failed {
+    color: var(--accent-red);
+    background: rgba(168,48,48,0.12);
+  }
+
+  @media (max-width: 1220px) {
+    .harness-summary-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .harness-grid.atlas,
+    .harness-grid.runs,
+    .harness-grid.placement {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 780px) {
+    .harness-page {
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+    .harness-summary-grid,
+    .harness-focus-grid,
+    .harness-kv-grid,
+    .harness-run-kv-grid,
+    .harness-lane-breakdown,
+    .harness-legend,
+    .harness-stage-board {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .harness-runs-track {
+      padding-left: 18px;
+    }
+    .harness-runs-track::before {
+      left: 5px;
+    }
+    .harness-run-card::before {
+      left: -18px;
+    }
+  }

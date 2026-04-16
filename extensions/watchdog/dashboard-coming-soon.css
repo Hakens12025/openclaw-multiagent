@@ -1,0 +1,65 @@
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* COMING SOON — PLACEHOLDER PAGES                                          */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
+  .coming-soon-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    animation: system-boot 0.6s ease-out;
+  }
+  .coming-soon-badge {
+    text-align: center;
+    padding: 48px 64px;
+    border: 2px solid var(--border-secondary);
+    background: rgba(255, 249, 236, 0.6);
+    position: relative;
+  }
+  .coming-soon-badge::before {
+    content: "";
+    position: absolute;
+    top: -6px; right: -6px;
+    width: 12px; height: 12px;
+    border-top: 2px solid var(--accent-orange);
+    border-right: 2px solid var(--accent-orange);
+  }
+  .coming-soon-badge::after {
+    content: "";
+    position: absolute;
+    bottom: -6px; left: -6px;
+    width: 12px; height: 12px;
+    border-bottom: 2px solid var(--accent-orange);
+    border-left: 2px solid var(--accent-orange);
+  }
+  .coming-soon-icon {
+    width: 48px; height: 48px;
+    border: 2px solid var(--accent-orange);
+    margin: 0 auto 20px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .coming-soon-icon::before {
+    content: "//";
+    font-family: "Courier New", monospace;
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--accent-orange);
+    letter-spacing: 0.1em;
+  }
+  .coming-soon-title {
+    font-family: "Courier New", monospace;
+    font-size: 24px;
+    letter-spacing: 0.2em;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .coming-soon-desc {
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
