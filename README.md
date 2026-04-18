@@ -1,8 +1,8 @@
 <div align="center">
 
-# OpenClaw
+# MulitAgent-OpenClaw-System-kksl
 
-**一个多 Agent 协作平台**
+**一个基于Openclaw Agent 为基底的协作平台**
 
 _代码控制流程，LLM 负责内容_
 
@@ -25,8 +25,6 @@ _代码控制流程，LLM 负责内容_
 >
 > - 核心（inbox/outbox + graph-driven dispatch）**可用且稳定**
 > - Watchdog 编排、并发 worker 池、研究回路、Dashboard **可用**
-> - Pipeline → Loop 溶解、Wake Event、AgentGroup 等**仍在设计/实施中**
-> - 部分模块存在 legacy 兼容层，代码红线是"下一个 stable tag 前固化并删除"
 > - 仅在 macOS 环境日常使用，其他平台未做兼容性验证
 >
 > - 想在生产环境部署的同学请慎重，工业有效是该系统的理想状态，也是最初方向。想一起玩 Agent 架构实验的欢迎 Star / Fork / 提 Issue。
@@ -50,16 +48,8 @@ OpenClaw 的所有设计都围绕一条第一原则展开：
 ### 🏭 信息分发原则（Conveyor Belt）
 
 **绝对禁止在回路里硬编码 agent 名称或角色特化分支。**
-
-唯一的 transport 原语：
-
-- **Agent** 只负责：读 `inbox/` → 处理 → 写 `outbox/` → 停止
-- **平台** 只负责：检查 graph 授权 → 排队 → 目标闲时自动投递 → 唤醒
-- **Graph edge** = 授权（谁能投给谁），不是时序控制
-- **Loop** = 传送带重复投递，不是独立协议
-- 结果回传走 `replyTo` 路由元数据，不走 graph
-
 这样一来，换一个 agent 就是换一个 JSON 配置，不用改一行平台代码。
+
 
 ### 🤐 Agent-系统交互最小化
 
@@ -67,40 +57,22 @@ Agent 写**内容**，系统提取**结构** —— **不是**让 Agent 写 JSON
 
 系统从可观察信号（文件写入、工具调用、执行轨迹、自然语言标记）提取状态，**不信任 Agent 自报**：
 
-- Planner 写 Markdown 计划 → 系统从 `## Phase 1` 提取 `stagePlan`
-- Worker 写产出文件 → 系统从文件存在判定 `completed`
-- Agent 需要驱动系统时用 `[ACTION] wake researcher` 这种轻结构自然语言，**不是**写 `system_action.json`
-
-连接点从 27+ 硬协议文件缩到 **3+2 个**活跃接口。Agent 需要"懂"的系统协议越少，越不容易写错，注入 token 也越少。
 
 ### 🎭 SOUL 是通用机，不是专用机
 
 每个 Agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程、生命周期），**领域知识全部通过 skill 注入**。
 
-- ❌ 禁止：SOUL 里出现 `analyze user table schema` / `check field "age" is present` 这种领域细节
-- ✅ 正确：SOUL 只写 `读 inbox → 处理 → 写 outbox → 停止`；领域细节由 `skills/foo/SKILL.md` 提供
-
 换一个领域 = 换一套 skill，SOUL 一字不改。这是"通用机"而非"专用机"的本质。
+
 
 ### 👑 消除 God Role
 
 系统**只有两种结构角色**：`bridge`（外部入口）与 `worker`（执行单元）。
 
-原先的 planner / researcher / evaluator 不再是独立角色类型，而是通过 `executionPolicy + skills` 组合在通用 worker 上实现：
-
-- `planMode: true` → 这个 worker 具备规划能力
-- `skills: [research-methodology]` → 这个 worker 会做研究
-- `skills: [review-findings]` → 这个 worker 会做评审
-
-角色类型从 N 种收敛到 2 种。新能力通过组合实现，不改角色系统。
 
 ### 🕸️ Graph 是运行时真值，不是 UI 装饰
 
 `COLLABORATION-GRAPH.md` 定义的 agent 协作边是**强制执行的授权**：
-
-- Agent A 想给 Agent B 发东西 → Graph 上没边 → 运行时**直接拒绝**
-- UI 上显示的拓扑与运行时**完全一致**
-- 不存在"图是给人看的，代码里另一套"
 
 修拓扑不是改代码，是改 graph 描述文件（或在 Dashboard Edit Mode 里拖）。
 
@@ -322,12 +294,6 @@ http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 
 Token 取自 `openclaw.json → gateway.auth.token`。
 
-### 设计语言：NASA-Punk
-
-- 深黑标题栏 + 奶油色主体 + **橙色**强调色
-- 等宽字体、网格衬底、极简边框
-- **零圆角、零阴影、零毛玻璃** —— 信息密度优先于视觉糖分
-- 主文件：`extensions/watchdog/dashboard.{html,css,js}` + `dashboard-*.js` 子模块
 
 ### 三大主面板
 
