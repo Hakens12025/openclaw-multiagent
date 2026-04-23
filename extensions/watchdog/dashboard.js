@@ -505,6 +505,9 @@ function parseCursorDone(cursor) {
 }
 
 function getWorkItemStageLabels(workItem) {
+  if (Array.isArray(workItem?.activityProgress?.phases) && workItem.activityProgress.phases.length > 0) {
+    return workItem.activityProgress.phases;
+  }
   if (Array.isArray(workItem?.phases) && workItem.phases.length > 0) {
     return workItem.phases;
   }
@@ -521,6 +524,7 @@ function hasCanonicalStagePlan(contract) {
 }
 
 function getStageConfidence(contract) {
+  if (Array.isArray(contract?.activityProgress?.phases) && contract.activityProgress.phases.length > 0) return 'activity';
   if (contract?.stageProjection?.confidence) return contract.stageProjection.confidence;
   if (!contract?.stagePlan && !contract?.phases?.length) return 'none';
   if (contract?.status === 'draft') return 'planner_guess';
@@ -531,13 +535,23 @@ function shouldRenderWorkItemStages(contract) {
   const stageLabels = getWorkItemStageLabels(contract);
   if (stageLabels.length === 0) return false;
   const confidence = getStageConfidence(contract);
-  return confidence === 'planner' || confidence === 'pipeline' || confidence === 'protocol';
+  return confidence === 'planner' || confidence === 'pipeline' || confidence === 'protocol' || confidence === 'activity';
 }
 
 function getWorkItemStageRenderSignature(contract) {
   return JSON.stringify({
     phases: getWorkItemStageLabels(contract),
     cursor: contract?.cursor ?? null,
+    activityProgress: contract?.activityProgress
+      ? {
+          source: contract.activityProgress.source || null,
+          currentPhase: contract.activityProgress.currentPhase || null,
+          currentPhaseIndex: contract.activityProgress.currentPhaseIndex ?? null,
+          cursor: contract.activityProgress.cursor || null,
+          pct: contract.activityProgress.pct ?? null,
+          phases: Array.isArray(contract.activityProgress.phases) ? contract.activityProgress.phases : null,
+        }
+      : null,
     total: contract?.total ?? null,
     stageProjection: contract?.stageProjection
       ? {
@@ -725,6 +739,7 @@ export function renderWorkItems() {
       c.id,
       c.status,
       c.pct,
+      JSON.stringify(c.activityProgress || null),
       c.toolCallCount,
       c.updatedAt,
       progression?.action || '',
@@ -929,12 +944,14 @@ export function processEvent(type, data) {
         lastLabel: data.lastLabel,
         recentToolEvents: data.recentToolEvents,
         activityCursor: data.activityCursor,
+        activityProgress: data.activityProgress,
         runtimeObservation: data.runtimeObservation,
         phases: incomingPhases,
         stagePlan: incomingStagePlan,
         stageRuntime: data.stageRuntime,
         cursor: data.cursor,
         pct: data.pct,
+        estimatedPhase: data.estimatedPhase,
         total: data.total,
         toolCallCount: data.toolCallCount,
         elapsedMs: data.elapsedMs,
@@ -1019,7 +1036,9 @@ export function processEvent(type, data) {
         lastLabel: data.lastLabel,
         recentToolEvents: data.recentToolEvents,
         activityCursor: data.activityCursor,
+        activityProgress: data.activityProgress,
         runtimeObservation: data.runtimeObservation,
+        cursor: data.cursor,
         taskType: data.taskType,
         protocolEnvelope: data.protocolEnvelope,
         followUp: data.followUp,
@@ -1028,6 +1047,7 @@ export function processEvent(type, data) {
         semanticOutcome: data.semanticOutcome,
         systemAction: data.systemAction,
         runtimeDiagnostics: data.runtimeDiagnostics,
+        estimatedPhase: data.estimatedPhase,
         createdAt: data.createdAt || workItems[workItemId]?.createdAt || (data.ts - (data.elapsedMs || 0)),
         updatedAt: data.updatedAt || data.ts,
       });

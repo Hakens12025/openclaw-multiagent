@@ -7,6 +7,7 @@ import {
 } from "../core/runtime-status.js";
 import { resolveTrackingWorkItem } from "../tracking-work-item.js";
 import { normalizeContractIdentity } from "../core/normalize.js";
+import { deriveTrackingActivityProgress } from "../activity-progress.js";
 
 const pendingTrackerRemovalTimers = new Map();
 const pendingTrackingContractWaiters = new Map();
@@ -210,6 +211,7 @@ export function snapshotTrackingSessions(now = Date.now()) {
       sessionKey,
       (() => {
         const workItem = resolveTrackingWorkItem(trackingState);
+        const activityProgress = deriveTrackingActivityProgress(trackingState);
         return {
           agentId: trackingState?.agentId || null,
           status: trackingState?.status || null,
@@ -225,9 +227,11 @@ export function snapshotTrackingSessions(now = Date.now()) {
           taskType: workItem?.taskType || null,
           protocolEnvelope: workItem?.protocolEnvelope || null,
           activityCursor: trackingState?.activityCursor || null,
+          activityProgress,
+          estimatedPhase: activityProgress?.currentPhase || trackingState?.estimatedPhase || null,
           runtimeObservation: trackingState?.runtimeObservation || null,
-          cursor: trackingState?.cursor || null,
-          pct: Number.isFinite(trackingState?.pct) ? trackingState.pct : null,
+          cursor: activityProgress?.cursor || trackingState?.cursor || null,
+          pct: Number.isFinite(activityProgress?.pct) ? activityProgress.pct : (Number.isFinite(trackingState?.pct) ? trackingState.pct : null),
           elapsedMs: Number.isFinite(trackingState?.startMs) ? Math.max(0, now - trackingState.startMs) : 0,
         };
       })(),

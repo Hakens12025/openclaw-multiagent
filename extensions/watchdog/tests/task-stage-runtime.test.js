@@ -1040,6 +1040,52 @@ test("buildProgressPayload and lifecycle snapshots carry system-owned activity c
   assert.deepEqual(snapshot?.activityCursor, trackingState.activityCursor);
 });
 
+test("lifecycle snapshots carry agent-local activity progress without dropping canonical contract stage truth", async () => {
+  const sessionKey = `agent:worker-activity:lifecycle-local-progress:${Date.now()}`;
+  const trackingState = createTrackingState({
+    sessionKey,
+    agentId: "worker-activity",
+    parentSession: null,
+  });
+  trackingState.contract = {
+    id: `TC-LIFECYCLE-LOCAL-${Date.now()}`,
+    task: "lifecycle view should show current-agent progress",
+    taskType: "research_analysis",
+    assignee: "worker-activity",
+    status: CONTRACT_STATUS.RUNNING,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    phases: ["分析", "写报告"],
+    stagePlan: {
+      contractId: "TC-LIFECYCLE-LOCAL",
+      stages: [
+        { id: "stage-1", label: "分析", semanticLabel: "分析", status: "completed" },
+        { id: "stage-2", label: "写报告", semanticLabel: "写报告", status: "active" },
+      ],
+      revisionPolicy: { maxRevisions: 2, maxStageDelta: 1 },
+    },
+    stageRuntime: {
+      version: 2,
+      currentStageId: "stage-2",
+      completedStageIds: ["stage-1"],
+      revisionCount: 0,
+      lastRevisionReason: null,
+    },
+  };
+
+  rememberTrackingState(sessionKey, trackingState);
+
+  const snapshots = await listLifecycleWorkItems();
+  const snapshot = snapshots.find((entry) => entry.id === trackingState.contract.id);
+  assert.ok(snapshot, "expected tracker-backed lifecycle snapshot");
+  assert.deepEqual(snapshot?.activityProgress?.phases, ["接手", "执行", "收口"]);
+  assert.equal(snapshot?.activityProgress?.currentPhase, "接手");
+  assert.equal(snapshot?.cursor, "0/3");
+  assert.equal(snapshot?.pct, 0);
+  assert.deepEqual(snapshot?.phases, ["分析", "写报告"]);
+  assert.equal(snapshot?.stageRuntime?.currentStageId, "stage-2");
+});
+
 test("normalizeStageRunResult keeps semantic stage id and revision data but drops semantic completion action residue", () => {
   const normalized = normalizeStageRunResult({
     stage: "contractor",
