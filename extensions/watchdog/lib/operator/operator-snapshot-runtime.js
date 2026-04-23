@@ -9,6 +9,7 @@ function mapTrackingSessions(limit) {
       agentId: entry?.agentId || null,
       status: entry?.status || null,
       pct: Number.isFinite(entry?.pct) ? entry.pct : null,
+      estimatedPhase: entry?.estimatedPhase || null,
       elapsedMs: Number.isFinite(entry?.elapsedMs) ? entry.elapsedMs : 0,
       toolCallCount: Number.isFinite(entry?.toolCallCount) ? entry.toolCallCount : 0,
       lastLabel: entry?.lastLabel || null,
@@ -19,6 +20,7 @@ function mapTrackingSessions(limit) {
       taskType: entry?.taskType || null,
       protocolEnvelope: entry?.protocolEnvelope || null,
       cursor: entry?.cursor || null,
+      activityProgress: entry?.activityProgress || null,
     }))
     .sort((left, right) => (right.elapsedMs || 0) - (left.elapsedMs || 0));
 

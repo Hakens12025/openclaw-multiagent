@@ -563,6 +563,102 @@ test("renderWorkItems re-renders when canonical phases change without lifecycle 
   assert.match(document.getElementById("workItemList").innerHTML, /形成结论/);
 });
 
+test("renderWorkItems prefers agent-local activity progress over canonical phases for the main progress UI", () => {
+  resetDashboardState();
+
+  dashboard.mergeWorkItemState("C-LOCAL-1", {
+    task: "研究任务",
+    assignee: "worker1",
+    status: "running",
+    createdAt: 10,
+    updatedAt: 10,
+    pct: 0,
+    cursor: "0/3",
+    activityProgress: {
+      source: "agent_local_activity",
+      phases: ["接手", "执行", "收口"],
+      completedPhases: [],
+      currentPhase: "接手",
+      currentPhaseIndex: 0,
+      cursor: "0/3",
+      pct: 0,
+      total: 3,
+    },
+    phases: ["收集证据", "形成结论"],
+    stagePlan: {
+      contractId: "C-LOCAL-1",
+      stages: [
+        { id: "stage-1", label: "收集证据", semanticLabel: "收集证据", status: "completed" },
+        { id: "stage-2", label: "形成结论", semanticLabel: "形成结论", status: "active" },
+      ],
+      revisionPolicy: { maxRevisions: 2, maxStageDelta: 1 },
+    },
+  });
+
+  dashboard.renderWorkItems();
+
+  const html = document.getElementById("workItemList").innerHTML;
+  assert.match(html, /接手/);
+  assert.doesNotMatch(html, /收集证据/);
+});
+
+test("processEvent resets visible progress when a contract hands off to a new agent", () => {
+  resetDashboardState();
+
+  dashboard.processEvent("track_progress", {
+    agentId: "worker1",
+    sessionKey: "agent:worker1:handoff",
+    hasContract: true,
+    contractId: "C-LOCAL-HANDOFF",
+    task: "研究任务",
+    status: "running",
+    assignee: "worker1",
+    pct: 80,
+    cursor: "2/3",
+    activityProgress: {
+      source: "agent_local_activity",
+      phases: ["接手", "执行", "收口"],
+      completedPhases: ["接手", "执行"],
+      currentPhase: "收口",
+      currentPhaseIndex: 2,
+      cursor: "2/3",
+      pct: 80,
+      total: 3,
+    },
+    phases: ["收集证据", "形成结论"],
+    ts: 11,
+  });
+
+  dashboard.processEvent("track_start", {
+    agentId: "worker2",
+    sessionKey: "agent:worker2:handoff",
+    hasContract: true,
+    contractId: "C-LOCAL-HANDOFF",
+    task: "研究任务",
+    status: "running",
+    assignee: "worker2",
+    pct: 0,
+    cursor: "0/3",
+    activityProgress: {
+      source: "agent_local_activity",
+      phases: ["接手", "执行", "收口"],
+      completedPhases: [],
+      currentPhase: "接手",
+      currentPhaseIndex: 0,
+      cursor: "0/3",
+      pct: 0,
+      total: 3,
+    },
+    phases: ["收集证据", "形成结论"],
+    ts: 12,
+  });
+
+  assert.equal(dashboard.workItems["C-LOCAL-HANDOFF"]?.assignee, "worker2");
+  assert.equal(dashboard.workItems["C-LOCAL-HANDOFF"]?.pct, 0);
+  assert.equal(dashboard.workItems["C-LOCAL-HANDOFF"]?.activityProgress?.currentPhase, "接手");
+  assert.match(document.getElementById("workItemList").innerHTML, /接手/);
+});
+
 test("buildLifecyclePatchFromAlert carries canonical stage truth for dispatch alerts", () => {
   resetDashboardState();
 

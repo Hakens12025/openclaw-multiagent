@@ -4,6 +4,7 @@ import { sseClients } from "../state.js";
 import { getEnvelopeType } from "../protocol-primitives.js";
 import { buildLifecycleStageTruth } from "../lifecycle-stage-truth.js";
 import { resolveTrackingWorkItem } from "../tracking-work-item.js";
+import { deriveTrackingActivityProgress } from "../activity-progress.js";
 
 export function addSseClient(response) {
   if (!response) return;
@@ -33,6 +34,7 @@ export function buildProgressPayload(t) {
   const workItem = resolveTrackingWorkItem(t);
   const contract = t.contract || null;
   const stageProjection = t.stageProjection || null;
+  const activityProgress = deriveTrackingActivityProgress(t);
   const stageTruth = buildLifecycleStageTruth(contract);
   const stagePlan = stageTruth.stagePlan || null;
   const stageRuntime = stageTruth.stageRuntime || null;
@@ -83,9 +85,10 @@ export function buildProgressPayload(t) {
     artifactDomain: workItem.artifactDomain || null,
     artifactSource: workItem.artifactSource || null,
     artifactRequest: workItem.artifactRequest || null,
-    cursor: t.cursor ?? null,
-    pct: Number.isFinite(t.pct) ? t.pct : null,
-    estimatedPhase: t.estimatedPhase || null,
+    cursor: activityProgress?.cursor || (t.cursor ?? null),
+    pct: Number.isFinite(activityProgress?.pct) ? activityProgress.pct : (Number.isFinite(t.pct) ? t.pct : null),
+    estimatedPhase: activityProgress?.currentPhase || t.estimatedPhase || null,
+    activityProgress,
     stageProjection,
     stagePlan,
     stageRuntime,

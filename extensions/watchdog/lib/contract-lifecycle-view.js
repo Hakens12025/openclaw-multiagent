@@ -26,6 +26,7 @@ import {
   resolveProgressWorkItem,
   resolveTrackingWorkItem,
 } from "./tracking-work-item.js";
+import { deriveTrackingActivityProgress } from "./activity-progress.js";
 
 function hasLifecycleValue(value) {
   if (value === undefined || value === null) return false;
@@ -275,7 +276,10 @@ function buildLifecycleSnapshotFromWorkItem({
   lastLabel = null,
   recentToolEvents = undefined,
   activityCursor = null,
+  activityProgress = null,
   runtimeObservation = null,
+  cursor = undefined,
+  estimatedPhase = null,
   pct = undefined,
   elapsedMs = undefined,
   createdAt = null,
@@ -319,6 +323,7 @@ function buildLifecycleSnapshotFromWorkItem({
       ? recentToolEvents.map((entry) => ({ ...entry }))
       : undefined,
     activityCursor,
+    activityProgress,
     runtimeObservation,
     artifactKind: workItem?.artifactKind || null,
     artifactDomain: workItem?.artifactDomain || null,
@@ -329,6 +334,8 @@ function buildLifecycleSnapshotFromWorkItem({
     stageRuntime,
     phases: stagePlan ? undefined : projectionPhases,
     total: stagePlan ? undefined : projectionTotal,
+    cursor: normalizeLifecycleString(cursor),
+    estimatedPhase: normalizeLifecycleString(estimatedPhase),
     pct: Number.isFinite(pct) ? pct : undefined,
     elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : undefined,
     createdAt: Number.isFinite(createdAt) ? createdAt : null,
@@ -340,6 +347,7 @@ function buildLifecycleSnapshotFromWorkItem({
 function trackingStateToLifecycleSnapshot(trackingState) {
   const workItem = resolveTrackingWorkItem(trackingState);
   const contract = trackingState?.contract || null;
+  const activityProgress = deriveTrackingActivityProgress(trackingState);
   const stageTruth = contract ? buildLifecycleStageTruth(contract) : {};
   const stagePlan = stageTruth.stagePlan || null;
   const stageRuntime = stageTruth.stageRuntime || null;
@@ -361,8 +369,11 @@ function trackingStateToLifecycleSnapshot(trackingState) {
     lastLabel: trackingState?.lastLabel || null,
     recentToolEvents: trackingState?.recentToolEvents,
     activityCursor: trackingState?.activityCursor || null,
+    activityProgress,
     runtimeObservation: trackingState?.runtimeObservation || null,
-    pct: trackingState?.pct,
+    cursor: activityProgress?.cursor || trackingState?.cursor || null,
+    estimatedPhase: activityProgress?.currentPhase || trackingState?.estimatedPhase || null,
+    pct: Number.isFinite(activityProgress?.pct) ? activityProgress.pct : trackingState?.pct,
     elapsedMs: Number.isFinite(trackingState?.startMs) ? Math.max(0, Date.now() - trackingState.startMs) : undefined,
     createdAt: contract?.createdAt || workItem?.createdAt || trackingState?.startMs || null,
     updatedAt: contract?.updatedAt || workItem?.updatedAt || Date.now(),
@@ -381,6 +392,9 @@ function trackingStateToLifecycleSnapshot(trackingState) {
 function historyEntryToLifecycleSnapshot(entry) {
   if (!entry || typeof entry !== "object") return null;
   const workItem = resolveProgressWorkItem(entry);
+  const activityProgress = entry?.activityProgress && typeof entry.activityProgress === "object"
+    ? { ...entry.activityProgress }
+    : null;
   const stageTruth = buildLifecycleStageTruth({
     id: entry.contractId || workItem?.id,
     stagePlan: entry.stagePlan,
@@ -402,8 +416,13 @@ function historyEntryToLifecycleSnapshot(entry) {
     lastLabel: entry.lastLabel || null,
     recentToolEvents: entry.recentToolEvents,
     activityCursor: entry.activityCursor || null,
+    activityProgress,
     runtimeObservation: entry.runtimeObservation || null,
-    pct: Number.isFinite(entry.pct) ? entry.pct : (isCompletedContractStatus(entry.status) ? 100 : undefined),
+    cursor: activityProgress?.cursor || entry.cursor || null,
+    estimatedPhase: activityProgress?.currentPhase || entry.estimatedPhase || null,
+    pct: Number.isFinite(activityProgress?.pct)
+      ? activityProgress.pct
+      : (Number.isFinite(entry.pct) ? entry.pct : (isCompletedContractStatus(entry.status) ? 100 : undefined)),
     elapsedMs: entry.elapsedMs,
     createdAt: Number.isFinite(entry.createdAt)
       ? entry.createdAt
