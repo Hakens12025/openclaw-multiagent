@@ -439,7 +439,7 @@ test("commitSemanticTerminalState persists canonical completed stageRuntime for 
   }
 });
 
-test("commitSemanticTerminalState releases dispatch runtime ownership for terminal contracts", async () => {
+test("commitSemanticTerminalState leaves dispatch ownership to lifecycle finalization", async () => {
   const contractId = `TC-P0-TERMINAL-DISPATCH-${Date.now()}`;
   const contractPath = getContractPath(contractId);
 
@@ -497,9 +497,9 @@ test("commitSemanticTerminalState releases dispatch runtime ownership for termin
     });
 
     assert.equal(commitResult.committed, true);
-    assert.equal(dispatchTargetStateMap.get("worker")?.busy, false);
+    assert.equal(dispatchTargetStateMap.get("worker")?.busy, true);
     assert.equal(dispatchTargetStateMap.get("worker")?.dispatching, false);
-    assert.equal(dispatchTargetStateMap.get("worker")?.currentContract, null);
+    assert.equal(dispatchTargetStateMap.get("worker")?.currentContract, contractId);
   } finally {
     dispatchTargetStateMap.clear();
     await unlink(contractPath).catch(() => {});
