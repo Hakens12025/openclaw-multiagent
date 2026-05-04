@@ -4,9 +4,9 @@ import { readFile } from "node:fs/promises";
 
 import {
   removeScheduleMaterialization,
-  SCHEDULE_MATERIALIZER_STORE,
   syncScheduleMaterialization,
 } from "../lib/schedule/schedule-materializer.js";
+import { SCHEDULE_MATERIALIZER_STORE } from "../lib/state-paths.js";
 
 function buildScheduleSpec(id, expr) {
   return {

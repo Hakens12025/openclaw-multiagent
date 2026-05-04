@@ -1,13 +1,16 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { normalizeBoolean, normalizeFiniteNumber, normalizePositiveInteger, normalizeRecord, normalizeString } from "../core/normalize.js";
 import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
 import { normalizeHarnessSelection } from "../harness/harness-registry.js";
-import { OC, atomicWriteFile, withLock } from "../state.js";
+import {
+  AUTOMATION_STORE,
+  CONTROL_PLANE_DIR,
+  atomicWriteFile,
+  withLock,
+} from "../state.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
 
-export const AUTOMATION_STORE = join(OC, "workspaces", "controller", ".watchdog-automations.json");
 const AUTOMATION_STORE_LOCK = "store:automation-specs";
 
 const DEFAULT_WAKE_COOLDOWN_SECONDS = 300;
@@ -183,7 +186,7 @@ async function writeAutomationStore(automations) {
       .filter(Boolean),
   );
   const now = Date.now();
-  await mkdir(join(OC, "workspaces", "controller"), { recursive: true });
+  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
   await atomicWriteFile(AUTOMATION_STORE, JSON.stringify({
     updatedAt: now,
     automations: normalized,

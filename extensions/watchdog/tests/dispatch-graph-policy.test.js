@@ -343,7 +343,7 @@ describe("dispatchResolveFirstHop", () => {
 describe("dispatch claim confirm", () => {
   beforeEach(resetState);
 
-  test("dispatchRouteExecutionContract does not report dispatched when exact session never claims the contract", async () => {
+  test("dispatchRouteExecutionContract accepts staged inbox dispatch even before tracker claim appears", async () => {
     registerDispatchTarget("planner-target");
     claimWaitResult = {
       claimed: false,
@@ -359,8 +359,10 @@ describe("dispatch claim confirm", () => {
       logger,
     );
 
-    assert.equal(result.dispatched, false);
-    assert.equal(result.failed, true);
+    assert.equal(result.dispatched, true);
+    assert.equal(result.failed, undefined);
+    assert.equal(dispatchTargetStateMap.get("planner-target")?.busy, true);
+    assert.equal(dispatchTargetStateMap.get("planner-target")?.currentContract, "C-CLAIM-MISS");
   });
 });
 
@@ -592,7 +594,7 @@ describe("routeAfterAgentEnd", () => {
     assert.equal(targets[5], "w3");
   });
 
-  test("falls back to default edge when no other gate matches", async () => {
+  test("returns ambiguous_runtime_transition when multiple default edges match", async () => {
     registerDispatchTarget("agent-default");
     registerDispatchTarget("agent-other");
     mockGraph = {
@@ -602,8 +604,9 @@ describe("routeAfterAgentEnd", () => {
       ],
     };
     const result = await routeAfterAgentEnd("agent-a", "C-DF", { status: "completed", api, logger });
-    assert.equal(result.routed, true);
-    assert.equal(result.target, "agent-default");
+    assert.equal(result.routed, false);
+    assert.equal(result.action, "ambiguous_runtime_transition");
+    assert.equal(result.target, null);
   });
 
   test("queues contract when target is busy", async () => {

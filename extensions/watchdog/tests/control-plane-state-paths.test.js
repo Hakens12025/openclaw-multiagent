@@ -3,16 +3,38 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
+  ADMIN_CHANGE_SET_DIR,
+  AGENT_DEFAULT_SKILLS_STORE,
+  AGENT_GRAPH_FILE,
+  AGENT_JOIN_STORE,
+  AUTOMATION_RUNTIME_STORE,
+  AUTOMATION_STORE,
+  CONVERSATIONS_DIR,
   CONTRACTS_DIR,
+  GRAPH_LOOP_FILE,
   QUEUE_STATE_FILE,
+  SCHEDULE_MATERIALIZER_STORE,
+  SCHEDULE_STORE,
   STATE_FILE,
+  SYSTEM_ACTION_DELIVERY_TICKET_STORE,
 } from "../lib/state-paths.js";
 
 test("runtime control-plane state paths are outside controller workspace", () => {
   const paths = {
+    ADMIN_CHANGE_SET_DIR,
+    AGENT_DEFAULT_SKILLS_STORE,
+    AGENT_GRAPH_FILE,
+    AGENT_JOIN_STORE,
+    AUTOMATION_RUNTIME_STORE,
+    AUTOMATION_STORE,
+    CONVERSATIONS_DIR,
     CONTRACTS_DIR,
+    GRAPH_LOOP_FILE,
     STATE_FILE,
     QUEUE_STATE_FILE,
+    SCHEDULE_MATERIALIZER_STORE,
+    SCHEDULE_STORE,
+    SYSTEM_ACTION_DELIVERY_TICKET_STORE,
   };
 
   for (const [name, value] of Object.entries(paths)) {

@@ -1,5 +1,10 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
+import { getContractPath } from "../lib/contracts.js";
+import { LOOP_SESSION_STATE_FILE } from "../lib/loop/loop-session-store.js";
 
 const routeCalls = [];
 
@@ -53,6 +58,9 @@ const logger = {
 
 test("graph_route owns loop-tagged shared contracts even when graph out-edges exist", async () => {
   routeCalls.length = 0;
+  const contractId = "TC-loop-shared";
+  const contractPath = getContractPath(contractId);
+  const originalLoopSessionState = await readFile(LOOP_SESSION_STATE_FILE, "utf8").catch(() => null);
 
   const graphRouteStage = listAgentEndMainStages().find((stage) => stage.id === "graph_route");
   assert.ok(graphRouteStage, "expected graph_route stage to exist");
@@ -62,7 +70,7 @@ test("graph_route owns loop-tagged shared contracts even when graph out-edges ex
     event: { success: true },
     trackingState: {
       contract: {
-        id: "TC-loop-shared",
+        id: contractId,
         pipelineStage: {
           pipelineId: "live-loop-worker3-worker4",
           loopId: "live-loop-worker3-worker4",
@@ -73,7 +81,7 @@ test("graph_route owns loop-tagged shared contracts even when graph out-edges ex
       },
     },
     effectiveContractData: {
-      id: "TC-loop-shared",
+      id: contractId,
       taskType: "execution_contract",
       pipelineStage: {
         pipelineId: "live-loop-worker3-worker4",
@@ -84,7 +92,7 @@ test("graph_route owns loop-tagged shared contracts even when graph out-edges ex
       },
     },
     executionObservation: {
-      contractId: "TC-loop-shared",
+      contractId,
       stageRunResult: {
         stage: "worker-3",
         status: "completed",
@@ -114,12 +122,49 @@ test("graph_route owns loop-tagged shared contracts even when graph out-edges ex
     api: {},
   };
 
-  assert.equal(graphRouteStage.match(context), true);
-  await graphRouteStage.run(context);
+  try {
+    await mkdir(dirname(contractPath), { recursive: true });
+    await mkdir(dirname(LOOP_SESSION_STATE_FILE), { recursive: true });
+    await writeFile(contractPath, JSON.stringify({
+      id: contractId,
+      status: "running",
+      task: "loop shared contract",
+      pipelineStage: context.effectiveContractData.pipelineStage,
+    }, null, 2), "utf8");
+    await writeFile(LOOP_SESSION_STATE_FILE, JSON.stringify({
+      activeSession: {
+        id: "LS-test",
+        loopId: "live-loop-worker3-worker4",
+        pipelineId: "live-loop-worker3-worker4",
+        kind: "cycle-loop",
+        entryAgentId: "worker-3",
+        startAgentId: "worker-3",
+        currentStage: "worker-3",
+        round: 1,
+        status: "active",
+        nodes: ["worker-3", "worker-4"],
+        phaseOrder: ["worker-3", "worker-4"],
+        transitionCount: 0,
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      recentSessions: [],
+    }, null, 2), "utf8");
 
-  assert.equal(routeCalls.length, 1);
-  assert.equal(routeCalls[0][0], "worker-3");
-  assert.equal(routeCalls[0][1], "TC-loop-shared");
-  assert.equal(context.graphRouted, true);
-  assert.equal(context.graphRouteResult?.target, "worker-4");
+    assert.equal(graphRouteStage.match(context), true);
+    await graphRouteStage.run(context);
+
+    assert.equal(routeCalls.length, 1);
+    assert.equal(routeCalls[0][0], "worker-3");
+    assert.equal(routeCalls[0][1], contractId);
+    assert.equal(context.graphRouted, true);
+    assert.equal(context.graphRouteResult?.target, "worker-4");
+  } finally {
+    await unlink(contractPath).catch(() => {});
+    if (originalLoopSessionState == null) {
+      await rm(LOOP_SESSION_STATE_FILE, { force: true });
+    } else {
+      await writeFile(LOOP_SESSION_STATE_FILE, originalLoopSessionState, "utf8");
+    }
+  }
 });

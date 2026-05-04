@@ -1,16 +1,15 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
 import { buildScheduleTriggerCommandMessage } from "./schedule-trigger.js";
-import { OC, atomicWriteFile, cfg, withLock } from "../state.js";
-
-export const SCHEDULE_MATERIALIZER_STORE = join(
+import {
+  CONTROL_PLANE_DIR,
   OC,
-  "workspaces",
-  "controller",
-  ".watchdog-schedule-materializer.json",
-);
+  SCHEDULE_MATERIALIZER_STORE,
+  atomicWriteFile,
+  cfg,
+  withLock,
+} from "../state.js";
 
 const CRON_COMMAND_TIMEOUT_MS = 20_000;
 const SCHEDULE_MATERIALIZER_STORE_LOCK = "store:schedule-materializer";
@@ -64,7 +63,7 @@ async function writeMaterializerStore(entries) {
       .map((entry) => normalizeMaterializationEntry(entry))
       .filter(Boolean),
   );
-  await mkdir(join(OC, "workspaces", "controller"), { recursive: true });
+  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
   await atomicWriteFile(SCHEDULE_MATERIALIZER_STORE, JSON.stringify({
     updatedAt: Date.now(),
     entries: normalized,

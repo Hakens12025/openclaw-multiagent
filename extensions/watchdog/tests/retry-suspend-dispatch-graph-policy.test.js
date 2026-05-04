@@ -60,6 +60,7 @@ mock.module("../lib/routing/dispatch-runtime-state.js", {
   namedExports: {
     listDispatchTargetIds: () => [...dispatchTargetStateMap.keys()],
     hasDispatchTarget: (agentId) => dispatchTargetStateMap.has(agentId),
+    ensureDispatchTargetAvailable: async (agentId) => dispatchTargetStateMap.has(agentId),
     isDispatchTargetBusy: (agentId) => {
       const state = dispatchTargetStateMap.get(agentId);
       return Boolean(state?.busy || state?.dispatching);

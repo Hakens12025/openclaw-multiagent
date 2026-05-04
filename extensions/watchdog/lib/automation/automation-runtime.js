@@ -1,14 +1,17 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { listAutomationSpecs } from "./automation-registry.js";
 import { projectAutomationHarnessSummary } from "./automation-harness-projection.js";
 import { normalizeReviewerResult } from "../harness/reviewer-result.js";
 import { normalizeHarnessRun, normalizeHarnessSpec } from "../harness/harness-run.js";
 import { normalizeEnum, normalizeFiniteNumber, normalizePositiveInteger, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
-import { OC, atomicWriteFile, withLock } from "../state.js";
+import {
+  AUTOMATION_RUNTIME_STORE,
+  CONTROL_PLANE_DIR,
+  atomicWriteFile,
+  withLock,
+} from "../state.js";
 
-export const AUTOMATION_RUNTIME_STORE = join(OC, "workspaces", "controller", ".watchdog-automation-runtime.json");
 const AUTOMATION_RUNTIME_STORE_LOCK = "store:automation-runtime";
 
 const VALID_AUTOMATION_RUNTIME_STATUSES = new Set([
@@ -164,7 +167,7 @@ async function writeAutomationRuntimeStore(states) {
       .map((entry) => normalizeAutomationRuntimeState(entry))
       .filter(Boolean),
   );
-  await mkdir(join(OC, "workspaces", "controller"), { recursive: true });
+  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
   await atomicWriteFile(AUTOMATION_RUNTIME_STORE, JSON.stringify({
     updatedAt: Date.now(),
     states: normalized,

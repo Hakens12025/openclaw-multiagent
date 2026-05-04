@@ -1,11 +1,14 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { normalizeBoolean, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
 import { normalizeAgentRole } from "./agent-identity.js";
-import { OC, atomicWriteFile, withLock } from "../state.js";
+import {
+  AGENT_JOIN_STORE,
+  CONTROL_PLANE_DIR,
+  atomicWriteFile,
+  withLock,
+} from "../state.js";
 
-export const AGENT_JOIN_STORE = join(OC, "workspaces", "controller", ".watchdog-agent-joins.json");
 const AGENT_JOIN_STORE_LOCK = "store:agent-joins";
 
 const SUPPORTED_PROTOCOL_TYPES = new Set([
@@ -293,7 +296,7 @@ async function writeAgentJoinStore(agentJoins) {
       .filter(Boolean),
   );
   const now = Date.now();
-  await mkdir(join(OC, "workspaces", "controller"), { recursive: true });
+  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
   await atomicWriteFile(AGENT_JOIN_STORE, JSON.stringify({
     updatedAt: now,
     agentJoins: normalized,

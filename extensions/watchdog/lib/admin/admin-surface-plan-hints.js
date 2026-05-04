@@ -41,12 +41,12 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     expectedSignals: [],
   },
   "admin_change_sets.list": {
-    reads: ["workspaces/controller/admin-change-sets/*.json", "admin_surfaces.list"],
+    reads: ["control-plane/admin-change-sets/*.json", "admin_surfaces.list"],
     apiChecks: ["GET /watchdog/admin-change-sets"],
     expectedSignals: [],
   },
   "admin_change_sets.detail": {
-    reads: ["workspaces/controller/admin-change-sets/*.json", "admin_surfaces.list"],
+    reads: ["control-plane/admin-change-sets/*.json", "admin_surfaces.list"],
     apiChecks: ["GET /watchdog/admin-change-sets/detail?id=<draft-id>"],
     expectedSignals: [],
   },
@@ -61,7 +61,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     expectedSignals: [],
   },
   "system_action_delivery_tickets.list": {
-    reads: ["workspaces/controller/.system-action-delivery-tickets.json"],
+    reads: ["control-plane/system-action-delivery-tickets.json"],
     apiChecks: ["GET /watchdog/system-action-delivery-tickets"],
     expectedSignals: [],
   },
@@ -76,7 +76,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     expectedSignals: [],
   },
   "agents.defaults.read": {
-    reads: ["openclaw.json", "workspaces/controller/.agent-default-skills.json"],
+    reads: ["openclaw.json", "control-plane/agent-default-skills.json"],
     apiChecks: ["GET /watchdog/agents/defaults"],
     expectedSignals: [],
   },
@@ -147,8 +147,8 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "agents.defaults.skills": {
     reads: ["agents.defaults.read", "skills.list"],
-    writes: ["workspaces/controller/.agent-default-skills.json", "openclaw.json"],
-    generatedFiles: ["workspaces/controller/.agent-default-skills.json"],
+    writes: ["control-plane/agent-default-skills.json", "openclaw.json"],
+    generatedFiles: ["control-plane/agent-default-skills.json"],
     apiChecks: ["GET /watchdog/agents/defaults", "GET /watchdog/skills"],
     expectedSignals: ["alert:default_skills_changed"],
     tests: [],
@@ -156,8 +156,8 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "admin_change_sets.save": {
     reads: ["admin_surfaces.list"],
-    writes: ["workspaces/controller/admin-change-sets/*.json"],
-    generatedFiles: ["workspaces/controller/admin-change-sets/ACS-<timestamp>-<hex>.json"],
+    writes: ["control-plane/admin-change-sets/*.json"],
+    generatedFiles: ["control-plane/admin-change-sets/ACS-<timestamp>-<hex>.json"],
     apiChecks: [
       "POST /watchdog/admin-change-sets",
       "GET /watchdog/admin-change-sets",
@@ -173,7 +173,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
       "test_runs.detail",
       "test-reports/*.json",
     ],
-    writes: ["workspaces/controller/admin-change-sets/*.json"],
+    writes: ["control-plane/admin-change-sets/*.json"],
     generatedFiles: [],
     apiChecks: [
       "POST /watchdog/admin-change-sets/verification",
@@ -186,7 +186,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "admin_change_sets.execute": {
     reads: ["admin_change_sets.detail", "admin_change_sets.preview"],
-    writes: ["workspaces/controller/admin-change-sets/*.json"],
+    writes: ["control-plane/admin-change-sets/*.json"],
     generatedFiles: [],
     apiChecks: [
       "POST /watchdog/admin-change-sets/execute",
@@ -259,7 +259,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   "automations.run": {
     reads: ["automations.list", "work_items.list"],
     writes: [
-      "workspaces/controller/.watchdog-automation-runtime.json",
+      "control-plane/automation-runtime.json",
       "control-plane/contracts/*.json",
       "research-lab/loop_session_state.json",
     ],
@@ -273,14 +273,14 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record"],
   },
   "agent_joins.list": {
-    reads: ["workspaces/controller/.watchdog-agent-joins.json"],
+    reads: ["control-plane/agent-joins.json"],
     apiChecks: ["GET /watchdog/agent-joins/registry"],
     expectedSignals: [],
   },
   "agent_joins.create": {
     reads: ["agent_joins.list"],
-    writes: ["workspaces/controller/.watchdog-agent-joins.json"],
-    generatedFiles: ["workspaces/controller/.watchdog-agent-joins.json"],
+    writes: ["control-plane/agent-joins.json"],
+    generatedFiles: ["control-plane/agent-joins.json"],
     apiChecks: ["POST /watchdog/agent-joins/create", "GET /watchdog/agent-joins/registry"],
     expectedSignals: ["alert:agent_join_updated"],
     tests: [],
@@ -288,7 +288,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "agent_joins.update": {
     reads: ["agent_joins.list"],
-    writes: ["workspaces/controller/.watchdog-agent-joins.json"],
+    writes: ["control-plane/agent-joins.json"],
     generatedFiles: [],
     apiChecks: ["POST /watchdog/agent-joins/update", "GET /watchdog/agent-joins/registry"],
     expectedSignals: ["alert:agent_join_updated"],
@@ -297,7 +297,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "agent_joins.enable": {
     reads: ["agent_joins.list"],
-    writes: ["workspaces/controller/.watchdog-agent-joins.json"],
+    writes: ["control-plane/agent-joins.json"],
     generatedFiles: [],
     apiChecks: ["POST /watchdog/agent-joins/enable", "GET /watchdog/agent-joins/registry"],
     expectedSignals: ["alert:agent_join_updated"],
@@ -306,7 +306,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "agent_joins.disable": {
     reads: ["agent_joins.list"],
-    writes: ["workspaces/controller/.watchdog-agent-joins.json"],
+    writes: ["control-plane/agent-joins.json"],
     generatedFiles: [],
     apiChecks: ["POST /watchdog/agent-joins/disable", "GET /watchdog/agent-joins/registry"],
     expectedSignals: ["alert:agent_join_updated"],
@@ -315,7 +315,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "agent_joins.delete": {
     reads: ["agent_joins.list"],
-    writes: ["workspaces/controller/.watchdog-agent-joins.json"],
+    writes: ["control-plane/agent-joins.json"],
     generatedFiles: [],
     apiChecks: ["POST /watchdog/agent-joins/delete", "GET /watchdog/agent-joins/registry"],
     expectedSignals: ["alert:agent_join_updated"],
@@ -371,9 +371,9 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record"],
   },
   "graph.edge.add": {
-    reads: ["agents.list", "workspaces/controller/agent_graph.json"],
+    reads: ["agents.list", "control-plane/agent-graph.json"],
     writes: [
-      "workspaces/controller/agent_graph.json",
+      "control-plane/agent-graph.json",
       "workspaces/*/BUILDING-MAP.md",
       "workspaces/*/COLLABORATION-GRAPH.md",
       "workspaces/*/PLATFORM-GUIDE.md",
@@ -385,9 +385,9 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record"],
   },
   "graph.edge.delete": {
-    reads: ["agents.list", "workspaces/controller/agent_graph.json"],
+    reads: ["agents.list", "control-plane/agent-graph.json"],
     writes: [
-      "workspaces/controller/agent_graph.json",
+      "control-plane/agent-graph.json",
       "workspaces/*/BUILDING-MAP.md",
       "workspaces/*/COLLABORATION-GRAPH.md",
       "workspaces/*/PLATFORM-GUIDE.md",
@@ -399,9 +399,9 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record"],
   },
   "graph.loop.compose": {
-    reads: ["agents.list", "workspaces/controller/agent_graph.json"],
+    reads: ["agents.list", "control-plane/agent-graph.json"],
     writes: [
-      "workspaces/controller/agent_graph.json",
+      "control-plane/agent-graph.json",
       "workspaces/*/BUILDING-MAP.md",
       "workspaces/*/COLLABORATION-GRAPH.md",
       "workspaces/*/PLATFORM-GUIDE.md",
@@ -413,9 +413,9 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record"],
   },
   "graph.loop.repair": {
-    reads: ["workspaces/controller/graph_loops.json", "workspaces/controller/agent_graph.json", "research-lab/loop_session_state.json"],
+    reads: ["control-plane/graph-loops.json", "control-plane/agent-graph.json", "research-lab/loop_session_state.json"],
     writes: [
-      "workspaces/controller/agent_graph.json",
+      "control-plane/agent-graph.json",
       "workspaces/*/BUILDING-MAP.md",
       "workspaces/*/COLLABORATION-GRAPH.md",
       "workspaces/*/PLATFORM-GUIDE.md",
@@ -427,7 +427,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record", "architecture-memo-if-behavior-changed"],
   },
   "runtime.loop.start": {
-    reads: ["workspaces/controller/graph_loops.json", "research-lab/loop_session_state.json"],
+    reads: ["control-plane/graph-loops.json", "research-lab/loop_session_state.json"],
     writes: ["research-lab/loop_session_state.json", "workspaces/*/inbox/contract.json"],
     generatedFiles: [],
     apiChecks: ["GET /watchdog/graph", "GET /watchdog/graph/loop-sessions"],
@@ -445,7 +445,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     memos: ["execution-record", "architecture-memo-if-behavior-changed"],
   },
   "runtime.loop.resume": {
-    reads: ["research-lab/loop_session_state.json", "workspaces/controller/graph_loops.json"],
+    reads: ["research-lab/loop_session_state.json", "control-plane/graph-loops.json"],
     writes: ["research-lab/loop_session_state.json", "workspaces/*/inbox/contract.json"],
     generatedFiles: [],
     apiChecks: ["GET /watchdog/graph", "GET /watchdog/graph/loop-sessions"],

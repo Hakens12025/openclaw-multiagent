@@ -18,10 +18,10 @@
  */
 
 import { readFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { atomicWriteFile, withLock, OC } from "../state.js";
+import { dirname } from "node:path";
+import { AGENT_GRAPH_FILE, atomicWriteFile, withLock } from "../state.js";
 
-const GRAPH_FILE = join(OC, "workspaces", "controller", "agent_graph.json");
+const GRAPH_FILE = AGENT_GRAPH_FILE;
 const LOCK_KEY = "agent-graph";
 
 function normalizeEdge(edge) {

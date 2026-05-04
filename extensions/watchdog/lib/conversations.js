@@ -3,9 +3,8 @@
 
 import { readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { OC, atomicWriteFile, withLock } from "./state.js";
+import { CONVERSATIONS_DIR, atomicWriteFile, withLock } from "./state.js";
 
-const CONVERSATIONS_DIR = join(OC, "workspaces", "controller", "conversations");
 const MAX_RECENT_ROUNDS = 3;
 
 export function buildConversationId(replyTo) {

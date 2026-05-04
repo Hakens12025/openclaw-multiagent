@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import {
   normalizeReplyTarget,
@@ -13,12 +12,11 @@ import {
   resolveServiceSessionTargetSessionKey,
 } from "../service-session.js";
 import {
-  OC,
+  SYSTEM_ACTION_DELIVERY_TICKET_STORE,
   atomicWriteFile,
   withLock,
 } from "../state.js";
 
-const SYSTEM_ACTION_DELIVERY_TICKET_STORE = join(OC, "workspaces", "controller", ".system-action-delivery-tickets.json");
 const systemActionDeliveryTickets = new Map();
 let systemActionDeliveryTicketsHydrated = false;
 

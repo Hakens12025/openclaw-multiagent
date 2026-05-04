@@ -1,10 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 
-import { OC, atomicWriteFile } from "../state.js";
+import { AGENT_DEFAULT_SKILLS_STORE, CONTROL_PLANE_DIR, atomicWriteFile } from "../state.js";
 import { uniqueStrings } from "../core/normalize.js";
-
-const AGENT_DEFAULT_SKILLS_STORE = join(OC, "workspaces", "controller", ".agent-default-skills.json");
 
 function ensureAgentDefaults(config) {
   if (!config || typeof config !== "object") {
@@ -53,7 +50,7 @@ export async function applyStoredConfiguredDefaultAgentSkills(config) {
 
 export async function saveStoredConfiguredDefaultAgentSkills(skills) {
   const normalized = uniqueStrings(skills);
-  await mkdir(join(OC, "workspaces", "controller"), { recursive: true });
+  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
   await atomicWriteFile(AGENT_DEFAULT_SKILLS_STORE, JSON.stringify({
     skills: normalized,
     updatedAt: Date.now(),

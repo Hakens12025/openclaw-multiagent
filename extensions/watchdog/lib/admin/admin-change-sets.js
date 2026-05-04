@@ -21,7 +21,7 @@ import {
   resolveVerificationRun,
   summarizeVerificationRun,
 } from "./admin-change-set-verification.js";
-import { OC, atomicWriteFile, withLock } from "../state.js";
+import { atomicWriteFile, withLock } from "../state.js";
 // Dynamic import: capability-registry imports admin-change-sets (circular).
 // invalidateCapabilityRegistryCache is only needed after writes, not at load time.
 async function invalidateCapabilityRegistryCache() {
@@ -34,8 +34,7 @@ import {
   normalizeAdminSurfacePayload,
 } from "./admin-surface-registry.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
-
-const ADMIN_CHANGE_SET_DIR = join(OC, "workspaces", "controller", "admin-change-sets");
+import { ADMIN_CHANGE_SET_DIR } from "../state-paths.js";
 
 function deepClone(value) {
   return JSON.parse(JSON.stringify(value));

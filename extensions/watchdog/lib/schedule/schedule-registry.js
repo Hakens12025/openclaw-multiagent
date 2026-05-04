@@ -1,12 +1,15 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
 import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
-import { OC, atomicWriteFile, withLock } from "../state.js";
+import {
+  CONTROL_PLANE_DIR,
+  SCHEDULE_STORE,
+  atomicWriteFile,
+  withLock,
+} from "../state.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
 
-export const SCHEDULE_STORE = join(OC, "workspaces", "controller", ".watchdog-schedules.json");
 const SCHEDULE_STORE_LOCK = "store:schedules";
 
 function normalizeScheduleTrigger(value) {
@@ -123,7 +126,7 @@ async function writeScheduleStore(schedules) {
       .filter(Boolean),
   );
   const now = Date.now();
-  await mkdir(join(OC, "workspaces", "controller"), { recursive: true });
+  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
   await atomicWriteFile(SCHEDULE_STORE, JSON.stringify({
     updatedAt: now,
     schedules: normalized,

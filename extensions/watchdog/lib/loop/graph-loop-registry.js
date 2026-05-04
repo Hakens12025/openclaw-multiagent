@@ -1,11 +1,10 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { detectCycles, hasDirectedEdge, loadGraph } from "../agent/agent-graph.js";
 import { normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
-import { OC, atomicWriteFile, withLock } from "../state.js";
+import { GRAPH_LOOP_FILE, atomicWriteFile, withLock } from "../state.js";
 
-const GRAPH_LOOP_FILE = join(OC, "workspaces", "controller", "graph_loops.json");
 const GRAPH_LOOP_LOCK_KEY = "graph-loop-registry";
 const DEFAULT_LOOP_KIND = "cycle-loop";
 const DEFAULT_CONTINUE_SIGNAL = "continue";
