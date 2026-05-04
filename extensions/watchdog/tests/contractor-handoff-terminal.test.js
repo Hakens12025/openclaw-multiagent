@@ -163,7 +163,7 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
   const contractId = `TC-CONTRACTOR-FALLBACK-${Date.now()}`;
   const contractPath = getContractPath(contractId);
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
-  clearDispatchQueue();
+  await clearDispatchQueue(logger);
   resetAllDispatchStates();
   await syncDispatchTargets([], logger);
   registerRuntimeAgents({
@@ -278,7 +278,7 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
-    clearDispatchQueue();
+    await clearDispatchQueue(logger);
     resetAllDispatchStates();
     await syncDispatchTargets([], logger);
   }

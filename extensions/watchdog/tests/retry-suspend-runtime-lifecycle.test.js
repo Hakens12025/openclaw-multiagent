@@ -13,6 +13,7 @@ const runtimeAgentConfigs = new Map();
 mock.module("../lib/state.js", {
   namedExports: {
     CONTRACTS_DIR: "/tmp/contracts",
+    SYSTEM_ACTION_DELIVERY_TICKET_STORE: "/tmp/openclaw-test/system-action-delivery-tickets.json",
     HOME: "/tmp",
     OC: "/tmp/openclaw-test",
     QQ_OPENID: "qq-openid-test",

@@ -29,6 +29,15 @@ function createDispatchTargetState() {
   };
 }
 
+let dispatchRuntimePersistChain = Promise.resolve();
+
+function commitDispatchRuntimeState(logger = null) {
+  dispatchRuntimePersistChain = dispatchRuntimePersistChain
+    .catch(() => {})
+    .then(() => persistDispatchRuntimeState(logger));
+  return dispatchRuntimePersistChain;
+}
+
 function ensureDispatchTargetState(agentId) {
   if (!dispatchTargetStateMap.has(agentId)) {
     dispatchTargetStateMap.set(agentId, createDispatchTargetState());
@@ -233,7 +242,7 @@ export async function claimDispatchTargetContract({ contractId, agentId, logger 
   state.lastSeen = Date.now();
 
   emitDispatchRuntimeSnapshot();
-  await persistDispatchRuntimeState(logger);
+  await commitDispatchRuntimeState(logger);
   return true;
 }
 
@@ -247,7 +256,7 @@ export async function releaseDispatchTargetContract({ agentId, logger }) {
   state.lastSeen = Date.now();
   logger?.info?.(`[dispatch-state] ${agentId} released`);
   emitDispatchRuntimeSnapshot();
-  await persistDispatchRuntimeState(logger);
+  await commitDispatchRuntimeState(logger);
   return true;
 }
 
@@ -309,7 +318,7 @@ export async function removeDispatchContract(contractId, logger = null) {
     || releasedBusyCurrent > 0;
   if (changed) {
     emitDispatchRuntimeSnapshot();
-    await persistDispatchRuntimeState(logger);
+    await commitDispatchRuntimeState(logger);
   }
 
   return {
@@ -338,16 +347,17 @@ export function enqueueDispatchContract(agentId, contractId, meta = {}, logger) 
     });
     logger?.info?.(`[dispatch-state] queued ${normalized} for ${agentId} (depth: ${state.queue.length})`);
     emitDispatchRuntimeSnapshot();
-    void persistDispatchRuntimeState(logger);
+    void commitDispatchRuntimeState(logger);
   }
   return true;
 }
 
-export function dequeueDispatchContract(agentId) {
+export async function dequeueDispatchContract(agentId, logger = null) {
   const state = dispatchTargetStateMap.get(agentId);
   if (!state || !Array.isArray(state.queue) || state.queue.length === 0) return null;
   const entry = state.queue.shift();
   emitDispatchRuntimeSnapshot();
+  await commitDispatchRuntimeState(logger);
   return typeof entry === "string"
     ? { contractId: entry, fromAgent: null }
     : entry;
@@ -461,7 +471,7 @@ export function resetAllDispatchStates() {
   emitDispatchRuntimeSnapshot();
 }
 
-export function clearDispatchQueue() {
+export async function clearDispatchQueue(logger = null) {
   let count = 0;
   for (const [, state] of dispatchTargetStateMap) {
     if (Array.isArray(state.queue)) {
@@ -469,6 +479,9 @@ export function clearDispatchQueue() {
       state.queue = [];
     }
   }
-  emitDispatchRuntimeSnapshot();
+  if (count > 0) {
+    emitDispatchRuntimeSnapshot();
+    await commitDispatchRuntimeState(logger);
+  }
   return count;
 }

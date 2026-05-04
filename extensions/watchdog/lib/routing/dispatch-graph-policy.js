@@ -238,7 +238,7 @@ export async function onAgentDone(agentId, api, logger, {
 
   await markIdle(agentId, logger);
 
-  const next = dequeueDispatchContract(agentId);
+  const next = await dequeueDispatchContract(agentId, logger);
   if (!next) return;
 
   logger?.info?.(`[dispatch-graph-policy] draining queue for ${agentId}: next=${next.contractId} (remaining: ${queueDepth(agentId)})`);
@@ -250,7 +250,7 @@ export async function drainIdleDispatchTargets(api, logger) {
     if (isAgentBusy(agentId)) {
       continue;
     }
-    const next = dequeueDispatchContract(agentId);
+    const next = await dequeueDispatchContract(agentId, logger);
     if (!next) {
       continue;
     }

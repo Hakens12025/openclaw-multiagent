@@ -94,7 +94,7 @@ const dispatchRuntimeStateExports = {
     }
     return true;
   },
-  dequeueDispatchContract: (agentId) => {
+  dequeueDispatchContract: async (agentId) => {
     const state = dispatchTargetStateMap.get(agentId);
     if (!state || !Array.isArray(state.queue) || state.queue.length === 0) return null;
     return state.queue.shift();

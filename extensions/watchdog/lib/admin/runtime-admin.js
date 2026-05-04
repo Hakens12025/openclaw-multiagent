@@ -75,7 +75,7 @@ export async function resetRuntimeState({
   clearAllTraces();
   clearTaskHistory();
   await clearDispatchChainStore({ persist: false });
-  const queueCount = clearDispatchQueue();
+  const queueCount = await clearDispatchQueue(logger);
   operationLocks.clear();
   clearRecentOperationGuards();
   // cancelAllPlanDispatches removed: DRAFT lifecycle eliminated.

@@ -10,10 +10,13 @@ import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import {
   buildDispatchRuntimeSnapshot,
   claimDispatchTargetContract,
+  clearDispatchQueue,
+  dequeueDispatchContract,
   enqueueDispatchContract,
   getDispatchQueueDepth,
   getDispatchTargetCurrentContract,
   listDispatchTargetIds,
+  loadDispatchRuntimeState,
   removeDispatchContract,
   releaseDispatchTargetContract,
   syncDispatchTargets,
@@ -188,6 +191,37 @@ test("enqueueDispatchContract works for executor and planner targets alike", asy
   assert.equal(getDispatchQueueDepth("planner-a"), 1);
   assert.equal(getDispatchQueueDepth("worker-a"), 1);
 });
+
+test("dequeueDispatchContract persists queue removal before startup reload", async () => runGlobalTestEnvironmentSerial(async () => {
+  dispatchTargetStateMap.clear();
+  await syncDispatchTargets(["planner-a"], logger);
+
+  enqueueDispatchContract("planner-a", "TC-DEQUEUE-PERSIST-1", { fromAgent: "controller" }, logger);
+  const entry = await dequeueDispatchContract("planner-a", logger);
+  assert.equal(entry?.contractId, "TC-DEQUEUE-PERSIST-1");
+  assert.equal(getDispatchQueueDepth("planner-a"), 0);
+
+  dispatchTargetStateMap.clear();
+  await loadDispatchRuntimeState(logger);
+
+  assert.equal(getDispatchQueueDepth("planner-a"), 0);
+  assert.deepEqual(buildDispatchRuntimeSnapshot().queue, []);
+}));
+
+test("clearDispatchQueue persists queue removal before startup reload", async () => runGlobalTestEnvironmentSerial(async () => {
+  dispatchTargetStateMap.clear();
+  await syncDispatchTargets(["planner-a"], logger);
+
+  enqueueDispatchContract("planner-a", "TC-CLEAR-PERSIST-1", { fromAgent: "controller" }, logger);
+  assert.equal(await clearDispatchQueue(logger), 1);
+  assert.equal(getDispatchQueueDepth("planner-a"), 0);
+
+  dispatchTargetStateMap.clear();
+  await loadDispatchRuntimeState(logger);
+
+  assert.equal(getDispatchQueueDepth("planner-a"), 0);
+  assert.deepEqual(buildDispatchRuntimeSnapshot().queue, []);
+}));
 
 test("dispatch runtime persistence no longer reads or writes legacy workers shape", async () => {
   const dispatchRuntimeSource = await readFile(
