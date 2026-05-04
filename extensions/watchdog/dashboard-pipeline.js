@@ -17,7 +17,7 @@ function getVisiblePipelineAgentIds() {
   if (Array.isArray(window._visiblePipelineAgentIds) && window._visiblePipelineAgentIds.length > 0) {
     return window._visiblePipelineAgentIds;
   }
-  return Object.keys(nodePositions || {}).filter((agentId) => agentId && agentId !== '_result');
+  return Object.keys(nodePositions || {}).filter((agentId) => agentId && !String(agentId).startsWith('_'));
 }
 
 function getPipelineNodeState(agentId) {

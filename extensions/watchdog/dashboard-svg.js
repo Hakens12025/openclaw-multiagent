@@ -14,7 +14,6 @@ export const SVG_W = 680;
 export const NODE_W = 160, NODE_H = 78;
 export const SLOT_GAP = 28, SLOT_H = NODE_H + SLOT_GAP;
 export const COL_LEFT = 20, COL_CENTER = 270;
-export const RESULT_X = 500, RESULT_W = 120;
 export const TOP_Y = 10;
 export const GRID_SNAP = 10;
 
@@ -112,13 +111,6 @@ export function buildPipelineSVG(agents) {
     leftColumnY += SLOT_H;
   }
 
-  const resultAnchorNode = pipelineNodes[Math.floor((pipelineNodes.length - 1) / 2)]
-    || plannerNodes[Math.floor((plannerNodes.length - 1) / 2)]
-    || bridgeNodes[Math.floor((bridgeNodes.length - 1) / 2)]
-    || null;
-  const resultY = resultAnchorNode ? nodePositions[resultAnchorNode.id].y : TOP_Y;
-  nodePositions['_result'] = { x: snap(RESULT_X), y: snap(resultY), w: RESULT_W, h: NODE_H };
-
   // Apply saved drag positions
   for (const [id, saved] of Object.entries(savedPositions)) {
     if (nodePositions[id]) { nodePositions[id].x = snap(saved.x); nodePositions[id].y = snap(saved.y); }
@@ -132,9 +124,8 @@ export function buildPipelineSVG(agents) {
   const bottomY = laidOutNodeIds.length > 0
     ? Math.max(
         ...laidOutNodeIds.map((agentId) => nodePositions[agentId].y + NODE_H),
-        nodePositions['_result'].y + NODE_H,
       )
-    : nodePositions['_result'].y + NODE_H;
+    : TOP_Y + NODE_H;
   const viewH = snap(bottomY + 40);
   baseViewBox.w = SVG_W; baseViewBox.h = viewH;
   viewBox.w = SVG_W / zoomLevel; viewBox.h = viewH / zoomLevel;
@@ -151,20 +142,12 @@ export function buildPipelineSVG(agents) {
   }
   window._visiblePipelineAgentIds = laidOutAgents.map((agent) => agent.id);
 
-  const rp = nodePositions['_result'];
-  const rg = svgEl('g', { 'data-agent':'_result', className:'pipeline-node result-node' }, svg);
-  svgEl('rect', { x:rp.x, y:rp.y, width:rp.w, height:rp.h, className:'svg-node-box node-result' }, rg);
-  svgEl('text', { x:rp.x+rp.w/2, y:rp.y+30, textContent:'RESULT', className:'svg-node-name' }, rg);
-  svgEl('text', { x:rp.x+rp.w/2, y:rp.y+46, textContent:'OUTPUT', className:'svg-node-role' }, rg);
-  let rlTimer = null;
-  rg.addEventListener('mouseenter', () => { rlTimer = setTimeout(() => highlightConnections('_result', true), 400); });
-  rg.addEventListener('mouseleave', () => { clearTimeout(rlTimer); highlightConnections('_result', false); });
-
   const wrap = document.querySelector('.pipeline-wrap');
   if (wrap) wrap.style.minHeight = `${viewH+20}px`;
   initDrag(svg);
 
   emit('pipeline:rebuilt');
+  rebuildActiveFlowElements();
 }
 
 // ── Draw node with hover/context listeners ──

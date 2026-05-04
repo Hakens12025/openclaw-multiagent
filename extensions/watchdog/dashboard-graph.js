@@ -124,7 +124,7 @@ export function clearGraphSelection({ silent = false } = {}) {
 }
 
 export async function handleGraphNodePrimaryAction(agentId) {
-  if (!OC.ux.editMode || !agentId || agentId === '_result') return false;
+  if (!OC.ux.editMode || !agentId || String(agentId).startsWith('_')) return false;
   if (!selectedGraphSourceAgent) {
     selectedGraphSourceAgent = agentId;
     renderGraphSourceSelection();

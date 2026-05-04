@@ -102,7 +102,6 @@
   /* svg-role-bar removed */
   .svg-node-box.active { stroke: var(--accent-orange); fill: var(--bg-primary); }
   .svg-node-box.receiving { stroke: var(--accent-green); fill: var(--bg-primary); }
-  .svg-node-box.node-result { fill: var(--bg-secondary); stroke-width: 1.5; }
   .svg-node-box.dispatching {
     stroke: var(--accent-amber);
     animation: dispatch-pulse 2s infinite;
@@ -146,54 +145,9 @@
   .svg-status-dot.error { fill: var(--accent-red); }
   .svg-status-dot.dispatching { fill: var(--accent-amber); animation: dispatch-pulse 2s infinite; }
 
-  /* SVG flow lines — V4: ALL hidden by default */
-  .svg-flow-line {
-    stroke: transparent; stroke-width: 3; fill: none;
-    transition: stroke 0.3s;
-  }
-  .svg-flow-line.active {
-    stroke: var(--accent-orange);
-    stroke-dasharray: 14 7;
-    animation: svg-dash-flow 1s linear infinite;
-    transition: none;
-  }
-  .svg-flow-line.path-fast { stroke-width: 2.5; }
-  .svg-flow-arrow { fill: transparent; transition: fill 0.3s; }
-  .svg-flow-arrow.active { fill: var(--accent-orange); }
-  .svg-flow-label {
-    font-family: "Courier New", monospace; font-size: 10px;
-    fill: transparent; text-anchor: middle; letter-spacing: 0.1em;
-    transition: fill 0.3s;
-    paint-order: stroke fill;
-    stroke: var(--bg-primary); stroke-width: 3px;
-  }
-  .svg-flow-label.active { fill: var(--accent-orange); }
-
   @keyframes svg-dash-flow {
     to { stroke-dashoffset: -21; }
   }
-
-  /* SVG reply line (reverse/return — green) */
-  .svg-reply-line {
-    stroke: transparent; stroke-width: 2.5; fill: none;
-    transition: stroke 0.4s;
-  }
-  .svg-reply-line.active {
-    stroke: var(--accent-green);
-    stroke-dasharray: 10 6;
-    animation: svg-dash-flow 1s linear infinite;
-    transition: none;
-  }
-  .svg-reply-arrow { fill: transparent; transition: fill 0.4s; }
-  .svg-reply-arrow.active { fill: var(--accent-green); }
-  .svg-reply-label {
-    font-family: "Courier New", monospace; font-size: 10px;
-    fill: transparent; text-anchor: middle; letter-spacing: 0.1em;
-    transition: fill 0.4s;
-    paint-order: stroke fill;
-    stroke: var(--bg-primary); stroke-width: 3px;
-  }
-  .svg-reply-label.active { fill: var(--accent-green); }
 
   /* Specialist nodes use the amber accent without changing the global graph truth. */
   .svg-node-box.node-specialist {
@@ -230,12 +184,6 @@
     stroke-dasharray: 14 7;
     animation: svg-dash-flow 1s linear infinite;
   }
-  .flow-dynamic.flow-graph-route-fast {
-    stroke: var(--accent-amber);
-    stroke-width: 2.25;
-    stroke-dasharray: 10 5;
-    animation: svg-dash-flow 0.85s linear infinite;
-  }
   .flow-dynamic.flow-terminal-delivery {
     stroke: var(--accent-green);
     stroke-width: 2;
@@ -264,7 +212,6 @@
     stroke-width: 3px;
   }
   .flow-dynamic-label.flow-graph-route { fill: var(--accent-orange); }
-  .flow-dynamic-label.flow-graph-route-fast { fill: var(--accent-amber); }
   .flow-dynamic-label.flow-terminal-delivery { fill: var(--accent-green); }
   .flow-dynamic-label.flow-system-action-delivery { fill: #2b9a8f; }
   .flow-dynamic-label.flow-direct-dispatch { fill: var(--accent-amber); }
@@ -417,21 +364,7 @@
   }
   .tip-active { color: var(--accent-green); }
 
-  /* ── HOVER HIGHLIGHT (flow lines) ── */
-  .svg-flow-line.highlight {
-    stroke: var(--accent-orange) !important; opacity: 1 !important;
-    stroke-dasharray: 14 7;
-    animation: svg-dash-flow 1s linear infinite;
-    transition: none;
-  }
-  .svg-reply-line.highlight {
-    stroke: var(--accent-green) !important; opacity: 1 !important;
-    stroke-dasharray: 10 6;
-    animation: svg-dash-flow 1s linear infinite;
-    transition: none;
-  }
-  .svg-flow-label.highlight { fill: var(--accent-orange) !important; }
-  .svg-reply-label.highlight { fill: var(--accent-green) !important; }
+  /* ── HOVER HIGHLIGHT ── */
   .pipeline-node { transition: opacity 0.3s; }
   .pipeline-node.dimmed { opacity: 0.4; }
 

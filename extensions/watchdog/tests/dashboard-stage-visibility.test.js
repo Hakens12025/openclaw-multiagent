@@ -327,6 +327,38 @@ test("buildPipelineSVG hides non-controller gateway bridge nodes on main dashboa
   assert.equal(Boolean(dashboardSvg.nodePositions.plan2), true);
 });
 
+test("buildPipelineSVG renders only real agent nodes and no synthetic result node", () => {
+  resetDashboardState();
+
+  dashboardSvg.buildPipelineSVG([
+    { id: "controller", role: "bridge", gateway: true, model: "m1" },
+    { id: "planner", role: "planner", model: "m2" },
+    { id: "worker-a", role: "executor", model: "m3" },
+  ]);
+
+  const svg = document.getElementById("pipelineSvg");
+  assert.equal(Boolean(dashboardSvg.nodePositions._result), false);
+  assert.equal(svg.querySelector('[data-agent="_result"]'), null);
+  assert.equal(svg.querySelector(".result-node"), null);
+  assert.deepEqual(window._visiblePipelineAgentIds, ["controller", "planner", "worker-a"]);
+});
+
+test("buildPipelineSVG preserves active flow DOM across graph rebuilds", () => {
+  resetDashboardState();
+
+  const agents = [
+    { id: "controller", role: "bridge", gateway: true, model: "m1" },
+    { id: "planner", role: "planner", model: "m2" },
+  ];
+  dashboardSvg.buildPipelineSVG(agents);
+  dashboard.addActiveFlow("controller", "planner", "ROUTE", { type: "graph-route" });
+  assert.ok(findFlowGroup("controller→planner"), "expected initial flow group");
+
+  dashboardSvg.buildPipelineSVG(agents);
+
+  assert.ok(findFlowGroup("controller→planner"), "expected flow group after SVG rebuild");
+});
+
 test("event stream folds non-controller gateway bridge events into controller block", () => {
   resetDashboardState();
   dashboard.agentMeta.controller = { role: "bridge", gateway: true };

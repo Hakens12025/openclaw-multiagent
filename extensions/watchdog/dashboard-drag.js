@@ -1,5 +1,5 @@
 // dashboard-drag.js — Drag nodes (edit mode), pan viewport, scroll-wheel zoom, localStorage
-import { SVG_W, NODE_W, nodePositions, savedPositions, snap, buildPipelineSVG, rebuildActiveFlowElements } from './dashboard-svg.js';
+import { SVG_W, NODE_W, nodePositions, savedPositions, snap, buildPipelineSVG } from './dashboard-svg.js';
 import { updatePipeline } from './dashboard-pipeline.js';
 import { toast } from './dashboard-common.js';
 
@@ -56,10 +56,10 @@ export function initDrag(svg) {
   svg.addEventListener('mousedown', (e) => {
     const g = e.target.closest('.pipeline-node');
 
-    // Drag: edit mode + on a node (not result)
+    // Drag: edit mode + on a real agent node
     if (OC.ux.editMode && g && !e.target.closest('.clickable')) {
       const id = g.getAttribute('data-agent');
-      if (id && id !== '_result' && nodePositions[id]) {
+      if (id && !String(id).startsWith('_') && nodePositions[id]) {
         const p = pt(e), pos = nodePositions[id];
         if (interaction.mode) return;
         dragging = { id, g, origX: pos.x, origY: pos.y, moved: false };
@@ -118,7 +118,6 @@ export function initDrag(svg) {
       if (didMove) {
         window.__openclawSuppressNodeClickUntil = Date.now() + 250;
         if (window._lastAgentData) buildPipelineSVG(window._lastAgentData);
-        rebuildActiveFlowElements();
         updatePipeline();
       }
     }
@@ -159,7 +158,6 @@ export function resetLayout() {
   try { localStorage.removeItem('openclaw-node-layout'); } catch {}
   try { localStorage.removeItem('openclaw-zoom-pan'); } catch {}
   if (window._lastAgentData) buildPipelineSVG(window._lastAgentData);
-  rebuildActiveFlowElements();
   updatePipeline();
   toast('Layout reset', 'info');
 }
