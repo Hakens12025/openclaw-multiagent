@@ -143,7 +143,7 @@ export async function handleBeforeStartIngress({
 
   // Controller webhooks: extract user message and create contract via ingress.
   // QQ messages are now handled by the agent-as-classifier (no hard-path interception).
-  // All WebUI webhook messages (simple + complex) go through hard-path ingress to
+  // All WebUI webhook messages go through hard-path ingress to
   // produce inbox_dispatch events and proper contract lifecycle.
   if (identity.gateway && identity.ingressSource === "webui" && event?.prompt && sessionKey.includes(":hook:")) {
     const message = resolveIngressMessageText(event);

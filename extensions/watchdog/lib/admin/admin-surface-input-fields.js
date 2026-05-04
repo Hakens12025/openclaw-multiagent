@@ -774,17 +774,6 @@ export const SURFACE_INPUT_FIELDS = Object.freeze({
       description: "Ingress source label used for reply routing and diagnostics.",
     },
     {
-      key: "routeHint",
-      label: "ROUTE HINT",
-      type: "select",
-      options: [
-        { value: "", label: "AUTO" },
-        { value: "standard", label: "STANDARD" },
-        { value: "long", label: "LONG" },
-      ],
-      description: "Optional standard-ingress hint. No dedicated research route exists anymore.",
-    },
-    {
       key: "intentType",
       label: "INTENT TYPE",
       type: "select",
@@ -796,18 +785,6 @@ export const SURFACE_INPUT_FIELDS = Object.freeze({
         { value: "wake_agent", label: "WAKE_AGENT" },
       ],
       description: "Optional protocol intent hint for standard ingress metadata and diagnostics.",
-    },
-    {
-      key: "simple",
-      label: "FAST TRACK",
-      type: "select",
-      options: [
-        { value: "", label: "AUTO" },
-        { value: "true", label: "TRUE" },
-        { value: "false", label: "FALSE" },
-      ],
-      valueType: "boolean_token",
-      description: "Optional short-route override for standard ingress.",
     },
     {
       key: "phasesText",

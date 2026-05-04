@@ -11,35 +11,35 @@ export const BENCHMARK_CASES = [
   {
     id: "bench-instruct-01", category: "instruction",
     message: "研究北京最近三天天气并总结趋势",
-    expectedPath: "full-path", timeoutMs: 180000,
+    complexity: "complex", timeoutMs: 180000,
     validateOutput: { minBytes: 200, keywords: ["天气", "趋势", "北京"] },
     scoring: { contractFormat: 3, outputQuality: 3, toolUsage: 2, completionSpeed: 2 },
   },
   {
     id: "bench-instruct-02", category: "instruction",
     message: "对比 React 和 Vue 框架的优缺点，写一份 500 字以上的报告",
-    expectedPath: "full-path", timeoutMs: 180000,
+    complexity: "complex", timeoutMs: 180000,
     validateOutput: { minBytes: 500, keywords: ["React", "Vue", "优", "缺"] },
     scoring: { contractFormat: 3, outputQuality: 3, toolUsage: 2, completionSpeed: 2 },
   },
   {
     id: "bench-simple-01", category: "simple",
     message: "今天星期几",
-    expectedPath: "fast-track", timeoutMs: 60000,
+    complexity: "simple", timeoutMs: 60000,
     validateOutput: { minBytes: 10 },
     scoring: { contractFormat: 2, outputQuality: 2, toolUsage: 1, completionSpeed: 5 },
   },
   {
     id: "bench-simple-02", category: "simple",
     message: "1+1等于几",
-    expectedPath: "fast-track", timeoutMs: 60000,
+    complexity: "simple", timeoutMs: 60000,
     validateOutput: { minBytes: 5, keywords: ["2"] },
     scoring: { contractFormat: 2, outputQuality: 3, toolUsage: 1, completionSpeed: 4 },
   },
   {
     id: "bench-tool-01", category: "tool_usage",
     message: "搜索 Python 3.12 的新特性并总结",
-    expectedPath: "full-path", timeoutMs: 180000,
+    complexity: "complex", timeoutMs: 180000,
     validateOutput: { minBytes: 200, keywords: ["Python"] },
     scoring: { contractFormat: 2, outputQuality: 3, toolUsage: 5, completionSpeed: 1 },
   },
@@ -120,7 +120,7 @@ export async function evaluateBenchmark(testResult, testCase) {
   // 4. Completion Speed
   if (testResult.pass) {
     const duration = parseFloat(testResult.duration);
-    const isSimple = testCase.expectedPath === "fast-track";
+    const isSimple = testCase.complexity === "simple";
     const speedMax = maxScores.completionSpeed;
     if (isSimple) {
       if (duration < 15) scores.completionSpeed = speedMax;
@@ -158,11 +158,11 @@ export function generateBenchmarkReport(benchResults, totalDuration) {
 
   for (const br of benchResults) {
     const { testResult, benchScore, testCase } = br;
-    const pathLabel = testResult.isFastTrack === true ? "FAST-TRACK" : "FULL-PATH";
+    const complexityLabel = testCase.complexity === "simple" ? "SIMPLE" : "COMPLEX";
     const result = testResult.pass ? "PASS" : "FAIL";
 
     lines.push(`── ${testCase.id} "${testCase.message.slice(0, 40)}" ──`);
-    lines.push(`Path: ${pathLabel}  Duration: ${testResult.duration}s  Chain: ${result}`);
+    lines.push(`Complexity: ${complexityLabel}  Duration: ${testResult.duration}s  Chain: ${result}`);
     lines.push(`Score: ${benchScore.total}/${benchScore.max} (${Math.round(benchScore.total/benchScore.max*100)}%)`);
     lines.push("");
 

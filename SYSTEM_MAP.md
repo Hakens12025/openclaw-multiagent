@@ -77,29 +77,33 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 
 ### 4.2 意图类型（Intent）
 
-`start_pipeline`, `advance_pipeline`, `wake_agent`, `create_task` 等。
+`start_loop`, `advance_loop`, `wake_agent`, `create_task`, `assign_task`, `request_review` 等。
 定义在 `lib/protocol-primitives.js`。
 
 ### 4.3 主路径流转
 
 ```
 用户消息
-  → ingress hook (分类: simple/standard)
-  → simple → fast-track: bridge → executor → delivery
-  → standard → bridge → contractor → contract → worker-pool → delivery
-  → graph-backed loop / pipeline:
-      start_pipeline(startAgent)
+  → ingress hook
+  → bridge → execution contract
+  → graph policy selects next hop
+  → dispatch transport stages inbox/contract.json
+  → agent executes contract
+  → delivery returns result
+  → graph-backed loop:
+      start_loop(startAgent)
       → graph edge validation
       → loop session / stage context
-      → advance_pipeline(suggestedNext | concluded)
+      → advance_loop(suggestedNext | concluded)
 ```
 
 ### 4.4 outbox 协议
 
 Agent 写 `outbox/` 目录，router-handler-registry 按 `outboxCommitKinds` 分发：
 - `execution_result` — 执行层 agent（planner / worker / researcher / reviewer）统一产出执行结果
-- `research_search_space` — researcher 产出研究方向
-- `evaluation_verdict` / `evaluation_decision` — evaluator 产出评估结论
+- `stage_result` — runtime 可识别的阶段完成/失败信号
+- `contract_result` — contract 级补充状态或失败说明
+- `_manifest` — 多产物交付清单
 
 ---
 

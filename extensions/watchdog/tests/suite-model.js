@@ -18,7 +18,7 @@ export const MODEL_TEST_CASES = [
   {
     id: "m-simple",
     message: "1+1等于几",
-    expectedPath: "fast-track",
+    complexity: "simple",
     timeoutMs: 120000,
     validateOutput: { minBytes: 5, keywords: ["2"] },
     scoring: { contractFormat: 2, outputQuality: 3, toolUsage: 1, completionSpeed: 4 },
@@ -27,7 +27,7 @@ export const MODEL_TEST_CASES = [
   {
     id: "m-instruct",
     message: "对比 React 和 Vue 框架的优缺点，写一份报告",
-    expectedPath: "full-path",
+    complexity: "complex",
     timeoutMs: 300000,
     validateOutput: { minBytes: 200, keywords: ["React", "Vue"] },
     scoring: { contractFormat: 3, outputQuality: 3, toolUsage: 2, completionSpeed: 2 },
@@ -206,9 +206,9 @@ export function generateModelComparisonReport(allModelResults, totalDuration, st
 
     for (const br of mr.benchResults) {
       const { testResult, benchScore, testCase } = br;
-      const pathLabel = testResult.isFastTrack === true ? "FAST-TRACK" : "FULL-PATH";
+      const complexityLabel = testCase.complexity === "simple" ? "SIMPLE" : "COMPLEX";
       const result = testResult.pass ? "PASS" : "FAIL";
-      lines.push(`│  ${testCase.id}: ${result} | ${pathLabel} | ${testResult.duration}s | ${benchScore.total}/${benchScore.max} (${Math.round(benchScore.total/benchScore.max*100)}%)`);
+      lines.push(`│  ${testCase.id}: ${result} | ${complexityLabel} | ${testResult.duration}s | ${benchScore.total}/${benchScore.max} (${Math.round(benchScore.total/benchScore.max*100)}%)`);
 
       if (!testResult.pass && testResult.results) {
         const diagnosis = summarizeTestDiagnosis(testResult);

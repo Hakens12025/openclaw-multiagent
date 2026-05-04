@@ -45,9 +45,7 @@ export function resolveFlowVisualType(kind, data = null) {
     case PROTOCOL_ID.SYSTEM_ACTION.ADVANCE_LOOP:
       return FLOW_VISUAL_ID.WORKFLOW_PROGRESS;
     default:
-      return data?.fastTrack === true
-        ? `${FLOW_VISUAL_ID.DISPATCH_GRAPH}:fast`
-        : FLOW_VISUAL_ID.DISPATCH_GRAPH;
+      return FLOW_VISUAL_ID.DISPATCH_GRAPH;
   }
 }
 
@@ -62,8 +60,6 @@ export function resolveFlowVisualLabel(kind, data = null) {
 
 export function resolveFlowVisualClasses(visualType) {
   switch (visualType) {
-    case `${FLOW_VISUAL_ID.DISPATCH_GRAPH}:fast`:
-      return " flow-graph-route flow-graph-route-fast";
     case FLOW_VISUAL_ID.DISPATCH_GRAPH:
       return " flow-graph-route";
     case FLOW_VISUAL_ID.DISPATCH_DIRECT:

@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  classifyFullPathExecutionMode,
-  getFormalFullPathCasePolicy,
-} from "./formal-full-path-runtime.js";
+  classifyContractExecutionMode,
+  getFormalContractCasePolicy,
+} from "./formal-contract-runtime.js";
 
-test("loop-elevated full-path runtime is accepted without worker-only checkpoints", () => {
-  const result = classifyFullPathExecutionMode({
+test("loop-elevated contract runtime is accepted by explicit system action state", () => {
+  const result = classifyContractExecutionMode({
     contractRuntime: {
       status: "completed",
       systemAction: {
@@ -27,7 +27,7 @@ test("loop-elevated full-path runtime is accepted without worker-only checkpoint
 });
 
 test("invalid start_loop remains a runtime failure", () => {
-  const result = classifyFullPathExecutionMode({
+  const result = classifyContractExecutionMode({
     contractRuntime: {
       status: "failed",
       systemAction: {
@@ -47,8 +47,8 @@ test("invalid start_loop remains a runtime failure", () => {
   });
 });
 
-test("invalid legacy contractor start_loop remains a failed full-path runtime", () => {
-  const result = classifyFullPathExecutionMode({
+test("invalid legacy contractor start_loop remains a failed contract runtime", () => {
+  const result = classifyContractExecutionMode({
     contractRuntime: {
       status: "pending",
       assignee: "worker",
@@ -69,13 +69,13 @@ test("invalid legacy contractor start_loop remains a failed full-path runtime", 
   });
 });
 
-test("formal full-path cases remain worker-only", () => {
-  assert.deepEqual(getFormalFullPathCasePolicy("complex-02"), {
+test("formal contract cases keep explicit execution-mode policy", () => {
+  assert.deepEqual(getFormalContractCasePolicy("complex-02"), {
     allowLoopElevation: false,
     requiredExecutionMode: "worker",
   });
 
-  assert.deepEqual(getFormalFullPathCasePolicy("complex-03"), {
+  assert.deepEqual(getFormalContractCasePolicy("complex-03"), {
     allowLoopElevation: false,
     requiredExecutionMode: "worker",
   });

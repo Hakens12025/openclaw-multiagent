@@ -21,10 +21,10 @@ researcher → worker → evaluator → (judgment) → researcher ...
 - 通用循环机制 + 具体家族绑定
 - 不同循环场景（研究、生产、审查）复用同一套循环原语
 
-**Pipeline 溶解**（备忘录92）：
-- pipeline-engine.js（1717 行，8 文件）被标记为删除目标
-- loop-session 吸收决策逻辑
-- system_action 重命名：`start_pipeline` → `start_loop`，`advance_pipeline` → `advance_loop`
+**Loop runtime 收口**：
+- `LoopSpec` 描述可重复协作结构
+- loop-session 保存运行期状态
+- system_action 使用 `start_loop` 与 `advance_loop`
 
 ## 为什么存在
 
@@ -41,11 +41,11 @@ researcher → worker → evaluator → (judgment) → researcher ...
 
 ## 演化
 
-1. 备忘录65 开始讨论循环机制，将 pipeline 概念向 loop 迁移
+1. 备忘录65 开始讨论循环机制，将流水线概念向 loop 迁移
 2. 备忘录69 loop-session 成为真值源，旧 Path B 删除
 3. 备忘录74 提出判别式循环 / GAN-like 模式
-4. 备忘录92 正式提出 pipeline 溶解计划，loop-session 吸收决策逻辑
+4. 备忘录92 正式提出 loop 收口计划，loop-session 吸收决策逻辑
 
 ## 当前状态
 
-**概念已定型，溶解半完成**。备忘录98 确认旧 pipeline-engine 仍在 loop-session-store facade 背后运行，尚未真正删除。system_action 重命名已完成。loop-session 存储已独立，但决策逻辑的完全吸收尚未完成。
+**概念已定型。** system_action 使用 `start_loop` / `advance_loop`，loop-session 存储独立，graph edge 和 LoopSpec 共同决定可执行回路。

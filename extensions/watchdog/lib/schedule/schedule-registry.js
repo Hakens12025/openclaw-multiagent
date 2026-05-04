@@ -37,7 +37,6 @@ function normalizeScheduleEntry(value) {
     type,
     targetAgent,
     message,
-    routeHint: normalizeString(source.routeHint) || null,
   };
 }
 

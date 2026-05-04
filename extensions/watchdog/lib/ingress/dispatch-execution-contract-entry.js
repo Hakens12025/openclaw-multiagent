@@ -81,19 +81,14 @@ async function loadPriorContextForReply(replyTo) {
   }
 }
 
-async function notifyIngressReceipt({ fromAgent, message, simple }) {
+async function notifyIngressReceipt({ fromAgent, message }) {
   if (!isQQIngressAgent(fromAgent)) return;
 
   const runtimeSnapshot = buildDispatchRuntimeSnapshot();
   const idleWorkers = Object.values(runtimeSnapshot.targets || {})
     .filter((state) => !state?.busy && !state?.dispatching)
     .length;
-  if (simple) {
-    await qqNotify(QQ_OPENID, `📋 任务已收到\n${message.slice(0, 60)}\n⚡ 快速通道，${idleWorkers > 0 ? "立即处理" : "排队中"}`);
-    return;
-  }
-
-  await qqNotify(QQ_OPENID, `📋 任务已收到\n${message.slice(0, 60)}\n🔍 需要规划，正在分配 Planner...`);
+  await qqNotify(QQ_OPENID, `任务已收到\n${message.slice(0, 60)}\n${idleWorkers > 0 ? "已进入执行队列" : "排队中"}`);
 }
 
 function resolveDispatchChainOriginSessionKey(fromAgent, effectiveReplyTo) {
@@ -134,7 +129,6 @@ async function attachPlannerContext(contract) {
   return {
     ...contract,
     planningContext: {
-      route: contract?.protocol?.route || "long",
       activeLoopCount: activeLoopCandidates.length,
       activeLoopCandidates,
     },
@@ -155,7 +149,6 @@ export async function dispatchCreateExecutionContractEntry({
   serviceSession,
   routeMetadataDiagnostics = null,
   systemActionDeliveryTicket,
-  simple,
   phases,
   api,
   logger,
@@ -197,7 +190,6 @@ export async function dispatchCreateExecutionContractEntry({
     total: stagePlan ? deriveCompatibilityTotal(stagePlan) : null,
     output: join(OC, "workspaces", "controller", "output", `${contractId}.md`),
     status: CONTRACT_STATUS.PENDING,
-    fastTrack: simple,
     retryCount: 0,
     createdAt: ts,
     deliveryTargets: normalizeDeliveryTargets(deliveryTargets || []),
@@ -211,7 +203,6 @@ export async function dispatchCreateExecutionContractEntry({
     ...(priorContext ? { priorContext } : {}),
   }, {
     source,
-    route: simple ? "short" : "long",
   });
   contract = await attachPlannerContext(contract);
   attachOperatorContext(contract, operatorContext);
@@ -221,10 +212,10 @@ export async function dispatchCreateExecutionContractEntry({
   await mkdir(CONTRACTS_DIR, { recursive: true });
   const contractPath = getContractPath(contractId);
   await persistContractSnapshot(contractPath, contract, logger, {
-    logMessage: `[ingress] created ${contractId} (from=${fromAgent}, fastTrack=${simple})`,
+    logMessage: `[ingress] created ${contractId} (from=${fromAgent})`,
   });
 
-  await notifyIngressReceipt({ fromAgent, message, simple });
+  await notifyIngressReceipt({ fromAgent, message });
   await recordIngressDispatchChain({ fromAgent, effectiveReplyTo, firstHopAgentId, ts, logger });
 
   // Route via graph: resolve out-edge from source agent

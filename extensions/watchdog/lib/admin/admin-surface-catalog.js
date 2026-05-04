@@ -706,7 +706,7 @@ export const ADMIN_SURFACES = Object.freeze([
     operatorPhase: "O2",
     confirmation: "changeset",
     status: "active",
-    summary: "向统一 ingress 注入测试消息，并可显式指定 route hint / intent / fast-track / phases。",
+    summary: "向统一 ingress 注入测试消息，并可显式指定 intent / phases。",
   },
   {
     id: "agents.delete",

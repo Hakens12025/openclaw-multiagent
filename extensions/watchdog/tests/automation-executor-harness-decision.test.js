@@ -26,7 +26,6 @@ test("handleAutomationContractTerminal backfills final decision onto lastHarness
       },
       entry: {
         targetAgent: "controller",
-        routeHint: "long",
       },
       wakePolicy: {
         type: "result",
@@ -47,7 +46,6 @@ test("handleAutomationContractTerminal backfills final decision onto lastHarness
       logger: buildLogger(),
       dispatchAcceptIngressMessageFn: async () => ({
         ok: true,
-        route: "long",
         contractId: "TC-AUTOMATION-HARNESS-DECISION",
       }),
     });

@@ -43,7 +43,7 @@ const ERROR_GUIDANCE = {
   context_overflow: [
     "避免 read 大文件，用 grep/glob 精确搜索替代全文阅读",
     "分步执行，先完成最关键的输出",
-    "单次操作不要读取超过 3 个大文件",
+    "单次操作最多读取 3 个大文件",
   ],
   timeout: [
     "先输出最关键的结果，避免长时间搜索",
@@ -55,10 +55,10 @@ const ERROR_GUIDANCE = {
   ],
   permission: [
     "只访问自己 workspace 内的文件（inbox/、outbox/）",
-    "不要读取 openclaw.json 或其他 agent 的 workspace",
+    "平台配置和其他 agent workspace 交给 operator/runtime surface",
   ],
   file_not_found: [
-    "先用 glob 确认目标路径存在，不要硬编码猜测",
+    "先用 glob 确认目标路径存在，再使用该路径",
     "检查 contract 中指定的 output 路径是否正确",
   ],
   disk_full: [
@@ -66,7 +66,7 @@ const ERROR_GUIDANCE = {
   ],
   connection: [
     "如果 web_search 失败，改用本地文件和已有数据完成任务",
-    "不要反复重试同一个失败的网络请求",
+    "同一网络请求失败后改用本地资料或换查询入口",
   ],
   unknown: [
     "检查上次方法是否可行，考虑简化或换一种方式",
@@ -160,7 +160,7 @@ async function regenerateSkillFile(ledger, logger) {
     "# 错误回避知识库",
     "",
     "以下是全系统历史执行中积累的经验教训。所有 agent 共享此知识。",
-    "执行任务时请主动规避这些已知问题。",
+    "执行任务时优先采用这些稳定做法。",
     "",
   ];
 

@@ -52,7 +52,6 @@ function normalizeAutomationEntry(value, objective) {
     type: normalizeString(source.type)?.toLowerCase() || "workflow",
     targetAgent,
     message,
-    routeHint: normalizeString(source.routeHint) || null,
   };
 }
 
@@ -133,7 +132,6 @@ export function normalizeAutomationSpec(value) {
     ...(normalizeString(source.targetAgent || source.agentId)
       ? { targetAgent: source.targetAgent || source.agentId }
       : {}),
-    ...(normalizeString(source.routeHint) ? { routeHint: source.routeHint } : {}),
   }, objective);
   const harness = normalizeAutomationHarness({
     ...(normalizeRecord(source.harness, {})),

@@ -13,7 +13,7 @@
 | SOUL.md | 我是谁 | 启动时，最先读取 |
 | BUILDING-MAP.md | 其他人是谁（黄页） | 按需读取 |
 | COLLABORATION-GRAPH.md | 我能主动联系谁 | 按需读取 |
-| RUNTIME-RETURN.md | 结果怎么回流 | 按需读取 |
+| DELIVERY.md | 结果怎么交付和回流 | 按需读取 |
 | PLATFORM-GUIDE.md | 平台入口/出口/操作面 | 按需读取 |
 
 **旧模式 vs 新模式：**
@@ -47,6 +47,7 @@
 2. 备忘录50：引入 BUILDING-MAP.md，从运行时真值生成
 3. 备忘录73：文档层级重构，5 个文件的分层设计
 4. 备忘录97：workspace-guidance-writer 实现角色差异化（执行 Agent 只拿 SOUL + HEARTBEAT）
+5. 系统真值 V5.1：结果回流说明收口到 DELIVERY.md，旧 return 文档退出 active guidance
 
 ## 当前状态
 

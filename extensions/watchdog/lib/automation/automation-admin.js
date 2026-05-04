@@ -89,7 +89,6 @@ function buildAutomationSpecPayload(payload, existing = null) {
       ...entry,
       ...(normalized.targetAgent != null ? { targetAgent: normalized.targetAgent } : {}),
       ...(normalized.agentId != null ? { targetAgent: normalized.agentId } : {}),
-      ...(normalized.routeHint != null ? { routeHint: normalized.routeHint } : {}),
     },
     adapters: {
       ...adapters,

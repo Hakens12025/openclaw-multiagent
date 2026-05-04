@@ -53,15 +53,6 @@ export const OUTBOX_COMMIT_KINDS = Object.freeze({
   EXECUTION_RESULT: "execution_result",
 });
 
-function normalizeOptionalBoolean(value) {
-  if (typeof value === "boolean") return value;
-  const normalized = normalizeString(value)?.toLowerCase();
-  if (!normalized) return null;
-  if (["1", "true", "yes"].includes(normalized)) return true;
-  if (["0", "false", "no"].includes(normalized)) return false;
-  return null;
-}
-
 function normalizeIngressPhaseEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
     return entry.trim();
@@ -88,9 +79,7 @@ export function normalizeIngressDirective(rawDirective) {
   const directive = normalizeRecord(rawDirective, null);
   if (!directive) {
     return {
-      routeHint: null,
       intentType: null,
-      simple: null,
       phases: null,
     };
   }
@@ -98,25 +87,11 @@ export function normalizeIngressDirective(rawDirective) {
   const intent = normalizeRecord(directive.intent);
   const params = normalizeRecord(directive.params);
 
-  const routeHint = normalizeString(directive.routeHint)
-    || normalizeString(directive.route)
-    || normalizeString(directive.workflow)
-    || normalizeString(params.routeHint)
-    || normalizeString(params.route)
-    || normalizeString(params.workflow)
-    || null;
-
   const intentType = normalizeString(directive.intentType)
     || normalizeString(intent.type)
     || normalizeString(params.intentType)
     || normalizeString(params.type)
     || null;
-
-  const simple = normalizeOptionalBoolean(directive.simple)
-    ?? normalizeOptionalBoolean(directive.fastTrack)
-    ?? normalizeOptionalBoolean(params.simple)
-    ?? normalizeOptionalBoolean(params.fastTrack)
-    ?? null;
 
   const phases = normalizeIngressPhases(directive.phases)
     || normalizeIngressPhases(params.phases)
@@ -124,9 +99,7 @@ export function normalizeIngressDirective(rawDirective) {
     || null;
 
   return {
-    routeHint,
     intentType,
-    simple,
     phases,
   };
 }

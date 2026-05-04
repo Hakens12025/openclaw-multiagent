@@ -91,7 +91,6 @@ test("formal reports expose normalized section headers", () => {
       pass: true,
       blocked: false,
       duration: "3.2",
-      isFastTrack: true,
       contractId: "TEST-CONTRACT-1",
       testCase: {
         id: "simple-formal",

@@ -140,9 +140,7 @@ async function systemActionRunCreateTask(normalizedAction, {
   return {
     status: wake
       ? deriveDispatchStatusFromWake(wake)
-      : ingressResult?.fastTrack === true
-        ? SYSTEM_ACTION_STATUS.QUEUED
-        : SYSTEM_ACTION_STATUS.DISPATCHED,
+      : SYSTEM_ACTION_STATUS.DISPATCHED,
     actionType: normalizedAction.type,
     contractId: ingressResult?.contractId || null,
     deferredCompletion: systemActionDelivery.deferredCompletion,

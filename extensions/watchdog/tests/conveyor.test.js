@@ -130,7 +130,6 @@ test("dispatchSendDirectRequest promotes active inbox, wakes target, and emits i
         sessionKey: "agent:researcher:pipeline:test",
       },
       dispatchAlert: {
-        route: "loop",
         stageName: "researcher",
       },
     });
@@ -150,7 +149,6 @@ test("dispatchSendDirectRequest promotes active inbox, wakes target, and emits i
     assert.equal(dispatchEvent?.data?.contractId, contract.id);
     assert.equal(dispatchEvent?.data?.from, "worker-runtime");
     assert.equal(dispatchEvent?.data?.assignee, "researcher");
-    assert.equal(dispatchEvent?.data?.route, "loop");
     assert.equal(dispatchEvent?.data?.stageName, "researcher");
   } finally {
     sse.close();
@@ -413,7 +411,6 @@ test("routeInbox does not restage a running worker contract while another live w
       envelope: "execution_contract",
       transport: "contracts/*.json",
       source: "test",
-      route: "long",
     },
   };
 
@@ -470,7 +467,6 @@ test("routeInbox restages the pending worker contract for the same resumed sessi
       envelope: "execution_contract",
       transport: "contracts/*.json",
       source: "test",
-      route: "long",
     },
   };
 

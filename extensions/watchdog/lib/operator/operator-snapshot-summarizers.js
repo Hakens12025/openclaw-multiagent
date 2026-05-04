@@ -135,7 +135,6 @@ export function summarizeSchedule(schedule) {
     enabled: schedule?.enabled === true,
     trigger: schedule?.trigger || null,
     targetAgent: schedule?.entry?.targetAgent || null,
-    routeHint: schedule?.entry?.routeHint || null,
     systemActionDeliveryAgent: schedule?.systemActionDelivery?.agentId || null,
     deliveryTargetCount: deliveryTargets.length,
     deliveryChannels: [...new Set(deliveryTargets.map((entry) => entry?.channel).filter(Boolean))],

@@ -118,9 +118,6 @@ export async function executeScheduleTrigger(scheduleId, {
     replyTo,
     deliveryTargets: spec.deliveryTargets,
     scheduleContext: buildScheduleContext(spec),
-    ingressDirective: {
-      routeHint: spec.entry.routeHint,
-    },
     api,
     enqueue,
     wakePlanner,

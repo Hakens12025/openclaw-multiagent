@@ -8,15 +8,12 @@ import {
 import { normalizeIngressDirective } from "../protocol-primitives.js";
 import {
   normalizeIngressPhases,
-  isSimpleTask,
 } from "./ingress-classification.js";
 import { normalizeRouteMetadata } from "../route-metadata.js";
 import { planTaskStages } from "../task-stage-planner.js";
 
 export {
   normalizeIngressPhases,
-  isSimpleTask,
-  isFastTrackTask,
 } from "./ingress-classification.js";
 
 export async function dispatchAcceptIngressMessage(message, {
@@ -32,9 +29,7 @@ export async function dispatchAcceptIngressMessage(message, {
   serviceSession = null,
   systemActionDeliveryTicket = null,
   ingressDirective = null,
-  routeHint = null,
   intentType = null,
-  simple = null,
   phases = null,
   api,
   enqueue,
@@ -53,15 +48,10 @@ export async function dispatchAcceptIngressMessage(message, {
   const effectiveReplyTo = dispatchResolveIngressReplyTarget(source, normalizedRouteMetadata.replyTo);
   const normalizedDirective = normalizeIngressDirective({
     ...(ingressDirective && typeof ingressDirective === "object" ? ingressDirective : {}),
-    ...(routeHint != null ? { routeHint } : {}),
     ...(intentType != null ? { intentType } : {}),
-    ...(simple != null ? { simple } : {}),
     ...(phases != null ? { phases } : {}),
   });
 
-  const resolvedSimple = typeof normalizedDirective.simple === "boolean"
-    ? normalizedDirective.simple
-    : isSimpleTask(message);
   const resolvedPhases = normalizeIngressPhases(normalizedDirective.phases) || planTaskStages(message);
   return dispatchCreateExecutionContractEntry({
     message,
@@ -77,7 +67,6 @@ export async function dispatchAcceptIngressMessage(message, {
     serviceSession: normalizedRouteMetadata.serviceSession,
     routeMetadataDiagnostics: normalizedRouteMetadata.routeMetadataDiagnostics,
     systemActionDeliveryTicket,
-    simple: resolvedSimple,
     phases: resolvedPhases,
     api,
     logger,

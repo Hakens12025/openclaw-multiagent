@@ -253,10 +253,10 @@ Conclude → 结论交付
 │                                                   │
 │  ↓ 消息流转                                       │
 │                                                   │
-│  fast-track  │  contractor  │  research-loop      │
-│  bridge      │  planner     │  researcher →       │
+│  ingress     │  graph       │  loop runtime       │
+│  bridge      │  policy      │  researcher →       │
 │    ↓         │    ↓         │  worker →           │
-│  executor    │  worker-pool │  evaluator          │
+│  contract    │  dispatch    │  evaluator          │
 │    ↓         │    ↓         │    ↓                │
 │  delivery    │  delivery    │  conclude           │
 └──────────────────┬───────────────────────────────┘

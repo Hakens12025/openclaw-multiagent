@@ -176,9 +176,6 @@ export async function startAutomationRound(automationId, {
       replyTo,
       deliveryTargets: spec.deliveryTargets,
       automationContext,
-      ingressDirective: {
-        routeHint: spec.entry?.routeHint || null,
-      },
       api,
       enqueue,
       wakePlanner,

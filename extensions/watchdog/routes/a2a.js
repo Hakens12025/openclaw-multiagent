@@ -66,7 +66,7 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         id: result.contractId || "research",
-        status: result.route === "research" ? "researching" : (result.fastTrack ? "pending" : "draft"),
+        status: result.contractId ? "submitted" : "accepted",
         createdAt: Date.now(),
         _links: result.contractId ? { self: `/a2a/tasks/${result.contractId}` } : {},
       }));

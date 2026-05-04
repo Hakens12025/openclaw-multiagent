@@ -289,7 +289,6 @@ function summarizeAutomationInstance(spec, runtime) {
     objectiveSummary: spec.objective?.summary || null,
     objectiveDomain: spec.objective?.domain || spec.adapters?.domain || null,
     targetAgent: spec.entry?.targetAgent || null,
-    routeHint: spec.entry?.routeHint || null,
     wakeType: spec.wakePolicy?.type || null,
     wakeScheduleId: spec.wakePolicy?.scheduleId || null,
     runtimeStatus: runtime?.status || (spec.enabled === true ? "idle" : "paused"),

@@ -457,7 +457,6 @@ export async function runOperatorCase(testCase) {
           type: "workflow",
           targetAgent: "controller",
           message: "执行今天的研究日报",
-          routeHint: "standard",
         },
         systemActionDelivery: {
           agentId: "controller",
@@ -549,7 +548,6 @@ export async function runOperatorCase(testCase) {
         },
         entry: {
           targetAgent: "controller",
-          routeHint: "standard",
         },
         wakePolicy: {
           type: "hybrid",
@@ -706,7 +704,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "controller",
-            routeHint: "long",
           },
           wakePolicy: {
             type: "manual",
@@ -730,7 +727,6 @@ export async function runOperatorCase(testCase) {
             capturedOptions = options;
             return {
               ok: true,
-              route: "long",
               contractId: "TC-AUTOMATION-TEST-1",
             };
           },
@@ -772,7 +768,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "controller",
-            routeHint: "long",
           },
           wakePolicy: {
             type: "result",
@@ -837,7 +832,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "controller",
-            routeHint: "standard",
           },
           wakePolicy: {
             type: "result",
@@ -860,7 +854,6 @@ export async function runOperatorCase(testCase) {
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
-            route: "standard",
             contractId: "TC-AUTOMATION-TEST-3",
           }),
         });
@@ -951,7 +944,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "controller",
-            routeHint: "long",
           },
           wakePolicy: {
             type: "result",
@@ -977,7 +969,6 @@ export async function runOperatorCase(testCase) {
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
-            route: "long",
             contractId: "TC-AUTOMATION-TEST-4",
           }),
         });
@@ -1042,7 +1033,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "worker-a",
-            routeHint: "long",
           },
           wakePolicy: {
             type: "result",
@@ -1079,7 +1069,6 @@ export async function runOperatorCase(testCase) {
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
-            route: "long",
             contractId: "TC-AUTOMATION-TEST-5",
           }),
         });
@@ -1139,7 +1128,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "controller",
-            routeHint: "long",
           },
           wakePolicy: {
             type: "result",
@@ -1162,7 +1150,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "worker-a",
-            routeHint: "long",
           },
           wakePolicy: {
             type: "result",
@@ -1197,7 +1184,6 @@ export async function runOperatorCase(testCase) {
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
-            route: "long",
             contractId: "TC-AUTOMATION-TEST-6",
           }),
         });
@@ -1208,7 +1194,6 @@ export async function runOperatorCase(testCase) {
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
-            route: "long",
             contractId: "TC-AUTOMATION-TEST-7",
           }),
         });
@@ -1253,7 +1238,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "worker-a",
-            routeHint: "long",
           },
           harness: {
             mode: "guarded",
@@ -1272,7 +1256,6 @@ export async function runOperatorCase(testCase) {
           },
           entry: {
             targetAgent: "controller",
-            routeHint: "standard",
           },
           harness: {
             mode: "hybrid",

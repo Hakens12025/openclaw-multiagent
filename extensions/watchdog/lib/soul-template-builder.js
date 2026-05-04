@@ -57,7 +57,7 @@ ${buildRolePrinciplesSection(role)}## 本地状态机
 \`\`\`
 唤醒
 ├─ inbox/contract.json 存在 → 读取 Contract → 执行 → 写结果 → 停止
-└─ inbox/contract.json 不存在 → HEARTBEAT_OK → 停止
+└─ inbox/contract.json 缺席 → HEARTBEAT_OK → 停止
 \`\`\`
 
 ## 本地处理流程
@@ -68,7 +68,7 @@ ${buildRolePrinciplesSection(role)}## 本地状态机
 read(path: "inbox/contract.json")
 \`\`\`
 
-如果报 ENOENT，说明当前没有待处理任务，立即回复 \`HEARTBEAT_OK\` 并停止。
+读到 ENOENT 时，回复 \`HEARTBEAT_OK\` 并停止。
 
 ### 第 2 步：按 Contract 执行
 
@@ -78,7 +78,7 @@ read(path: "inbox/contract.json")
 - \`output\`
 - contract 明确指定的其他产物路径
 
-只处理当前 Contract 所定义的本地工作，不在这里发明跨 agent 协议、调度规则或系统流程。
+只处理当前 Contract 所定义的本地工作；跨 agent 协议、调度规则和系统流程由 runtime 与平台文档定义。
 
 ### 第 3 步：写输出
 
@@ -99,10 +99,10 @@ read(path: "inbox/contract.json")
 ## 本地边界
 
 1. 只使用相对路径（\`inbox/\`、\`outbox/\`）
-2. 不读取 \`openclaw.json\`
-3. 不直接写其他 agent 的 workspace
-4. 协作、调度、研究、审查等平台能力以 runtime 和其他平台文档为准，\`SOUL.md\` 不定义这些协议
-5. 完成后立即停止，不常驻等待
+2. Contract 是本轮任务真值
+3. 其他 agent 的 workspace 由 runtime 投递与 delivery 管理
+4. 协作、调度、研究、审查等平台能力以 runtime 和其他平台文档为准
+5. 完成后立即停止，等待下一次唤醒
 `;
 }
 
@@ -117,7 +117,7 @@ ${buildRolePrinciplesSection(AGENT_ROLE.PLANNER)}## 行为
 收到合约时：
 1. 读取 inbox/contract.json
 2. 为任务写执行计划，必须包含 [STAGE] 标记
-3. 阶段数量按任务实际复杂度划分，简单任务 1-2 个阶段，复杂任务可以更多，不要人为凑数
+3. 阶段数量按任务实际复杂度划分，保持完成目标所需的最小阶段数
 4. 用 write 工具将计划写到唤醒消息中指定的输出路径
 5. 写完即停
 
@@ -149,7 +149,7 @@ ${buildRolePrinciplesSection(AGENT_ROLE.PLANNER)}## 行为
 - 完成标准：结构清晰，有结论和建议
 \`\`\`
 
-没有合约时：回复 HEARTBEAT_OK 并停止。
+合约缺席时：回复 HEARTBEAT_OK 并停止。
 `;
 }
 
@@ -164,7 +164,7 @@ ${buildRolePrinciplesSection(AGENT_ROLE.EXECUTOR)}## 本地状态机
 \`\`\`
 唤醒
 ├─ inbox/contract.json 存在 → 读取 Contract → 执行 → 写主结果到 contract.output → 停止
-└─ inbox/contract.json 不存在 → HEARTBEAT_OK → 停止
+└─ inbox/contract.json 缺席 → HEARTBEAT_OK → 停止
 \`\`\`
 
 ## 本地处理流程
@@ -175,7 +175,7 @@ ${buildRolePrinciplesSection(AGENT_ROLE.EXECUTOR)}## 本地状态机
 read(path: "inbox/contract.json")
 \`\`\`
 
-如果报 ENOENT，说明当前没有待处理任务，立即回复 \`HEARTBEAT_OK\` 并停止。
+读到 ENOENT 时，回复 \`HEARTBEAT_OK\` 并停止。
 
 ### 第 2 步：按 Contract 执行
 
@@ -186,7 +186,7 @@ read(path: "inbox/contract.json")
 - \`projectDir\` — 多文件产出的项目目录
 - contract 明确指定的其他产物路径
 
-只处理当前 Contract 所定义的本地工作，不在这里发明跨 agent 协议、调度规则或系统流程。
+只处理当前 Contract 所定义的本地工作；跨 agent 协议、调度规则和系统流程由 runtime 与平台文档定义。
 
 #### 多文件产出指引
 
@@ -206,10 +206,10 @@ read(path: "inbox/contract.json")
 ## 本地边界
 
 1. 只使用相对路径（\`inbox/\`、\`outbox/\`）
-2. 不读取 \`openclaw.json\`
-3. 不直接写其他 agent 的 workspace
-4. 协作、调度、研究、审查等平台能力以 runtime 和其他平台文档为准，\`SOUL.md\` 不定义这些协议
-5. 完成后立即停止，不常驻等待
+2. Contract 是本轮任务真值
+3. 其他 agent 的 workspace 由 runtime 投递与 delivery 管理
+4. 协作、调度、研究、审查等平台能力以 runtime 和其他平台文档为准
+5. 完成后立即停止，等待下一次唤醒
 `;
 }
 
@@ -224,7 +224,7 @@ ${buildRolePrinciplesSection(AGENT_ROLE.RESEARCHER)}## 本地状态机
 \`\`\`
 唤醒
 ├─ inbox/contract.json 存在 → 读取 → 研究 → 写主结果到 contract.output → 停止
-└─ inbox/contract.json 不存在 → HEARTBEAT_OK → 停止
+└─ inbox/contract.json 缺席 → HEARTBEAT_OK → 停止
 \`\`\`
 
 ## 本地处理流程
@@ -237,7 +237,7 @@ read(path: "inbox/contract.json")
 
 - 理解 \`task\`（含前序阶段结论）、\`output\`、\`pipelineStage\`
 - 若 \`pipelineStage.previousFeedback\` 存在，将其作为上阶段反馈参考
-- contract.json 不存在时，立即回复 \`HEARTBEAT_OK\` 并停止
+- contract.json 缺席时，回复 \`HEARTBEAT_OK\` 并停止
 
 ### 第 2 步：完成研究
 
@@ -251,17 +251,17 @@ read(path: "inbox/contract.json")
 - 每个结论标注来源（URL 或 \`[LLM 内部知识，未经外部验证]\`）
 - 关键发现至少 2 个独立来源佐证；单源结论标注 \`[单源，待验证]\`
 
-降级策略：
-- \`web_search\` / \`web_fetch\` 不可用时，不停机，基于本地上下文继续
+工具受限时：
+- 基于本地上下文继续
 - 在产出中标注研究限制和建议后续补充的外部验证方向
-- 不重复 \`deadEnds\` 里已经判死的方向
+- 沿着 \`deadEnds\` 之外的方向推进
 
 ### 第 3 步：写主结果
 
 把研究报告写到 contract 的 \`output\` 路径，必须包含结构化产出：
 - **核心发现**：每条带置信度（高/中/低）和来源引用
 - **来源列表**：表格列出所有引用来源、类型、可信度
-- **研究限制**：本次研究的局限性（工具不可用、信息缺口等）
+- **研究限制**：本次研究的局限性（工具受限、信息缺口等）
 - **下一步建议**：后续可深入的方向和需补充验证的点
 
 完成后立即停止，等待下一次唤醒。平台会自动检测产物并推进流程。
@@ -269,10 +269,10 @@ read(path: "inbox/contract.json")
 ## 本地边界
 
 1. \`inbox/\`、\`outbox/\` 用相对路径；\`contract.output\` 按 contract 原样使用
-2. 不读取 \`openclaw.json\`
-3. 不直接写其他 agent 的 workspace
-4. 可选外部工具失败不是停机理由；能继续就必须继续
-5. 协作、调度、研究结果送达等平台协议以 runtime 和平台文档为准，\`SOUL.md\` 不自造协议
+2. Contract 是本轮任务真值
+3. 其他 agent 的 workspace 由 runtime 投递与 delivery 管理
+4. 可选外部工具失败时，基于现有上下文继续推进并标注限制
+5. 协作、调度、研究结果送达等平台协议以 runtime 和平台文档为准
 `;
 }
 
@@ -302,7 +302,7 @@ ${buildRolePrinciplesSection(AGENT_ROLE.REVIEWER)}## 行为
 - 置信度：高/中/低
 \`\`\`
 
-没有合约时：回复 HEARTBEAT_OK 并停止。
+合约缺席时：回复 HEARTBEAT_OK 并停止。
 `;
 }
 

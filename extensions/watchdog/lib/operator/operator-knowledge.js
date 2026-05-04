@@ -12,7 +12,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/operator-admin/SKILL.md",
     priority: 10,
     tags: ["operator", "admin", "平台", "管理", "前台", "权限", "协议", "runtime", "kernel", "代码"],
-    summary: "Operator 是平台前台，不进入 agent graph。它应该优先使用 admin surface / change-set，不能绕开 runtime 去改协议、kernel 或代码文件。",
+    summary: "Operator 是平台前台，入口在设置页 runtime operator。它优先使用 admin surface / change-set 管理 runtime、协议、kernel 与代码变更。",
   },
   {
     id: "building-map",
@@ -20,15 +20,15 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/platform-map/SKILL.md",
     priority: 8,
     tags: ["agent", "building", "map", "skill", "办公室", "大楼", "地图", "协作", "厕所", "协议", "workspace"],
-    summary: "OpenClaw 是多 agent 大楼。agent 应先找地图、入口和出口，不自己发明 schema、路径、跨 workspace 协议或结果 delivery 方式。",
+    summary: "OpenClaw 是多 agent 大楼。agent 先找地图、入口和出口；schema、路径、跨 workspace 协议与 delivery 方式由平台对象提供。",
   },
   {
     id: "graph-truth",
     title: "Graph Is Cooperation Truth",
     sourcePath: "use guide/备忘录55_[主]_Operator本地知识检索层落地_2026-03-19-1237.md",
     priority: 9,
-    tags: ["graph", "edge", "loop", "pipeline", "回路", "有向图", "连线", "协作", "reviewer", "worker"],
-    summary: "skill 只提供认知指导，不直接创造协作路径。真正的 agent-to-agent 协作权限由有向图边定义；没有边，就没有自然协作。",
+    tags: ["graph", "edge", "loop", "contract", "回路", "有向图", "连线", "协作", "reviewer", "worker"],
+    summary: "skill 提供认知指导；agent-to-agent 协作权限由有向图边定义。图边是自然协作的结构真值。",
   },
   {
     id: "system-action-routing",
@@ -36,7 +36,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/system-action/SKILL.md",
     priority: 7,
     tags: ["system_action", "assign_task", "request_review", "wake_agent", "review", "委派", "审查", "唤醒"],
-    summary: "当 agent 需要委派、请求审查、唤醒同伴或启动 loop 时，应写 system_action 交给 runtime。结果 delivery 和上下游传递属于平台硬路径。",
+    summary: "当 agent 需要委派、请求审查、唤醒同伴或启动 loop 时，在产物中写 [ACTION] 交给 runtime。结果 delivery 和上下游传递属于平台硬路径。",
   },
   {
     id: "loop-runtime",
@@ -44,7 +44,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/system-action/SKILL.md",
     priority: 7,
     tags: ["loop", "cycle", "回路", "循环", "advance_loop", "start_loop", "graph-router"],
-    summary: "loop runtime 只有在图上的有向边真的形成回路时才参与。没有 cycle 时，协作只是单次有向委派，不是 loop。",
+    summary: "loop runtime 在图上的有向边形成回路时参与。普通有向边表达单次委派。",
   },
   {
     id: "controller-front-desk",
@@ -68,7 +68,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "extensions/watchdog/test-runner.js",
     priority: 6,
     tags: ["test", "harness", "preset", "suite", "报告", "test-runner"],
-    summary: "测试系统统一入口为 watchdog formal test surface；test-runner.js 现已退化为 /watchdog/test-runs/* 的薄客户端，不再自带第二执行器。formal case 真值收口到 formal-test-case-catalog，formal preset 真值收口到 formal-test-presets，报告输出到 ~/.openclaw/test-reports/。禁止手写 curl 冒充测试。",
+    summary: "测试系统统一入口为 watchdog formal test surface；test-runner.js 是 /watchdog/test-runs/* 的薄客户端。formal case 真值在 formal-test-case-catalog，formal preset 真值在 formal-test-presets，报告输出到 ~/.openclaw/test-reports/。",
   },
   {
     id: "agent-bootstrap-system",
@@ -76,7 +76,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/platform-map/SKILL.md",
     priority: 6,
     tags: ["bootstrap", "workspace", "guidance", "BOOTSTRAP.md", "agent"],
-    summary: "Agent workspace 引导自动生成机制：框架启动时自动加载 AGENTS.md、SOUL.md、TOOLS.md、IDENTITY.md、USER.md、HEARTBEAT.md、BOOTSTRAP.md 以及 memory/*.md，为 agent 提供角色定义、行为规范与上下文记忆。",
+    summary: "Agent workspace 引导自动生成机制：框架启动时加载 AGENTS.md、SOUL.md、HEARTBEAT.md、PLATFORM-GUIDE.md 和按需 skill，为 agent 提供角色、入口和出口。",
   },
 ]);
 
@@ -136,8 +136,8 @@ function buildDynamicGraphFragment(graph, loops = []) {
       priority: 9,
       tags: ["graph", "edge", "loop", "协作", "回路", "reviewer", "worker", "controller"],
       summary: registeredLoops.length > 0
-        ? `当前 live graph 没有任何有向边；已登记 ${registeredLoops.length} 个 LoopSpec，但都未激活。任何“自然去找别的 agent 帮忙”的行为都还不能成立。`
-        : "当前 live graph 没有任何有向边，所以 agent 之间还不存在显式协作路径。任何“自然去找别的 agent 帮忙”的行为都还不能成立。",
+        ? `当前 live graph 有向边为空；已登记 ${registeredLoops.length} 个 LoopSpec，active 数量为 0。显式协作需要先建立图边。`
+        : "当前 live graph 有向边为空。显式协作需要先建立图边。",
     };
   }
   if (activeLoops.length === 0) {
@@ -148,8 +148,8 @@ function buildDynamicGraphFragment(graph, loops = []) {
       priority: 8,
       tags: ["graph", "edge", "loop", "协作", "回路"],
       summary: registeredLoops.length > 0
-        ? `当前 live graph 有 ${edges.length} 条有向边，并登记了 ${registeredLoops.length} 个 LoopSpec，但当前没有 active loop。现阶段的 agent 协作仍属于单次有向委派。`
-        : `当前 live graph 有 ${edges.length} 条有向边，但还没有 cycle。现阶段的 agent 协作属于单次有向委派，不属于 loop。`,
+        ? `当前 live graph 有 ${edges.length} 条有向边，并登记了 ${registeredLoops.length} 个 LoopSpec，active loop 数量为 0。现阶段的 agent 协作属于单次有向委派。`
+        : `当前 live graph 有 ${edges.length} 条有向边，cycle 数量为 0。现阶段的 agent 协作属于单次有向委派。`,
     };
   }
   return {
@@ -157,8 +157,8 @@ function buildDynamicGraphFragment(graph, loops = []) {
     title: "Live Graph State",
     sourcePath: "runtime graph",
     priority: 8,
-    tags: ["graph", "edge", "loop", "协作", "回路", "cycle", "pipeline"],
-    summary: `当前 live graph 有 ${edges.length} 条有向边，登记了 ${registeredLoops.length} 个 LoopSpec，其中 ${activeLoops.length} 个处于 active。原始 cycle 检测数为 ${cycles.length}；已登记且成环的 loop 才应该交给 loop / pipeline engine 管。`,
+    tags: ["graph", "edge", "loop", "协作", "回路", "cycle", "contract"],
+    summary: `当前 live graph 有 ${edges.length} 条有向边，登记了 ${registeredLoops.length} 个 LoopSpec，其中 ${activeLoops.length} 个处于 active。原始 cycle 检测数为 ${cycles.length}；已登记且成环的 loop 交给 loop runtime 管理。`,
   };
 }
 
@@ -177,7 +177,7 @@ function buildLoopRuntimeFragment(loopSessions = []) {
       title: "Live Loop Runtime",
       sourcePath: "runtime loop session",
       priority: 9,
-      tags: ["loop", "loop-session", "runtime", "pipeline", "round", "回路", "轮次", "状态"],
+      tags: ["loop", "loop-session", "runtime", "contract", "round", "回路", "轮次", "状态"],
       summary: `当前存在 active loop session：loop=${activeSession.loopId || "unknown"} stage=${activeSession.currentStage || "unknown"} round=${activeSession.round || 1} runtimeStatus=${runtimeStatus}。${missingEdgeCount > 0 ? `该 session 当前缺失 ${missingEdgeCount} 条 loop edge。` : "当前 loop session 结构完整。"}`,
     };
   }
@@ -188,8 +188,8 @@ function buildLoopRuntimeFragment(loopSessions = []) {
     title: "Live Loop Runtime",
     sourcePath: "runtime loop session",
     priority: 7,
-    tags: ["loop", "loop-session", "runtime", "pipeline", "回路", "状态"],
-    summary: `当前没有 active loop session。最近一次 loop session 属于 ${latestSession?.loopId || "unknown"}，状态为 ${latestSession?.runtimeStatus || latestSession?.status || "unknown"}。`,
+    tags: ["loop", "loop-session", "runtime", "contract", "回路", "状态"],
+    summary: `当前 active loop session 为空。最近一次 loop session 属于 ${latestSession?.loopId || "unknown"}，状态为 ${latestSession?.runtimeStatus || latestSession?.status || "unknown"}。`,
   };
 }
 
@@ -202,7 +202,7 @@ function buildDynamicCapabilityFragment(surfaces) {
     sourcePath: "runtime admin surfaces",
     priority: 8,
     tags: ["operator", "surface", "执行", "修改", "创建", "连线", "graph", "agent", "skill"],
-    summary: `当前 operator 直接可执行的动作只有：${capabilities.join("、")}。如果用户要求超出这些 surface 的能力，应该回答 advice_only，而不是假执行。`,
+    summary: `当前 operator 直接可执行的动作：${capabilities.join("、")}。超出 surface 的请求使用 advice_only。`,
   };
 }
 

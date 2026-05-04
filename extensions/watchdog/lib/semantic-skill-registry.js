@@ -7,7 +7,7 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
   "platform-map": Object.freeze({
     id: "platform-map",
     name: "Platform Map",
-    summary: "楼宇地图与平台硬路径说明，告诉 agent 这栋楼里有什么办公室、什么时候该找谁、哪些路径不能自造。",
+    summary: "楼宇地图与平台硬路径说明，告诉 agent 这栋楼里有什么办公室、什么时候找谁、如何使用平台出口。",
     layer: "platform_semantics",
     audience: "all_agents",
     defaultInjection: "forced_platform",
@@ -24,12 +24,12 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
       "outbox/contract_result.json",
     ]),
     guideLine: "平台楼宇地图，说明入口、出口、办公室分工和协作边界。",
-    operatorUse: "楼宇地图技能：agent 应先查地图和 contract，不要自造协议、路径或跨 workspace 协作方式。",
+    operatorUse: "楼宇地图技能：agent 先查地图和 contract，协作、路径和跨 workspace 动作使用平台投影。",
   }),
   "platform-tools": Object.freeze({
     id: "platform-tools",
     name: "Platform Tools",
-    summary: "平台工具使用说明，告诉 agent 如何使用本地 read/write/edit 与 runtime 硬路径，不把工具误用成通讯协议。",
+    summary: "平台工具使用说明，告诉 agent 如何使用本地 read/write/edit、结构化 outbox 与 runtime 硬路径。",
     layer: "platform_semantics",
     audience: "all_agents",
     defaultInjection: "forced_platform",
@@ -38,7 +38,7 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
     pluginRefs: Object.freeze(["watchdog"]),
     toolRefs: Object.freeze(["read", "write", "edit", "outbox/stage_result.json", "outbox/_manifest.json"]),
     guideLine: "平台工具说明，定义本地工具怎么用、什么时候停手交给 runtime。",
-    operatorUse: "平台工具技能：区分本地 read/write/edit 与 runtime 硬路径；普通 agent 不直接碰 admin surface 或其他 agent workspace。",
+    operatorUse: "平台工具技能：区分本地 read/write/edit 与 runtime 硬路径；admin surface 和其他 agent workspace 归 runtime/operator 管理。",
   }),
   "error-avoidance": Object.freeze({
     id: "error-avoidance",
@@ -52,7 +52,7 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
     pluginRefs: Object.freeze(["watchdog"]),
     toolRefs: Object.freeze([]),
     guideLine: "全局错误回避知识库，基于全系统历史执行经验自动更新。所有 agent 共享。",
-    operatorUse: "错误回避技能：遇到高频失败模式时优先参考历史坑位，不重复制造旧错误。",
+    operatorUse: "错误回避技能：遇到高频失败模式时优先参考历史稳定做法。",
   }),
   "system-action": Object.freeze({
     id: "system-action",
@@ -66,7 +66,7 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
     tags: Object.freeze(["system-action", "assign_task", "request_review", "wake_agent", "loop", "graph-router"]),
     pluginRefs: Object.freeze(["watchdog"]),
     toolRefs: Object.freeze(["assign_task", "request_review", "wake_agent", "start_loop", "advance_loop"]),
-    guideLine: "平台调度入口：在输出中写 [ACTION] 标记；复杂动作直接写 JSON marker。运行时自动提取，不需要写文件。",
+    guideLine: "平台调度入口：在输出中写 [ACTION] 标记；复杂动作直接写 JSON marker。运行时自动提取。",
     operatorUse: "平台调度技能：agent 需要委派、审查、唤醒或启动 loop 时应通过 system_action 交给 runtime；loop 推进本身由 graph-router + outbox 接管。",
   }),
   "review-findings": Object.freeze({
@@ -134,7 +134,7 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
       "test.inject",
     ]),
     guideLine: "Operator 高级工具箱，说明 snapshot / graph / surface / test / verification 这些工具如何组合使用。",
-    operatorUse: "Operator 工具箱技能：用 snapshot、graph、catalog、test 与 change-set 拼出平台真相，不靠猜测做管理动作。",
+    operatorUse: "Operator 工具箱技能：用 snapshot、graph、catalog、test 与 change-set 拼出平台真相，再执行管理动作。",
   }),
 });
 

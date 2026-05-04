@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
@@ -30,6 +31,33 @@ import {
 } from "../lib/system-action/system-action-runtime-ledger.js";
 import { buildOutboxManifestExample } from "../lib/platform-doc-builder.js";
 import { deliveryRunSystemActionContractResult } from "../lib/routing/delivery-system-action-contract-result.js";
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const WATCHDOG_ROOT = join(TEST_DIR, "..");
+const PROJECT_ROOT = join(WATCHDOG_ROOT, "..", "..");
+
+function watchdogPath(...parts) {
+  return join(WATCHDOG_ROOT, ...parts);
+}
+
+function projectPath(...parts) {
+  return join(PROJECT_ROOT, ...parts);
+}
+
+async function listTrackedWorkspaces() {
+  const workspacesDir = projectPath("workspaces");
+  try {
+    return {
+      workspacesDir,
+      entries: await readdir(workspacesDir, { withFileTypes: true }),
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { workspacesDir, entries: [] };
+    }
+    throw error;
+  }
+}
 
 test("workspace guidance writes DELIVERY.md and documents both terminal and system_action delivery", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-delivery-guidance-"));
@@ -473,10 +501,10 @@ test("system_action contract delivery reads result content from executionObserva
 
 test("delivery control-plane source files no longer mention legacy runtime return residue", async () => {
   const files = [
-    join(process.cwd(), "lib", "routing", "dispatch-transport.js"),
-    join(process.cwd(), "lib", "runtime-workflow-semantics.js"),
-    join(process.cwd(), "lib", "workspace-guidance-writer.js"),
-    join(process.cwd(), "lib", "harness", "harness-module-evidence.js"),
+    watchdogPath("lib", "routing", "dispatch-transport.js"),
+    watchdogPath("lib", "runtime-workflow-semantics.js"),
+    watchdogPath("lib", "workspace-guidance-writer.js"),
+    watchdogPath("lib", "harness", "harness-module-evidence.js"),
   ];
   const legacyPatterns = [
     /\bexecution_contract_return\b/,
@@ -496,8 +524,7 @@ test("delivery control-plane source files no longer mention legacy runtime retur
 });
 
 test("tracked workspaces no longer ship runtime return guidance docs", async () => {
-  const workspacesDir = join(process.cwd(), "..", "..", "workspaces");
-  const workspaceEntries = await readdir(workspacesDir, { withFileTypes: true });
+  const { workspacesDir, entries: workspaceEntries } = await listTrackedWorkspaces();
   const managedDocNames = ["AGENTS.md", "BUILDING-MAP.md", "PLATFORM-GUIDE.md", "DELIVERY.md"];
   const legacyPatterns = [
     /\bRUNTIME-RETURN\.md\b/,
@@ -530,8 +557,7 @@ test("tracked workspaces no longer ship runtime return guidance docs", async () 
 });
 
 test("tracked runtime state fixtures no longer mention runtimeReturnTicket", async () => {
-  const workspacesDir = join(process.cwd(), "..", "..", "workspaces");
-  const entries = await readdir(workspacesDir, { withFileTypes: true });
+  const { workspacesDir, entries } = await listTrackedWorkspaces();
   const files = entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => join(workspacesDir, entry.name, "inbox", "context.json"));
@@ -575,7 +601,7 @@ test("legacy runtime direct inbox module is removed in favor of direct envelope 
   assert.equal(typeof queueModule.ensureRuntimeDirectEnvelopeInbox, "function");
   assert.equal(typeof queueModule.enqueueRuntimeDirectEnvelope, "function");
   await assert.rejects(
-    access(join(process.cwd(), "lib", "runtime-direct-inbox.js")),
+    access(watchdogPath("lib", "runtime-direct-inbox.js")),
   );
 });
 
@@ -592,14 +618,14 @@ test("legacy bridge module files are removed", async () => {
 
   for (const fileName of legacyFiles) {
     await assert.rejects(
-      access(join(process.cwd(), "lib", "bridge", fileName)),
+      access(watchdogPath("lib", "bridge", fileName)),
     );
   }
 });
 
 test("legacy pool compatibility shell file is removed", async () => {
   await assert.rejects(
-    access(join(process.cwd(), "lib", "routing", "pool.js")),
+    access(watchdogPath("lib", "routing", "pool.js")),
   );
 });
 
@@ -638,7 +664,7 @@ test("unified system_action delivery routing modules exist in lib/routing", asyn
   ];
 
   for (const fileName of unifiedFiles) {
-    await access(join(process.cwd(), "lib", "routing", fileName));
+    await access(watchdogPath("lib", "routing", fileName));
   }
 });
 
@@ -652,12 +678,12 @@ test("system_action contract delivery imports without duplicate route exports", 
 
 test("canonical runtime and active test prompts no longer mention outbox/system_action.json", async () => {
   const files = [
-    join(process.cwd(), "lib", "store", "execution-trace-store.js"),
-    join(process.cwd(), "tests", "suite-direct-service.js"),
-    join(process.cwd(), "tests", "delegation-early-check-paths.test.js"),
-    join(process.cwd(), "tests", "contractor-loop-permission.test.js"),
-    join(process.cwd(), "tests", "suite-agent-model.js"),
-    join(process.cwd(), "lib", "soul-template-builder.js"),
+    watchdogPath("lib", "store", "execution-trace-store.js"),
+    watchdogPath("tests", "suite-direct-service.js"),
+    watchdogPath("tests", "delegation-early-check-paths.test.js"),
+    watchdogPath("tests", "contractor-loop-permission.test.js"),
+    watchdogPath("tests", "suite-agent-model.js"),
+    watchdogPath("lib", "soul-template-builder.js"),
   ];
 
   for (const filePath of files) {

@@ -1,15 +1,13 @@
 ---
 name: operator-tooling
-description: Runtime Operator 高级工具箱。说明 operator 如何组合使用 snapshot、graph、catalog、change-set、test 与 loop 管理工具，而不是凭印象修改系统。
+description: Runtime Operator 高级工具箱。用于组合使用 snapshot、graph、catalog、change-set、test 与 loop 管理工具。
 ---
 
 # Runtime Operator 高级工具箱
 
-你是平台前台，不是图里的普通办公室。
+Operator 是平台控制 agent。它通过 typed surface 读取事实、修改系统并留下验证证据。
 
-你拿到的是高权限平台工具，但这些工具也不是让你“想到什么就直接改什么”。
-
-## 先看哪些高权限真相
+## 高权限事实源
 
 优先读取：
 
@@ -20,52 +18,45 @@ description: Runtime Operator 高级工具箱。说明 operator 如何组合使�
 5. `/watchdog/skills`
 6. `/watchdog/models`
 7. `/watchdog/contracts`
-8. `/watchdog/runtime-return-tickets`
+8. `/watchdog/system-action-delivery-tickets`
 
-这几类真相分别回答：
+这些事实源分别回答：
 
-- 当前系统在什么状态
-- 图上有哪些边和 loop
-- 哪些管理动作真实开放了
-- agent / skill / model 当前是什么
-- 当前 contract 和 runtime return 卡在哪
+- 当前 runtime 状态
+- 图边和 loop
+- 已开放管理动作
+- agent / skill / model 配置
+- 当前 contract 和 delivery 卡点
 
-## 什么时候该走 plan + execute
+## plan + execute
 
-如果目标能落到已注册的 operator surface：
+目标能落到 operator surface 时：
 
-- 先 `plan`
-- 看 steps / payload / warnings / assumptions
-- 再 `execute`
+1. 调 `plan`
+2. 读取 steps、payload、warnings、assumptions
+3. 调 `execute`
+4. 记录验证证据
 
-不要跳过 `plan` 直接凭脑补改。
+## change-set
 
-## 什么时候该走 change-set
-
-以下情况优先 change-set：
+这些情况优先 change-set：
 
 - 结构性调整
-- 需要保留执行证据
+- 需要执行证据
 - 需要 preview payload
 - 需要绑定验证结果
-- surface 自己就要求 `confirmation: changeset`
+- surface 标记 `confirmation: changeset`
 
-## 什么时候该跑测试
+## 测试入口
 
-两类主工具：
+- `test_runs.start`：结构化回归。
+- `test.inject`：小链路探测。
 
-- `test_runs.start`
-- `test.inject`
+结构性改动后优先启动 formal/harness 回归；局部修补可先用 inject 验证。
 
-规则：
+## graph 和 loop 工具
 
-- 结构性改动后优先结构化 test run
-- 小链路探测可以用 inject
-- 不把已经删除的旧研究入口当默认回归入口
-
-## 图和 loop 工具怎么用
-
-结构相关常用动作：
+常用动作：
 
 - `graph.edge.add`
 - `graph.edge.delete`
@@ -76,28 +67,15 @@ description: Runtime Operator 高级工具箱。说明 operator 如何组合使�
 
 理解原则：
 
-- 图边是协作真相
-- loop 只有成环后才成立
-- repair 是补真相
-- resume / interrupt 是 runtime 运行态控制
+- 图边是协作权限真相。
+- loop 由成环图边和 LoopSpec 共同成立。
+- repair 补结构真相。
+- resume / interrupt 控制运行态。
 
-不要把“改图”和“改运行态”混成一个动作。
+## 最小操作心法
 
-## Operator 不该做什么
-
-即使你有高权限，也不要：
-
-- 直接改代码文件来假装平台变更
-- 绕开 admin surface 乱写配置
-- 发明不存在的 surface
-- 把 destructive 操作当成默认选项
-
-如果工具层没有开放，你只能给建议，不能假执行。
-
-## 最重要的 5 条规则
-
-1. 先看 snapshot / graph / catalog，再决定动哪把工具
-2. 有 typed surface 才能执行，没有就 advice-only
-3. 结构改动与运行态改动分开理解
-4. 能留 change-set 和验证证据就别裸改
-5. 高权限不等于高自由，仍然只做工具明确开放的事
+1. 先看 snapshot / graph / catalog。
+2. 有 typed surface 才执行。
+3. 结构改动和运行态改动分开处理。
+4. change-set 承载执行证据。
+5. destructive 动作使用显式确认。

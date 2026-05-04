@@ -27,7 +27,6 @@ export const dispatchRuntimeState = {};
 export let dispatchQueueState = [];
 export let eventCount = 0;
 export let connectedAt = null;
-export let currentFastTrack = null;
 export const DEFAULT_OFFLINE_MS = 30 * 60 * 1000;
 export const PRIMARY_DASHBOARD_BRIDGE_AGENT_ID = 'controller';
 
@@ -339,12 +338,11 @@ export function buildLifecyclePatchFromAlert(data) {
       task: data.task,
       assignee: data.assignee,
       replyTo: data.replyTo || (data.from ? { agentId: data.from } : undefined),
-      status: data.fastTrack === true ? 'pending' : 'draft',
+      status: data.status || 'pending',
       createdAt: data.ts,
       updatedAt: data.ts,
       taskType: data.taskType,
       protocolEnvelope: data.protocolEnvelope,
-      fastTrack: data.fastTrack,
       stagePlan: data.stagePlan,
       stageRuntime: data.stageRuntime,
       phases: data.phases,
@@ -607,8 +605,7 @@ function renderWorkItemCard(c, { nested = false } = {}) {
       ? '<span style="color:var(--accent-green);font-size:10px;letter-spacing:0.05em"> DIRECT</span>'
     : envelope === 'workflow_signal'
       ? '<span style="color:var(--accent-red);font-size:10px;letter-spacing:0.05em"> SIGNAL</span>'
-    : c.fastTrack === true ? '<span style="color:var(--accent-orange);font-size:10px;letter-spacing:0.05em"> FAST-TRACK</span>'
-    : c.fastTrack === false ? '<span style="color:var(--accent-blue);font-size:10px;letter-spacing:0.05em"> FULL-PATH</span>' : '';
+    : '';
   const progression = describePipelineProgression(getWorkItemPipelineProgression(c));
   const progressionHtml = progression
     ? `<div class="contract-meta-row">
@@ -644,7 +641,7 @@ function renderWorkItemCard(c, { nested = false } = {}) {
         const pLabel = typeof p === 'string' ? p : (p?.name || (typeof p === 'object' ? JSON.stringify(p) : String(p)));
         return `<div class="phase-item"><div class="phase-dot ${dotClass}"></div><span style="color:var(--text-muted);font-size:11px;margin-right:4px">${i+1}.</span>${esc(pLabel)}</div>`;
       }).join('') + '</div>';
-  } else if (confidence === 'none' || c.fastTrack === true) {
+  } else if (confidence === 'none') {
     // Mode A — simple task, compact status indicator
     const dotMap = { pending: 'pending', running: 'running', completed: 'done', failed: 'failed', draft: 'pending' };
     const labelMap = { pending: '排队中', running: '处理中', completed: '已完成', failed: '失败', draft: '排队中' };
@@ -749,7 +746,6 @@ export function renderWorkItems() {
       progression?.error || '',
       progression?.ts || '',
       c.runtimeDiagnostics?.harnessRunId || '',
-      c.fastTrack ?? '',
       getWorkItemStageRenderSignature(c),
     ].join(':');
   }).join('|');
@@ -918,11 +914,6 @@ export function processEvent(type, data) {
       elapsedMs: data.elapsedMs,
       _lastSeen: data.ts || Date.now(),
     });
-    if (data.agentId === 'planner') currentFastTrack = false;
-    if (data.agentId?.startsWith('worker-')) {
-      if (currentFastTrack === null) currentFastTrack = true;
-      agentState[data.agentId]._fastTrack = currentFastTrack;
-    }
     const workItemId = resolveDashboardWorkItemId(data);
     if (workItemId && !isCanonicalDashboardWorkItem(data)) {
       delete workItems[workItemId];
@@ -963,7 +954,6 @@ export function processEvent(type, data) {
         semanticOutcome: data.semanticOutcome,
         systemAction: data.systemAction,
         runtimeDiagnostics: data.runtimeDiagnostics,
-        fastTrack: agentState[data.agentId]?._fastTrack ?? workItems[cid]?.fastTrack,
         createdAt: data.createdAt || workItems[cid]?.createdAt || (data.ts - (data.elapsedMs || 0)),
         updatedAt: data.updatedAt || data.ts,
       });
@@ -1006,7 +996,6 @@ export function processEvent(type, data) {
         setTimeout(() => {
           if (agentState[endedAgent]) {
             agentState[endedAgent]._justCompleted = false;
-            agentState[endedAgent]._fastTrack = undefined;
           }
           if (deliveryTargetAgentId && agentState[deliveryTargetAgentId]) {
             agentState[deliveryTargetAgentId]._delivering = false;
@@ -1014,8 +1003,6 @@ export function processEvent(type, data) {
           const allWorkers = [...((dynamicWorkers.length > 0) ? dynamicWorkers : WORKERS),
         ...((window._lastAgentData || []).filter(a => a.role === 'executor' && a.specialized).map(a => a.id))
       ];
-          const stillRunning = allWorkers.some(w => agentState[w]?.status === 'running');
-          if (!stillRunning) currentFastTrack = null;
           updatePipeline();
         }, 5000);
       }
@@ -1098,7 +1085,7 @@ export function processEvent(type, data) {
       loadAgentMeta(); loadWorkItems();
       Object.keys(agentState).forEach(k => delete agentState[k]);
       Object.keys(dispatchRuntimeState).forEach(k => delete dispatchRuntimeState[k]);
-      dispatchQueueState = []; currentFastTrack = null;
+      dispatchQueueState = [];
       clearAllFlows();
       updatePipeline();
     }
@@ -1110,8 +1097,6 @@ export function processEvent(type, data) {
       const patch = buildLifecyclePatchFromAlert(data);
       if (patch) {
         mergeWorkItemState(workItemId, patch);
-        if (data.fastTrack === true) currentFastTrack = true;
-        else if (data.fastTrack === false) currentFastTrack = false;
         renderWorkItems();
       }
       // Dynamic flow: dispatch creates a brief flow line
@@ -1207,7 +1192,7 @@ export async function systemReset() {
       Object.keys(workItems).forEach(k => delete workItems[k]);
       Object.keys(agentState).forEach(k => delete agentState[k]);
       Object.keys(dispatchRuntimeState).forEach(k => delete dispatchRuntimeState[k]);
-      dispatchQueueState = []; currentFastTrack = null; eventCount = 0;
+      dispatchQueueState = []; eventCount = 0;
       renderWorkItems();
       updatePipeline();
       renderEventStream();

@@ -71,10 +71,8 @@ test("invalid legacy start_pipeline unknown action fails the root contract after
       envelope: "execution_contract",
       transport: "contracts/*.json",
       source: "webui",
-      route: "long",
     },
     planningContext: {
-      route: "long",
       activeLoopCount: 1,
       activeLoopCandidates: [
         {
@@ -202,7 +200,6 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
       envelope: "execution_contract",
       transport: "contracts/*.json",
       source: "webui",
-      route: "long",
     },
   }, logger);
 
@@ -246,7 +243,6 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
           version: 1,
           envelope: "execution_contract",
           source: "webui",
-          route: "long",
         },
       },
       executionObservation: {
@@ -326,7 +322,6 @@ test("running tracking state does not preserve the root contract when terminal e
       envelope: "execution_contract",
       transport: "contracts/*.json",
       source: "webui",
-      route: "long",
     },
   }, logger);
 

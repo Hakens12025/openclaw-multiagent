@@ -1,18 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 async function readProjectFile(...parts) {
-  return readFile(join(process.cwd(), ...parts), "utf8");
+  return readFile(new URL(`../../../${parts.join("/")}`, import.meta.url), "utf8");
+}
+
+async function readWatchdogFile(...parts) {
+  return readFile(new URL(`../${parts.join("/")}`, import.meta.url), "utf8");
 }
 
 test("active protocol docs reference canonical dispatch and delivery truth", async () => {
   const [threeLayer, delivery, bridgeDecision, status] = await Promise.all([
-    readProjectFile("..", "..", "wiki", "concepts", "three-layer-protocol.md"),
-    readProjectFile("..", "..", "wiki", "concepts", "delivery.md"),
-    readProjectFile("..", "..", "wiki", "decisions", "runtime-bridge-into-delivery.md"),
-    readProjectFile("..", "..", "wiki", "status.md"),
+    readProjectFile("wiki", "concepts", "three-layer-protocol.md"),
+    readProjectFile("wiki", "concepts", "delivery.md"),
+    readProjectFile("wiki", "decisions", "runtime-bridge-into-delivery.md"),
+    readProjectFile("wiki", "status.md"),
   ]);
 
   assert.match(threeLayer, /dispatch-entry\.js/);
@@ -41,8 +44,8 @@ test("active protocol docs reference canonical dispatch and delivery truth", asy
 
 test("active protocol consumers import protocol-registry instead of hardcoding runtime ids", async () => {
   const [dashboardSource, platformDocSource] = await Promise.all([
-    readProjectFile("dashboard.js"),
-    readProjectFile("lib", "platform-doc-builder.js"),
+    readWatchdogFile("dashboard.js"),
+    readWatchdogFile("lib", "platform-doc-builder.js"),
   ]);
 
   assert.match(dashboardSource, /from ['"]\.\/protocol-registry\.js['"]/);

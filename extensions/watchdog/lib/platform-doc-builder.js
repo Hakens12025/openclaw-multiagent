@@ -13,25 +13,25 @@ function buildHeartbeatTemplate() {
   return `${MANAGED_BOOTSTRAP_MARKER}
 # HEARTBEAT.md
 
-这是 runtime 唤起，不是自由闲聊。
+这是 runtime 唤起。
 
 严格按下面顺序执行：
 
 1. 检查 \`inbox/contract.json\`（唯一任务输入）
-2. 存在就按 \`SOUL.md\` 执行当前任务，不要只回复 \`HEARTBEAT_OK\`
-3. 不存在时，回复 \`HEARTBEAT_OK\` 并停止
+2. 存在就按 \`SOUL.md\` 执行当前任务
+3. 缺席时，回复 \`HEARTBEAT_OK\` 并停止
 `;
 }
 
 function buildAgentsTemplate(agentId, role, skills) {
   const normalizedSkills = uniqueStrings(skills || []);
-  const skillSummary = normalizedSkills.length > 0 ? normalizedSkills.join("、") : "无";
+  const skillSummary = normalizedSkills.length > 0 ? normalizedSkills.join("、") : "基础能力";
   const hasSystemAction = normalizedSkills.includes("system-action");
   const primaryResultRule = "主结果写 contract 的 `output`";
   return `${MANAGED_BOOTSTRAP_MARKER}
 # AGENTS.md
 
-你运行在 OpenClaw 平台里，不是裸跑在文件系统中。
+你运行在 OpenClaw 平台里。
 
 - Agent: \`${agentId}\`
 - Role: \`${role}\`
@@ -39,7 +39,7 @@ function buildAgentsTemplate(agentId, role, skills) {
 
 执行时先看：
 1. \`SOUL.md\`：主循环和绝对规则
-2. \`inbox/contract.json\`：当前任务真值；若不存在通常应 \`HEARTBEAT_OK\`
+2. \`inbox/contract.json\`：当前任务真值；缺席时通常回复 \`HEARTBEAT_OK\`
 3. \`PLATFORM-GUIDE.md\`：平台入口、出口、协作方式
 4. 需要找协作者时再查 \`BUILDING-MAP.md\`
 5. 准备显式协作时再查 \`COLLABORATION-GRAPH.md\`
@@ -47,10 +47,10 @@ function buildAgentsTemplate(agentId, role, skills) {
 7. 已加载技能：遇到对应问题时按 skill 走
 
 最低规则：
-- 先读 \`inbox/contract.json\`，不要扫描整个 workspace
+- 先读 \`inbox/contract.json\`
 - ${primaryResultRule}
-- ${hasSystemAction ? "需要协作时在产物里写 `[ACTION]` 标记（见 PLATFORM-GUIDE.md 协作动作）" : "当前未加载协作能力，不要自己伪造调度协议"}
-- 不直接写别的 agent workspace
+- ${hasSystemAction ? "需要协作时在产物里写 `[ACTION]` 标记（见 PLATFORM-GUIDE.md 协作动作）" : "协作能力由已加载 skill 与 runtime surface 提供"}
+- 其他 agent workspace 由 runtime 投递与 delivery 管理
 `;
 }
 
@@ -67,7 +67,7 @@ function buildSkillGuideLine(skillId) {
     case "skill-deployer":
       return "- `skill-deployer`: 创建或部署新 skill 的标准方式。";
     default:
-      return `- \`${skillId}\`: 按该 skill 的说明执行，不要自己猜协议或参数。`;
+      return `- \`${skillId}\`: 按该 skill 的说明执行。`;
   }
 }
 
@@ -100,7 +100,7 @@ function describeAgentCallUse(entry) {
     case AGENT_ROLE.BRIDGE:
       return entry.gateway
         ? "前台入口。适合接待外部来客，并把请求送进楼内。"
-        : "桥接型节点，负责消息出入口，不承担重执行。";
+        : "桥接型节点，负责消息出入口。";
     case AGENT_ROLE.PLANNER:
       return "复杂、多阶段、需要拆分或分工时找它规划。";
     case AGENT_ROLE.EXECUTOR:
@@ -153,7 +153,7 @@ function buildWorkspaceAgentDirectory(agentId, role, skills, agentEntries = []) 
 }
 
 function formatAgentIdList(agentIds, {
-  emptyLabel = "无",
+  emptyLabel = "空",
 } = {}) {
   return agentIds.length > 0
     ? agentIds.map((id) => `\`${id}\``).join("、")
@@ -179,7 +179,7 @@ function buildRegisteredLoopSection(agentId, loops = []) {
     });
 
   if (resolvedLoops.length === 0) {
-    return "- 当前无已登记 loop。";
+    return "- 当前已登记 loop 为空。";
   }
 
   return resolvedLoops.map((loop) => {
@@ -264,14 +264,14 @@ function buildBuildingMapTemplate(agentId, role, skills, agentEntries = []) {
   return `${MANAGED_BOOTSTRAP_MARKER}
 # BUILDING-MAP.md
 
-这是一份楼宇黄页，只回答“别人是谁、什么时候通常找谁”。
+这是一份楼宇黄页，回答“别人是谁、什么时候通常找谁”。
 
 ## 这栋楼的分工
 
 - 前台（bridge）负责接待外部来客，并把外部请求送进楼内
 - 办公室负责内容生产、研究、审查与决策；具体该找谁，以当前实际 agent 目录为准
-- 图权限不在这里定义；需要确认“现在能主动找谁”，去看 \`COLLABORATION-GRAPH.md\`
-- 结果如何自动逐层送达不在这里定义；需要确认 delivery 语义，去看 \`DELIVERY.md\`
+- 图权限见 \`COLLABORATION-GRAPH.md\`
+- delivery 语义见 \`DELIVERY.md\`
 
 ## 楼宇目录
 
@@ -289,18 +289,18 @@ function buildCollaborationGraphTemplate(agentId, role, graph = { edges: [] }, l
   return `${MANAGED_BOOTSTRAP_MARKER}
 # COLLABORATION-GRAPH.md
 
-这份文档只回答：你现在能主动找谁，以及哪些显式协作动作受图约束。
+这份文档回答：你现在能主动找谁，以及哪些显式协作动作受图约束。
 
 ## 当前图权限
 
-- 你可直接调用: ${formatAgentIdList(outgoingTargets, { emptyLabel: "当前无显式出边" })}
-- 可直接调用你: ${formatAgentIdList(incomingSources, { emptyLabel: "当前无显式入边" })}
+- 你可直接调用: ${formatAgentIdList(outgoingTargets, { emptyLabel: "当前显式出边为空" })}
+- 可直接调用你: ${formatAgentIdList(incomingSources, { emptyLabel: "当前显式入边为空" })}
 - \`assign_task\` / \`wake_agent\` / \`request_review\` 这类显式点对点协作，都先看这份图权限
 - 是否允许某个动作，还要同时遵守 \`SOUL.md\` 和对应 skill 的角色边界
 
 ## 当前显式回路
 
-${cycles.length > 0 ? cycles.map((cycle) => `- ${cycle}`).join("\n") : "- 当前不在显式回路中"}
+${cycles.length > 0 ? cycles.map((cycle) => `- ${cycle}`).join("\n") : "- 当前显式回路为空"}
 
 ## 已登记回路
 
@@ -309,8 +309,8 @@ ${buildRegisteredLoopSection(agentId, loops)}
 ## 使用原则
 
 - 先用 \`BUILDING-MAP.md\` 选候选协作者，再用这份文档确认当前权限
-- 没有图上的出边，不要主动发起显式 agent-to-agent 协作
-- loop 是图上的推进结构，不是私有旁路协议
+- 显式 agent-to-agent 协作按图上的出边执行
+- loop 是图上的推进结构
 `;
 }
 
@@ -318,12 +318,12 @@ function buildDeliveryTemplate() {
   return `${MANAGED_BOOTSTRAP_MARKER}
 # DELIVERY.md
 
-这份文档只回答：结果如何离开当前 contract，以及为什么会自动送到正确的下一跳。
+这份文档回答：结果如何离开当前 contract，以及为什么会自动送到正确的下一跳。
 
 ## 两条 delivery 语义
 
 - \`${PROTOCOL_ID.DELIVERY.TERMINAL}\`：contract 到终态后，把结果送到最终用户或前台入口（controller / QQ）
-- \`delivery:system_action\`：文档里的概念家族；运行时不会写这个模糊 id，而是落到具体的 system_action return variant
+- \`delivery:system_action\`：概念家族；运行时落到具体的 system_action return variant
 
 ## 核心字段
 
@@ -335,20 +335,20 @@ function buildDeliveryTemplate() {
 
 - 普通 contract 完成后，runtime 走 terminal delivery
 - 若目标是 QQ / controller，这一跳直接送到最终用户侧
-- 这是“任务结束后往外送”的出口，不是 agent 间继续协作
+- 这是“任务结束后往外送”的出口
 
 ## delivery:system_action（概念家族）
 
 - 子任务完成后，结果先按 \`replyTo\` 回给直接上游
 - 直接上游处理完后，再按 \`upstreamReplyTo\` 继续往上回
 - direct service 同会话恢复时，runtime 会结合 delivery ticket、sessionKey 和 wake 机制把结果送回原会话
-- 叶子 agent 不需要记整条祖先路线；runtime 根据票据和 route metadata 负责回件
+- runtime 根据票据和 route metadata 负责回件
 
 ## 为什么没出边也能回去
 
 - 图权限回答“你能主动找谁”
 - delivery 回答“你做完后结果自动送到哪”
-- 所以即使某个 worker 没有显式出边，也可以把结果自动退回上游
+- worker 可以通过 delivery 自动把结果退回上游
 
 ## 两类常见 system_action delivery
 
@@ -358,9 +358,9 @@ function buildDeliveryTemplate() {
 
 ## 使用原则
 
-- 不手工搬运子任务结果
-- 不把 delivery 语义写回 \`BUILDING-MAP.md\`
-- 要理解 delivery 问题时，看这份文档，不要靠猜图关系
+- 子任务结果由 runtime delivery 搬运
+- delivery 语义保留在这份文档
+- delivery 问题以这份文档和 runtime 票据为准
 `;
 }
 
@@ -393,12 +393,12 @@ function buildPlatformGuideTemplate(agentId, role, skills, graph = { edges: [] }
   const hasSystemAction = normalizedSkills.includes("system-action");
   const guideLines = normalizedSkills.length > 0
     ? normalizedSkills.map((skillId) => buildSkillGuideLine(skillId)).join("\n")
-    : "- 当前无额外技能。若后续注入 skill，优先按 skill 说明执行。";
+    : "- 当前使用基础能力。后续注入 skill 时按 skill 说明执行。";
   const specialEntrances = [];
   const primaryResultRules = "- 主结果写到 contract 的 `output`";
   const platformOutboxRule = hasSystemAction
     ? "- 需要协作时在产物末尾写 `[ACTION]` 标记（系统自动提取并执行）"
-    : "- 当前未加载协作能力，不要自己伪造调度协议";
+    : "- 协作能力由已加载 skill 与 runtime surface 提供";
   const platformActionSection = hasSystemAction
     ? [
         "需要协作时，在产物 markdown 里写 `[ACTION]` 标记。系统会自动提取并执行。",
@@ -421,12 +421,12 @@ function buildPlatformGuideTemplate(agentId, role, skills, graph = { edges: [] }
         "```",
         "",
         "规则：",
-        "- 自己能完成就自己完成，不要随意 wake 或 delegate",
+        "- 自己能完成就自己完成",
         "- 先看 `COLLABORATION-GRAPH.md` 确认你有权调用的 agent",
         "- 一次最多写一个 [ACTION]（系统只执行第一个）",
         "- 协作结果默认由 runtime 自动送达；delivery 语义看 `DELIVERY.md`",
       ].join("\n")
-    : "当前未加载协作能力，你的协作边界以现有角色硬路径和已加载技能为准。";
+    : "当前协作边界以现有角色硬路径和已加载技能为准。";
 
   return `${MANAGED_BOOTSTRAP_MARKER}
 # PLATFORM-GUIDE.md
@@ -445,18 +445,18 @@ function buildPlatformGuideTemplate(agentId, role, skills, graph = { edges: [] }
 - Contract 会告诉你当前任务、阶段和主输出路径
 ${specialEntrances.join("\n")}
 
-若这些入口都不存在，通常应直接 \`HEARTBEAT_OK\`，不要自己扫描整棵目录树。
+这些入口都缺席时，通常直接 \`HEARTBEAT_OK\`。
 
 ## 平台固定出口
 
 ${primaryResultRules}
 ${platformOutboxRule}
 
-## 外部工具降级规则
+## 外部工具受限规则
 
-- \`web_search\`、\`web_fetch\` 等外部工具是增强能力，不是默认阻塞点
-- 若外部工具因无 key、无网络、权限不足或服务异常而失败，只要当前任务还能基于现有 context / contract / 本地文件继续，就继续推进并在产物里注明限制
-- 不要因为一次可选工具失败就停在中间，也不要把”工具不可用”误当成整个任务的终态
+- \`web_search\`、\`web_fetch\` 等外部工具是增强能力
+- 外部工具因无 key、无网络、权限不足或服务异常而失败时，只要当前任务还能基于现有 context / contract / 本地文件继续，就继续推进并在产物里注明限制
+- 可选工具失败时，基于现有 context / contract / 本地文件继续推进并标注限制
 
 ## 协作命令
 

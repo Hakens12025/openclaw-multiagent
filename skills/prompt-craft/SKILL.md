@@ -1,183 +1,33 @@
 ---
 name: prompt-craft
-description: 高效提示词工程 skill。基于 Anthropic/OpenAI/DeepSeek/DeepMind 2024-2026 最新研究，指导如何为不同模型编写高质量提示词、SOUL、skill 和 agent 指令。
+description: Use when writing or reviewing OpenClaw SOUL, skills, agent instructions, operator prompts, wake text, task text, or runtime-facing guidance.
 metadata: {"clawdbot":{"emoji":"✏️"}}
 ---
 
-# 提示词工程 Skill
+# OpenClaw 提示词标准
 
-当你需要编写提示词（SOUL、skill、agent 指令、task 描述、system prompt）时，严格遵循以下方法论。
+OpenClaw prompt 的目标是最小有用：给 agent 完成当前工作所需的身份、输入、出口和产物格式。runtime truth lives in stores, typed envelopes, policy, and operator/admin surfaces.
 
----
+## 写法
 
-## 第一步：判定目标模型类型
+- 用正向任务语言：说明要读取什么、产出什么、交给哪个 runtime 对象消费。
+- 每段只服务一个目的：身份、任务输入、输出位置、协作出口、验证标准。
+- SOUL 只承载角色本地循环；平台协议真值放在 runtime、stores、typed envelopes、policy、surface。
+- 技能按需渐进读取；主提示只列触发条件和入口。
+- `[ACTION]` / JSON 是正式协议和 phase/runtime 消费对象；只在对应 skill 或必须产出协议 marker 的场景展示。
 
-在动笔之前必须先判定。两种类型需要**完全相反**的策略：
+## 结构
 
-### 推理模型（o1/o3, DeepSeek-R1, Gemini Thinking, Claude Extended Thinking）
+1. 角色：一句话说明当前 agent 的职责。
+2. 输入：列出当前必须读取的文件或字段。
+3. 动作：用可执行动词写当前任务。
+4. 输出：明确主产物路径、格式和完成信号。
+5. 协作：说明使用哪个已加载 skill 或 runtime surface。
 
-- 简洁直接，给目标不给步骤
-- Zero-shot，不用 few-shot 示例
-- **禁用**显式 CoT（"think step by step"）— 模型已内置推理，强制指定反而干扰
-- 像对资深同事说话
+## 检查
 
-### 通用模型（GPT-4.1, DeepSeek-V3, Claude Standard, Gemini, MiniMax）
-
-- 详细指令，明确每一步
-- Few-shot 示例（1-3 个），用 `<example>` 标签包裹
-- 显式 CoT（"Think step by step"）
-- 像对入职第一天的新员工说话
-
-> **OpenClaw 当前使用 MiniMax-M2.5（通用模型）**，所有 SOUL/skill 按通用模型策略写。
-
----
-
-## 第二步：组织提示词结构
-
-按以下顺序排列，**关键信息放开头或末尾**，不放中间（Lost-in-the-Middle 效应：中间信息性能下降 15-47%）：
-
-```
-1. 角色/身份         ← 一句话定位
-2. 上下文/参考数据    ← 文档、代码、前序产出
-3. 具体任务指令       ← 做什么、怎么做
-4. 输出格式要求       ← 产出结构、文件名
-5. 约束条件          ← 放最后，尤其是否定约束
-```
-
-### 静态前置、动态后置
-
-- 静态内容（角色、规则、工具定义、few-shot）放前面
-- 动态内容（用户消息、当前任务、输入数据）放后面
-- 利于提示缓存，降低 50-90% 成本
-
----
-
-## 第三步：写法核心原则
-
-### 原则 1：清晰具体 > 冗长详细
-
-信息密度比长度更重要。更短、结构更好的提示优于更长的。
-
-**反例**：
-```
-你需要仔细地、认真地分析这段代码，考虑各种可能的情况，然后给出你的建议...
-```
-
-**正例**：
-```
-分析以下代码的3个方面：
-1. 正确性：有无逻辑错误
-2. 性能：有无 O(n²) 或更差的路径
-3. 安全：有无注入风险
-
-对每个方面给出：结论（通过/不通过）+ 证据（引用代码行）
-```
-
-### 原则 2：正面表述 > 否定表述
-
-否定指令可能产生反向效应。
-
-- **用** "仅使用提供的数据"
-- **避免** "不要编造数据"
-- **用** "输出不超过 200 字的摘要"
-- **避免** "不要写太长"
-
-### 原则 3：示例 > 描述
-
-一个好示例胜过三段描述。
-
-```xml
-<example>
-输入：分析 React 和 Vue 的优劣
-输出：
-| 维度 | React | Vue |
-|------|-------|-----|
-| 学习曲线 | 陡峭 | 平缓 |
-| 生态 | 最大 | 中等 |
-结论：新手选 Vue，大型项目选 React。
-</example>
-```
-
-### 原则 4：用 XML 标签结构化
-
-Claude 系列专门训练过 XML 识别。用标签分隔不同类型的内容：
-
-```xml
-<role>你是安全审计专家</role>
-<context>以下是待审查的代码：...</context>
-<task>找出 OWASP Top 10 漏洞</task>
-<output_format>每个漏洞：类型 + 位置 + 修复建议</output_format>
-```
-
-### 原则 5：CTCO 结构（防幻觉最可靠）
-
-Context → Task → Constraints → Output：
-
-```
-[Context] 你正在审查一个 Huffman 编码实现。
-[Task] 验证编码/解码的正确性，找出所有 bug。
-[Constraints] 只基于代码本身判断，不假设外部依赖。
-[Output] 每个 bug：行号 + 问题描述 + 修复代码。
-```
-
----
-
-## 第四步：为 OpenClaw Agent 写 SOUL/Skill 的特殊规则
-
-### SOUL 只写流程，不写领域知识
-
-```
-✅ SOUL 内容：状态机、inbox/outbox 流程、产出格式、停止条件
-❌ SOUL 内容：具体数据文件名、领域专属字段、特定算法步骤
-```
-
-领域知识通过 skill 注入。
-
-### 任务描述要可执行
-
-```
-❌ "做研究"
-✅ "搜索以下 3 个关键词，每个至少读 2 个来源，交叉验证后写出综述"
-
-❌ "写代码"
-✅ "在 output/ 目录下创建项目结构，主入口为 index.js，包含单元测试"
-
-❌ "评估质量"
-✅ "逐文件审查 previousArtifactPath 指向的产出，对每个文件给出：正确性/完整性/可运行性评分（1-5）+ 具体问题"
-```
-
-### 产出格式要固化
-
-不要让 agent 自由发挥产出格式。明确指定：
-
-```
-主结果写入 contract.output 路径。
-完成信号写入 outbox/stage_result.json，必须包含：
-- status: "completed" | "failed"
-- summary: 一句话摘要
-- completion.transition.kind: "follow_graph"
-```
-
-### 前序产出要显式引用
-
-```
-先读取 pipelineStage.previousArtifactPath 指向的文件。
-这是上阶段的实际产出，是你工作的输入。
-只看 task 里的摘要不够 — 必须读原文。
-```
-
----
-
-## 第五步：质量检查清单
-
-写完提示词后，逐项检查：
-
-- [ ] 角色定位是否一句话说清？
-- [ ] 任务是否可执行（动词开头、有明确完成标准）？
-- [ ] 输出格式是否固化（文件名、结构、必填字段）？
-- [ ] 关键信息是否在开头或末尾（不在中间）？
-- [ ] 是否用了正面表述而非否定？
-- [ ] 是否有至少 1 个 few-shot 示例（通用模型）？
-- [ ] 是否过度冗长？能否删减 30% 而不丢信息？
-- [ ] 约束条件是否放在最后？
-- [ ] 是否避免了不相关的角色/人格描述（可导致 30% 性能下降）？
+- 当前文本是否能删掉一句而不影响执行；能删就删。
+- 规则是否属于 runtime/harness/path guard；属于硬保证就移出 prompt。
+- `[ACTION]` / JSON 是否由 runtime 消费；若只是教学噪声就降级到 skill。
+- agent 是否只看到本轮必要信息；大楼地图、图权限、delivery、operator 能力按需读取。
+- 文案是否描述目标行为，而非罗列失败姿势。
