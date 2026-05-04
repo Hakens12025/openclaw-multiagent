@@ -148,7 +148,7 @@ export function describePipelineProgression(progression) {
     return {
       tone: 'agent',
       text: `AGENT OWNED${from ? ` // ${from}` : ''}`,
-      title: `Pipeline progression stayed agent-owned${from ? ` at ${from}` : ''}.`,
+      title: `Loop route progression stayed agent-owned${from ? ` at ${from}` : ''}.`,
     };
   }
 
@@ -164,7 +164,7 @@ export function describePipelineProgression(progression) {
     return {
       tone: 'active',
       text: `AUTO ${from}\u2192${to}${round}`,
-      title: `Runtime advanced pipeline ${from} -> ${to}${round}`,
+      title: `Runtime advanced loop route ${from} -> ${to}${round}`,
     };
   }
 
@@ -172,7 +172,7 @@ export function describePipelineProgression(progression) {
     return {
       tone: 'done',
       text: `AUTO CONCLUDE${round}`,
-      title: `Runtime concluded pipeline${round}`,
+      title: `Runtime concluded loop route${round}`,
     };
   }
 
@@ -1110,13 +1110,13 @@ export function processEvent(type, data) {
           });
         }
       }
-      // Loop pipeline flow: stage advance/start creates a loop flow line
+      // Loop route flow: stage advance/start creates a visible route line
       if (data.type === 'loop_advanced' || data.type === 'loop_started') {
         const from = data.from || data.targetAgent;
         const to = data.to || data.targetAgent;
         if (from && to && from !== to) {
           const label = `R${data.round || 1} ${(data.to || '').toUpperCase()}`;
-          addActiveFlow(from, to, label, { type: resolveFlowVisualType('pipeline', data), workItemId });
+          addActiveFlow(from, to, label, { type: resolveFlowVisualType('loop_progress', data), workItemId });
         }
       }
       const systemActionDeliveryFlow = resolveSystemActionDeliveryAlertFlow(data);

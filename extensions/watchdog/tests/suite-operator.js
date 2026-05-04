@@ -67,7 +67,7 @@ export const OPERATOR_CASES = [
   },
   {
     id: "operator-snapshot-surfaces-pipeline-progression",
-    message: "operator snapshot 会暴露最新的 pipeline 自动推进诊断摘要",
+    message: "operator snapshot 会暴露最新的 loop route 自动推进诊断摘要",
   },
   {
     id: "operator-plan-soft-action-keeps-execution",
@@ -346,7 +346,7 @@ export async function runOperatorCase(testCase) {
       try {
         await persistContractById({
           id: contractId,
-          task: "Expose runtime-owned pipeline progression in operator snapshot",
+          task: "Expose runtime-owned loop route progression in operator snapshot",
           assignee: "evaluator",
           status: "completed",
           createdAt: Date.now() - 3000,

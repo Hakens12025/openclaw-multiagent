@@ -45,7 +45,7 @@ function renderRunCard(run) {
         <div class="harness-kv"><span>${esc(tx("label_profile"))}</span><strong>${esc(formatValue(run?.profileId || "--"))}</strong></div>
         <div class="harness-kv"><span>${esc(tx("label_runtime"))}</span><strong>${esc(formatStatus(run?.runtimeStatus, run?.runtimeStatus || "none"))}</strong></div>
         <div class="harness-kv"><span>${esc(tx("label_contract"))}</span><strong>${esc(formatValue(run?.contractId || "--"))}</strong></div>
-        <div class="harness-kv"><span>${esc(tx("label_pipeline"))}</span><strong>${esc(formatValue(run?.pipelineId || run?.loopId || "--"))}</strong></div>
+        <div class="harness-kv"><span>${esc(tx("label_loop_route"))}</span><strong>${esc(formatValue(run?.pipelineId || run?.loopId || "--"))}</strong></div>
       </div>
 
       <div class="harness-run-chip-row metrics">

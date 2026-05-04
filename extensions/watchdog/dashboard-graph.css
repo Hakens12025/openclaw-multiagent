@@ -217,13 +217,13 @@
   .flow-dynamic-label.flow-direct-dispatch { fill: var(--accent-amber); }
 
   /* ── LOOP FLOW LINES ── */
-  .flow-dynamic.flow-pipeline-progress {
+  .flow-dynamic.flow-loop-progress {
     stroke: rgba(90, 70, 160, 0.8);
     stroke-width: 2.5;
     stroke-dasharray: 12 6;
     animation: svg-dash-flow 1.2s linear infinite;
   }
-  .flow-dynamic-label.flow-pipeline-progress {
+  .flow-dynamic-label.flow-loop-progress {
     fill: rgba(90, 70, 160, 0.9);
   }
 

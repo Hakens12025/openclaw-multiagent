@@ -87,6 +87,23 @@ test("active prompt and UI sources no longer expose legacy route split wording",
   }
 });
 
+test("active dashboard visible copy uses graph and loop terminology", async () => {
+  const sources = await Promise.all([
+    readRepoFile("extensions/watchdog/dashboard.html"),
+    readRepoFile("extensions/watchdog/dashboard-i18n.js"),
+    readRepoFile("extensions/watchdog/dashboard.js"),
+    readRepoFile("extensions/watchdog/dashboard-operator.js"),
+    readRepoFile("extensions/watchdog/dashboard-flow-visuals.js"),
+    readRepoFile("extensions/watchdog/dashboard-harness-runs.js"),
+    readRepoFile("extensions/watchdog/dashboard-harness-shared.js"),
+  ]);
+  const visiblePipelinePattern = /DISPATCH PIPELINE|调度管线|pipeline progression|Pipeline progression|Runtime advanced pipeline|Runtime concluded pipeline|No recent runtime-owned pipeline progression|flow-pipeline-progress|label_pipeline/u;
+
+  for (const source of sources) {
+    assert.doesNotMatch(source, visiblePipelinePattern);
+  }
+});
+
 test("active docs no longer teach retired prompt protocol surfaces", async () => {
   const docs = await Promise.all([
     readRepoFile("README.md"),

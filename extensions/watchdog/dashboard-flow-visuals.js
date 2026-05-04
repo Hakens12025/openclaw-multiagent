@@ -13,7 +13,7 @@ export function normalizeFlowToken(value) {
 export function resolveFlowProtocolId(kind, data = null) {
   if (kind === "reply") return PROTOCOL_ID.DELIVERY.TERMINAL;
   if (kind === "graph_dispatch") return PROTOCOL_ID.DISPATCH.EXECUTION_CONTRACT;
-  if (kind === "pipeline") {
+  if (kind === "loop_progress") {
     return data?.type === "loop_started"
       ? PROTOCOL_ID.SYSTEM_ACTION.START_LOOP
       : PROTOCOL_ID.SYSTEM_ACTION.ADVANCE_LOOP;
@@ -54,7 +54,7 @@ export function resolveFlowVisualLabel(kind, data = null) {
   if (visualType === FLOW_VISUAL_ID.DISPATCH_DIRECT) return "DIRECT";
   if (visualType === FLOW_VISUAL_ID.DELIVERY_TERMINAL) return "DELIVERY";
   if (visualType === FLOW_VISUAL_ID.DELIVERY_RETURN) return "RETURN";
-  if (visualType === FLOW_VISUAL_ID.WORKFLOW_PROGRESS) return "PIPELINE";
+  if (visualType === FLOW_VISUAL_ID.WORKFLOW_PROGRESS) return "LOOP";
   return "ROUTE";
 }
 
@@ -65,7 +65,7 @@ export function resolveFlowVisualClasses(visualType) {
     case FLOW_VISUAL_ID.DISPATCH_DIRECT:
       return " flow-direct-dispatch";
     case FLOW_VISUAL_ID.WORKFLOW_PROGRESS:
-      return " flow-pipeline-progress";
+      return " flow-loop-progress";
     case FLOW_VISUAL_ID.DELIVERY_TERMINAL:
       return " flow-terminal-delivery";
     case FLOW_VISUAL_ID.DELIVERY_RETURN:

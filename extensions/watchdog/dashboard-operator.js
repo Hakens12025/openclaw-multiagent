@@ -81,7 +81,7 @@ function ensureOperatorShell() {
         <div class="operator-runtime-card">
           <span class="operator-summary-label">LATEST PROGRESSION</span>
           <strong id="operatorProgressText">--</strong>
-          <div class="operator-runtime-detail" id="operatorProgressDetail">No recent runtime-owned pipeline progression.</div>
+          <div class="operator-runtime-detail" id="operatorProgressDetail">No recent runtime-owned loop route progression.</div>
         </div>
       </div>
       <div class="operator-body">
@@ -221,14 +221,14 @@ function formatLatestProgressionDetail(snapshot) {
   if (!progression || !ui) {
     return {
       title: '--',
-      detail: 'No recent runtime-owned pipeline progression.',
+      detail: 'No recent runtime-owned loop route progression.',
       tone: 'idle',
     };
   }
 
   const detailParts = [
     progression.contractId ? `contract ${progression.contractId}` : null,
-    progression.pipelineId ? `pipeline ${progression.pipelineId}` : null,
+    progression.pipelineId ? `route ${progression.pipelineId}` : null,
     progression.loopId ? `loop ${progression.loopId}` : null,
     progression.reason ? humanizePipelineProgressReason(progression.reason) : null,
     progression.error || null,

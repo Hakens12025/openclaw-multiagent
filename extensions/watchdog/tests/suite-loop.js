@@ -65,7 +65,7 @@ export const LOOP_CASES = [
   },
   {
     id: "pipeline-contract-lifecycle",
-    description: "Loop synthetic contract lifecycle: each stage contract completes and records runtime-owned pipeline progression",
+    description: "Loop synthetic contract lifecycle: each stage contract completes and records runtime-owned loop route progression",
     timeoutMs: 30000,
     pipeline: true,
     config: {

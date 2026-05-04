@@ -28,7 +28,7 @@ export const LANG_PACKS = {
 
     // Panels
     'panel.work_item_lifecycle': 'WORK ITEM LIFECYCLE',
-    'panel.dispatch_pipeline': 'DISPATCH PIPELINE',
+    'panel.dispatch_pipeline': 'GRAPH TOPOLOGY',
     'panel.event_stream': 'EVENT STREAM // LIVE',
     'panel.no_work_items': 'NO ACTIVE WORK ITEMS',
     'panel.awaiting': 'AWAITING DISPATCH...',
@@ -149,7 +149,7 @@ export const LANG_PACKS = {
 
     // Panels
     'panel.work_item_lifecycle': '\u5DE5\u4F5C\u9879\u751F\u547D\u5468\u671F',
-    'panel.dispatch_pipeline': '\u8C03\u5EA6\u7BA1\u7EBF',
+    'panel.dispatch_pipeline': '\u56FE\u62D3\u6251',
     'panel.event_stream': '\u4E8B\u4EF6\u6D41 // \u5B9E\u65F6',
     'panel.no_work_items': '\u65E0\u6D3B\u8DC3\u5DE5\u4F5C\u9879',
     'panel.awaiting': '\u7B49\u5F85\u8C03\u5EA6...',

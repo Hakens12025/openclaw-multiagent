@@ -401,7 +401,7 @@ test("processEvent renders execution-contract inbox dispatch as graph route flow
   assert.doesNotMatch(getFlowPathClass(flow), /flow-direct-dispatch/);
 });
 
-test("processEvent renders pipeline progression as graph route flow", () => {
+test("processEvent renders loop progression as loop route flow", () => {
   resetDashboardState();
   dashboardSvg.buildPipelineSVG([
     { id: "planner", role: "planner", model: "m1" },
@@ -419,9 +419,29 @@ test("processEvent renders pipeline progression as graph route flow", () => {
   });
 
   const flow = findFlowGroup("planner→worker-a");
-  assert.ok(flow, "expected pipeline route flow group");
-  assert.match(getFlowPathClass(flow), /flow-pipeline-progress/);
+  assert.ok(flow, "expected loop route flow group");
+  assert.match(getFlowPathClass(flow), /flow-loop-progress/);
   assert.doesNotMatch(getFlowPathClass(flow), /flow-graph-route/);
+});
+
+test("describePipelineProgression uses loop route terminology in visible titles", () => {
+  const advanced = dashboard.describePipelineProgression({
+    attempted: true,
+    action: "advanced",
+    from: "planner",
+    to: "worker-a",
+    round: 2,
+  });
+  const concluded = dashboard.describePipelineProgression({
+    attempted: true,
+    action: "concluded",
+    round: 3,
+  });
+
+  assert.equal(advanced?.title, "Runtime advanced loop route PLANNER -> WORKER-A // R2");
+  assert.equal(concluded?.title, "Runtime concluded loop route // R3");
+  assert.doesNotMatch(advanced?.title || "", /pipeline/i);
+  assert.doesNotMatch(concluded?.title || "", /pipeline/i);
 });
 
 test("processEvent renders graph_dispatch as graph route flow", () => {
