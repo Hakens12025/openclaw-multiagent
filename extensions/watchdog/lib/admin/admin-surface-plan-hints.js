@@ -56,7 +56,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     expectedSignals: [],
   },
   "work_items.list": {
-    reads: ["workspaces/controller/contracts/*.json"],
+    reads: ["control-plane/contracts/*.json"],
     apiChecks: ["GET /watchdog/work-items"],
     expectedSignals: [],
   },
@@ -260,7 +260,7 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
     reads: ["automations.list", "work_items.list"],
     writes: [
       "workspaces/controller/.watchdog-automation-runtime.json",
-      "workspaces/controller/contracts/*.json",
+      "control-plane/contracts/*.json",
       "research-lab/loop_session_state.json",
     ],
     generatedFiles: [],
@@ -464,8 +464,8 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   },
   "test.inject": {
     reads: ["agents.list", "work_items.list"],
-    writes: ["workspaces/controller/contracts/*.json", "workspaces/controller/output/*.md"],
-    generatedFiles: ["workspaces/controller/contracts/TC-<timestamp>.json"],
+    writes: ["control-plane/contracts/*.json", "workspaces/controller/output/*.md"],
+    generatedFiles: ["control-plane/contracts/TC-<timestamp>.json"],
     apiChecks: ["GET /watchdog/work-items", "GET /watchdog/runtime"],
     expectedSignals: ["alert:inbox_dispatch"],
     tests: ["self"],
@@ -492,10 +492,10 @@ export const SURFACE_PLAN_HINTS = Object.freeze({
   "runtime.reset": {
     reads: ["runtime.read", "work_items.list", "research-lab/loop_session_state.json"],
     writes: [
-      "workspaces/controller/.watchdog-state.json",
-      "workspaces/controller/.queue-state.json",
+      "control-plane/watchdog-state.json",
+      "control-plane/queue-state.json",
       "research-lab/loop_session_state.json",
-      "workspaces/controller/contracts/*.json",
+      "control-plane/contracts/*.json",
     ],
     generatedFiles: [],
     apiChecks: ["GET /watchdog/runtime", "GET /watchdog/graph/loop-sessions"],

@@ -54,6 +54,7 @@ import {
 } from "./lib/automation/automation-executor.js";
 import { recoverOrphanedContracts, pruneTerminalContracts } from "./lib/lifecycle/crash-recovery.js";
 import { drainIdleDispatchTargets } from "./lib/routing/dispatch-graph-policy.js";
+import { migrateControllerRuntimeStateToControlPlane } from "./lib/control-plane-migration.js";
 
 // Hooks
 import * as beforeToolCallHook from "./hooks/before-tool-call.js";
@@ -375,6 +376,11 @@ const plugin = {
     api.on("gateway_start", async (event) => {
       logger.info(`[watchdog] ===== GATEWAY STARTED on port ${event.port} =====`);
       logger.info(`[watchdog] dashboard → http://localhost:${event.port}/watchdog/progress`);
+
+      const migration = await migrateControllerRuntimeStateToControlPlane({ logger });
+      if (migration.conflicts.length > 0) {
+        logger.warn(`[control-plane] ${migration.conflicts.length} legacy runtime state migration conflict(s) preserved`);
+      }
 
       await initExecutionLaneTargets(logger);
       setApiRef(api);

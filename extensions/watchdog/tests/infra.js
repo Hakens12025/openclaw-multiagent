@@ -4,7 +4,7 @@ import { readFile, readdir, writeFile, mkdir, unlink, rm, cp, mkdtemp } from "no
 import { dirname, join, relative } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import http from "node:http";
-import { agentWorkspace } from "../lib/state.js";
+import { agentWorkspace, CONTRACTS_DIR } from "../lib/state.js";
 import {
   AGENT_ROLE,
   listAgentIdsByRole,
@@ -17,7 +17,6 @@ import { readStoredAgentBinding } from "../lib/agent/agent-binding-store.js";
 // ── Paths & Constants ────────────────────────────────────────────────────────
 export const HOME = homedir();
 export const OC = join(HOME, ".openclaw");
-export const CONTRACTS_DIR = join(OC, "workspaces", "controller", "contracts");
 export const OUTPUT_DIR = join(OC, "workspaces", "controller", "output");
 export const REPORTS_DIR = join(OC, "test-reports");
 export const CONFIG_FILE = join(OC, "openclaw.json");
