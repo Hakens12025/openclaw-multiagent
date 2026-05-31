@@ -1,6 +1,10 @@
 import { join } from "node:path";
 import { dispatchAcceptIngressMessage } from "../ingress/dispatch-entry.js";
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
+import {
+  buildRuntimeWakeReason,
+  RUNTIME_WAKE_SEMANTICS,
+  runtimeWakeAgentDetailed,
+} from "../transport/runtime-wake-transport.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import { agentWorkspace } from "../state.js";
@@ -23,6 +27,7 @@ import {
 import {
   attachSystemActionDeliveryTicket,
 } from "../routing/delivery-system-action-ticket.js";
+import { SYSTEM_ACTION_DELIVERY_IDS } from "../routing/delivery-protocols.js";
 import { systemActionRunRequestReview } from "./system-action-request-review.js";
 import { resolveAgentIngressSource } from "../agent/agent-identity.js";
 import { SYSTEM_ACTION_STATUS } from "../core/runtime-status.js";
@@ -53,9 +58,15 @@ async function systemActionRunWakeAgent(normalizedAction, {
   const wake = normalizeWakeDiagnostic(
     await runtimeWakeAgentDetailed(
       target,
-      normalizedAction.params?.reason || "system_action wakeup",
+      normalizedAction.params?.reason || null,
       api,
       logger,
+      {
+        wakeSemantic: RUNTIME_WAKE_SEMANTICS.SYSTEM_ACTION_WAKE_AGENT,
+        sourceAgentId: agentId,
+        actionType: normalizedAction.type,
+        sourceContractId: contractData?.id || null,
+      },
     ),
     {
       lane: "system_action.wake_agent",
@@ -140,7 +151,9 @@ async function systemActionRunCreateTask(normalizedAction, {
   return {
     status: wake
       ? deriveDispatchStatusFromWake(wake)
-      : SYSTEM_ACTION_STATUS.DISPATCHED,
+      : ingressResult?.queued === true
+        ? SYSTEM_ACTION_STATUS.QUEUED
+        : SYSTEM_ACTION_STATUS.DISPATCHED,
     actionType: normalizedAction.type,
     contractId: ingressResult?.contractId || null,
     deferredCompletion: systemActionDelivery.deferredCompletion,
@@ -204,6 +217,7 @@ async function systemActionRunAssignTask(normalizedAction, {
     contractData,
     replyTo,
     upstreamReplyTo,
+    ticketLane: SYSTEM_ACTION_DELIVERY_IDS.ASSIGN_TASK_RESULT,
   });
 
   const contract = createDirectRequestEnvelope({
@@ -230,13 +244,20 @@ async function systemActionRunAssignTask(normalizedAction, {
   };
 
   const { wake } = await deliveryEnqueueSystemActionReturn({
-    lane: "system_action.assign_task",
+    lane: SYSTEM_ACTION_DELIVERY_IDS.ASSIGN_TASK_RESULT,
     targetAgent: resolvedTargetAgent,
     contract,
     api,
     logger,
     wake: {
-      reason: normalizedAction.params?.reason || `assign_task from ${agentId}`,
+      reason: normalizedAction.params?.reason || buildRuntimeWakeReason(null, {
+        wakeSemantic: RUNTIME_WAKE_SEMANTICS.ASSIGN_TASK_DISPATCH,
+        sourceAgentId: agentId,
+      }),
+      wakeSemantic: RUNTIME_WAKE_SEMANTICS.ASSIGN_TASK_DISPATCH,
+      sourceAgentId: agentId,
+      deliveryTicketId: systemActionDelivery.deliveryTicket?.id || null,
+      sourceContractId: contractData?.id || null,
       failureAlert: {
         source: agentId,
       },
@@ -269,10 +290,15 @@ async function systemActionRunAdvanceLoop(normalizedAction, {
   agentId,
   logger,
 }) {
+  // advance_loop is owned by the runtime graph (agent-end-graph-route.js).
+  // When an agent emits [ACTION] advance_loop the graph route already handles
+  // loop advancement; there is nothing for system_action to dispatch.
+  // Return NO_ACTION so deriveSystemActionTerminalOutcome skips contract
+  // termination — the contract must not be killed with FAILED.
+  logger.info(`[system_action] ${agentId} advance_loop acknowledged (graph-route-owned)`);
   return {
-    status: SYSTEM_ACTION_STATUS.INVALID_STATE,
+    status: SYSTEM_ACTION_STATUS.NO_ACTION,
     actionType: normalizedAction.type,
-    error: `advance loop is graph-router-owned; ${agentId} should emit outbox stage_result instead`,
   };
 }
 

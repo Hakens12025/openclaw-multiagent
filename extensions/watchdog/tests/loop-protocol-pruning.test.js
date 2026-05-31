@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   INTENT_TYPES,
+  annotateExecutionContract,
   isKnownIntentType,
   normalizeSystemIntent,
 } from "../lib/protocol-primitives.js";
@@ -24,14 +25,14 @@ test("normalizeSystemIntent preserves canonical start_loop and does not revive l
     action: "start_loop",
     params: {
       startAgent: "researcher",
-      requestedTask: "验证 loop graph-router 真值",
+      requestedTask: "验证 loop runtime graph 真值",
     },
   });
 
   assert.equal(normalized.type, INTENT_TYPES.START_LOOP);
   assert.equal(normalized.protocol.intentType, INTENT_TYPES.START_LOOP);
   assert.equal(normalized.params?.startAgent, "researcher");
-  assert.equal(normalized.params?.requestedTask, "验证 loop graph-router 真值");
+  assert.equal(normalized.params?.requestedTask, "验证 loop runtime graph 真值");
 
   const legacy = normalizeSystemIntent({
     action: "start_pipeline",
@@ -50,4 +51,19 @@ test("system-action semantic skill only advertises loop actions", () => {
     spec?.toolRefs?.filter((entry) => entry.includes("loop") || entry.includes("pipeline")),
     ["start_loop", "advance_loop"],
   );
+});
+
+test("execution contract annotation strips legacy route split truth", () => {
+  const annotated = annotateExecutionContract({
+    id: "TC-ROUTE-LEGACY",
+    task: "route split residue should not survive annotation",
+    assignee: "worker",
+    protocol: {
+      envelope: "execution_contract",
+      route: "long",
+    },
+  });
+
+  assert.equal(annotated.protocol.envelope, "execution_contract");
+  assert.equal("route" in annotated.protocol, false);
 });

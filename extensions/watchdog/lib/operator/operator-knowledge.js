@@ -12,7 +12,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/operator-admin/SKILL.md",
     priority: 10,
     tags: ["operator", "admin", "平台", "管理", "前台", "权限", "协议", "runtime", "kernel", "代码"],
-    summary: "Operator 是平台前台，入口在设置页 runtime operator。它优先使用 admin surface / change-set 管理 runtime、协议、kernel 与代码变更。",
+    summary: "Operator 是隐藏 runtime control agent，入口在 runtime operator surface。管理动作优先使用 cli-system surface / change-set，协议、kernel 和代码文件改动需要对应 surface。",
   },
   {
     id: "building-map",
@@ -20,15 +20,15 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/platform-map/SKILL.md",
     priority: 8,
     tags: ["agent", "building", "map", "skill", "办公室", "大楼", "地图", "协作", "厕所", "协议", "workspace"],
-    summary: "OpenClaw 是多 agent 大楼。agent 先找地图、入口和出口；schema、路径、跨 workspace 协议与 delivery 方式由平台对象提供。",
+    summary: "OpenClaw 是多 agent 大楼。agent 先找地图、入口和出口，schema、路径、跨 workspace 协议和 delivery 方式由平台提供。",
   },
   {
     id: "graph-truth",
     title: "Graph Is Cooperation Truth",
     sourcePath: "use guide/备忘录55_[主]_Operator本地知识检索层落地_2026-03-19-1237.md",
     priority: 9,
-    tags: ["graph", "edge", "loop", "contract", "回路", "有向图", "连线", "协作", "reviewer", "worker"],
-    summary: "skill 提供认知指导；agent-to-agent 协作权限由有向图边定义。图边是自然协作的结构真值。",
+    tags: ["graph", "edge", "loop", "回路", "有向图", "连线", "协作", "reviewer", "worker"],
+    summary: "skill 提供认知指导。agent-to-agent 协作权限由有向图边定义；边缺失时先补图真相。",
   },
   {
     id: "system-action-routing",
@@ -36,15 +36,15 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/system-action/SKILL.md",
     priority: 7,
     tags: ["system_action", "assign_task", "request_review", "wake_agent", "review", "委派", "审查", "唤醒"],
-    summary: "当 agent 需要委派、请求审查、唤醒同伴或启动 loop 时，在产物中写 [ACTION] 交给 runtime。结果 delivery 和上下游传递属于平台硬路径。",
+    summary: "当 agent 需要委派、请求审查、唤醒同伴或启动 loop 时，应写 system_action 交给 runtime。结果 delivery 和上下游传递属于平台硬路径。",
   },
   {
     id: "loop-runtime",
     title: "Loop Runtime Rule",
     sourcePath: "skills/system-action/SKILL.md",
     priority: 7,
-    tags: ["loop", "cycle", "回路", "循环", "advance_loop", "start_loop", "graph-router"],
-    summary: "loop runtime 在图上的有向边形成回路时参与。普通有向边表达单次委派。",
+    tags: ["loop", "cycle", "回路", "循环", "advance_loop", "start_loop", "dispatch-graph-policy"],
+    summary: "loop runtime 在图上的有向边形成回路时参与。cycle 数量为 0 时，协作属于单次有向委派。",
   },
   {
     id: "controller-front-desk",
@@ -68,7 +68,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "extensions/watchdog/test-runner.js",
     priority: 6,
     tags: ["test", "harness", "preset", "suite", "报告", "test-runner"],
-    summary: "测试系统统一入口为 watchdog formal test surface；test-runner.js 是 /watchdog/test-runs/* 的薄客户端。formal case 真值在 formal-test-case-catalog，formal preset 真值在 formal-test-presets，报告输出到 ~/.openclaw/test-reports/。",
+    summary: "测试系统统一入口为 watchdog formal test surface；test-runner.js 是 /watchdog/test-runs/* 的薄客户端。formal case 真值收口到 formal-test-case-catalog，formal preset 真值收口到 formal-test-presets，报告输出到 ~/.openclaw/test-reports/。",
   },
   {
     id: "agent-bootstrap-system",
@@ -76,7 +76,23 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/platform-map/SKILL.md",
     priority: 6,
     tags: ["bootstrap", "workspace", "guidance", "BOOTSTRAP.md", "agent"],
-    summary: "Agent workspace 引导自动生成机制：框架启动时加载 AGENTS.md、SOUL.md、HEARTBEAT.md、PLATFORM-GUIDE.md 和按需 skill，为 agent 提供角色、入口和出口。",
+    summary: "Agent workspace 引导自动生成机制：框架启动时自动加载 AGENTS.md、SOUL.md、TOOLS.md、IDENTITY.md、USER.md、HEARTBEAT.md、BOOTSTRAP.md 以及 memory/*.md，为 agent 提供角色定义、行为规范与上下文记忆。",
+  },
+  {
+    id: "autonomy-loop-semantics",
+    title: "Autonomy Loop & Harness Semantics",
+    sourcePath: "docs/system-blocks/automation-governance.md",
+    priority: 7,
+    tags: ["harness", "automation", "回路", "自治", "profile", "lifecycle", "governance", "trust", "verify", "评分", "收敛", "treadmill"],
+    summary: "自治回路：automation 经 harness 跑 round，HarnessRun→EvaluationResult→AutomationDecision→ProfileLifecycle 对象链派生治理。ProfileLifecycle 尾段（trustLevel experimental/provisional/stable、successStreak/failureStreak、retired 状态、governanceSnapshot 收紧参数）经 inspect.profile_lifecycle 观测；governanceSnapshotDisabled 是安全阀熔断。operator 治理 automation 时先 inspect.profile_lifecycle / inspect.automation_runtime_summary 看自治状态，再经 automations.* / runtime.loop.* apply，必要时 verify。",
+  },
+  {
+    id: "operator-inspect-apply-verify",
+    title: "Operator Inspect-Apply-Verify Loop",
+    sourcePath: "docs/decision-verify-surface-and-commit-gate-2026-05-31.md",
+    priority: 8,
+    tags: ["operator", "inspect", "apply", "verify", "surface", "治理", "闭环", "test_runs", "回灌"],
+    summary: "operator 主动治理走 inspect→apply→verify 闭环：先用 inspect.* surface 读真值（runtime/work_items/profile_lifecycle/automation 等），再经 apply surface 落地改动（P2.5 已通 cli-surface-executor 四道门），最后可用 verify surface（test_runs.start / test.inject）主动验证并回看结果。apply 类 change-set 经 commit 路径时受 P3 强制 verify 门（verify 不过不能 commit）。",
   },
 ]);
 
@@ -104,23 +120,18 @@ function scoreFragment(fragment, request) {
   return score;
 }
 
+// 数据驱动地从 live surfaces 列出 operator 当前可直接执行的动作（每条以
+// "surfaceId: summary" 呈现）。不硬编码 surface 白名单——新增 operatorExecutable
+// surface 自动入列，旧的退役自动出列（红线：禁止硬编码可执行面清单）。
 function summarizeExecutableCapabilities(surfaces) {
-  const ids = new Set((Array.isArray(surfaces) ? surfaces : [])
-    .map((surface) => normalizeString(surface?.id))
-    .filter(Boolean));
-  const capabilities = [];
-  if (ids.has("agents.create")) capabilities.push("create agent");
-  if (ids.has("agents.name")) capabilities.push("rename agent");
-  if (ids.has("agents.description")) capabilities.push("rewrite agent description");
-  if (ids.has("agents.skills")) capabilities.push("change agent skills");
-  if (ids.has("agents.policy")) capabilities.push("change agent policy");
-  if (ids.has("graph.edge.add")) capabilities.push("add graph edge");
-  if (ids.has("graph.edge.delete")) capabilities.push("delete graph edge");
-  if (ids.has("graph.loop.compose")) capabilities.push("compose graph loop");
-  if (ids.has("graph.loop.repair")) capabilities.push("repair graph loop");
-  if (ids.has("runtime.loop.interrupt")) capabilities.push("interrupt loop runtime");
-  if (ids.has("runtime.loop.resume")) capabilities.push("resume loop runtime");
-  return capabilities;
+  return (Array.isArray(surfaces) ? surfaces : [])
+    .map((surface) => {
+      const id = normalizeString(surface?.id);
+      if (!id) return null;
+      const summary = normalizeText(surface?.summary);
+      return summary ? `${id}（${summary}）` : id;
+    })
+    .filter(Boolean);
 }
 
 function buildDynamicGraphFragment(graph, loops = []) {
@@ -136,8 +147,8 @@ function buildDynamicGraphFragment(graph, loops = []) {
       priority: 9,
       tags: ["graph", "edge", "loop", "协作", "回路", "reviewer", "worker", "controller"],
       summary: registeredLoops.length > 0
-        ? `当前 live graph 有向边为空；已登记 ${registeredLoops.length} 个 LoopSpec，active 数量为 0。显式协作需要先建立图边。`
-        : "当前 live graph 有向边为空。显式协作需要先建立图边。",
+        ? `当前 live graph 有向边数量为 0；已登记 ${registeredLoops.length} 个 LoopSpec，active 数量为 0。agent 协作需要先补显式边。`
+        : "当前 live graph 有向边数量为 0。agent 协作需要先补显式边。",
     };
   }
   if (activeLoops.length === 0) {
@@ -148,7 +159,7 @@ function buildDynamicGraphFragment(graph, loops = []) {
       priority: 8,
       tags: ["graph", "edge", "loop", "协作", "回路"],
       summary: registeredLoops.length > 0
-        ? `当前 live graph 有 ${edges.length} 条有向边，并登记了 ${registeredLoops.length} 个 LoopSpec，active loop 数量为 0。现阶段的 agent 协作属于单次有向委派。`
+        ? `当前 live graph 有 ${edges.length} 条有向边，并登记了 ${registeredLoops.length} 个 LoopSpec，但当前没有 active loop。现阶段的 agent 协作仍属于单次有向委派。`
         : `当前 live graph 有 ${edges.length} 条有向边，cycle 数量为 0。现阶段的 agent 协作属于单次有向委派。`,
     };
   }
@@ -157,8 +168,8 @@ function buildDynamicGraphFragment(graph, loops = []) {
     title: "Live Graph State",
     sourcePath: "runtime graph",
     priority: 8,
-    tags: ["graph", "edge", "loop", "协作", "回路", "cycle", "contract"],
-    summary: `当前 live graph 有 ${edges.length} 条有向边，登记了 ${registeredLoops.length} 个 LoopSpec，其中 ${activeLoops.length} 个处于 active。原始 cycle 检测数为 ${cycles.length}；已登记且成环的 loop 交给 loop runtime 管理。`,
+    tags: ["graph", "edge", "loop", "协作", "回路", "cycle"],
+    summary: `当前 live graph 有 ${edges.length} 条有向边，登记了 ${registeredLoops.length} 个 LoopSpec，其中 ${activeLoops.length} 个处于 active。原始 cycle 检测数为 ${cycles.length}；已登记且成环的 loop 由 loop runtime 处理。`,
   };
 }
 
@@ -177,7 +188,7 @@ function buildLoopRuntimeFragment(loopSessions = []) {
       title: "Live Loop Runtime",
       sourcePath: "runtime loop session",
       priority: 9,
-      tags: ["loop", "loop-session", "runtime", "contract", "round", "回路", "轮次", "状态"],
+      tags: ["loop", "loop-session", "runtime", "round", "回路", "轮次", "状态"],
       summary: `当前存在 active loop session：loop=${activeSession.loopId || "unknown"} stage=${activeSession.currentStage || "unknown"} round=${activeSession.round || 1} runtimeStatus=${runtimeStatus}。${missingEdgeCount > 0 ? `该 session 当前缺失 ${missingEdgeCount} 条 loop edge。` : "当前 loop session 结构完整。"}`,
     };
   }
@@ -188,21 +199,27 @@ function buildLoopRuntimeFragment(loopSessions = []) {
     title: "Live Loop Runtime",
     sourcePath: "runtime loop session",
     priority: 7,
-    tags: ["loop", "loop-session", "runtime", "contract", "回路", "状态"],
-    summary: `当前 active loop session 为空。最近一次 loop session 属于 ${latestSession?.loopId || "unknown"}，状态为 ${latestSession?.runtimeStatus || latestSession?.status || "unknown"}。`,
+    tags: ["loop", "loop-session", "runtime", "回路", "状态"],
+    summary: `当前没有 active loop session。最近一次 loop session 属于 ${latestSession?.loopId || "unknown"}，状态为 ${latestSession?.runtimeStatus || latestSession?.status || "unknown"}。`,
   };
 }
 
 function buildDynamicCapabilityFragment(surfaces) {
   const capabilities = summarizeExecutableCapabilities(surfaces);
   if (capabilities.length === 0) return null;
+  // 控制片段长度：列出 surface id 便于 LLM 选面，超出部分以数量收口。
+  const ids = (Array.isArray(surfaces) ? surfaces : [])
+    .map((surface) => normalizeString(surface?.id))
+    .filter(Boolean);
+  const shownIds = ids.slice(0, 20);
+  const overflow = ids.length - shownIds.length;
   return {
     id: "live-operator-capabilities",
     title: "Live Operator Capabilities",
-    sourcePath: "runtime admin surfaces",
+    sourcePath: "runtime cli-system surfaces",
     priority: 8,
-    tags: ["operator", "surface", "执行", "修改", "创建", "连线", "graph", "agent", "skill"],
-    summary: `当前 operator 直接可执行的动作：${capabilities.join("、")}。超出 surface 的请求使用 advice_only。`,
+    tags: ["operator", "surface", "执行", "修改", "创建", "连线", "graph", "agent", "skill", "verify", "schedule", "automation"],
+    summary: `当前 operator 直接可执行的 surface 共 ${ids.length} 个（含 inspect/apply/verify）：${shownIds.join("、")}${overflow > 0 ? `，以及另外 ${overflow} 个` : ""}。仅当用户要求确实没有对应 surface 时才回答 advice_only。`,
   };
 }
 

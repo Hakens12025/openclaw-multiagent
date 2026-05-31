@@ -109,7 +109,7 @@ export function checkToolCall(agentId, sessionKey, toolName, params, logger) {
   // Rule 0: Bridge hook sessions — block ALL tool calls
   if (isBridgeAgent(agentId) && sessionKey.includes(":hook:")) {
     logger.info(`[watchdog] HOOK LOCKDOWN: blocked ${toolName} in bridge hook session`);
-    return { block: true, blockReason: "Bridge hook session 仅用于触发任务派发，不执行任何操作" };
+    return { block: true, blockReason: "Bridge hook session 用于触发任务派发；请回到当前会话继续。" };
   }
 
   // Rule 1a: Block sensitive file reads
@@ -117,16 +117,27 @@ export function checkToolCall(agentId, sessionKey, toolName, params, logger) {
     const blockedPath = filePaths.find((filePath) => isSensitivePath(filePath));
     if (blockedPath) {
       logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to read sensitive path: ${blockedPath}`);
-      return { block: true, blockReason: "安全策略：禁止读取敏感配置文件" };
+      return { block: true, blockReason: "安全策略：读取工作面限定为当前任务文件。" };
     }
   }
 
-  // Rule 1b: Block sensitive file writes/edits
+  // Rule 1b: Block sensitive file writes/edits; also scan write content for API keys
   if (WRITE_TOOL_PATTERN.test(toolName)) {
     const blockedPath = filePaths.find((filePath) => isSensitivePath(filePath));
     if (blockedPath) {
       logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to write/edit sensitive path: ${blockedPath}`);
-      return { block: true, blockReason: "安全策略：禁止写入或修改敏感配置文件" };
+      return { block: true, blockReason: "安全策略：写入工作面限定为当前任务文件。" };
+    }
+    const writeContent = [
+      params.content,
+      params.text,
+      params.newText,
+      params.new_string,
+      params.body,
+    ].filter(Boolean).join("\n");
+    if (writeContent && containsApiKey(writeContent)) {
+      logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to write API key via ${toolName}`);
+      return { block: true, blockReason: "安全策略：消息面只发送任务内容和结果。" };
     }
   }
 
@@ -140,7 +151,7 @@ export function checkToolCall(agentId, sessionKey, toolName, params, logger) {
     ].filter(Boolean).join("\n");
     if (containsApiKey(message)) {
       logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to send API key via sessions_send`);
-      return { block: true, blockReason: "安全策略：消息中包含 API 密钥，已拦截" };
+      return { block: true, blockReason: "安全策略：消息面只发送任务内容和结果。" };
     }
   }
 
@@ -149,7 +160,7 @@ export function checkToolCall(agentId, sessionKey, toolName, params, logger) {
     const cmd = String(params.command ?? params.cmd ?? "");
     if (containsSensitivePathReferenceInCommand(cmd)) {
       logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to exec with sensitive path: ${cmd.slice(0, 80)}`);
-      return { block: true, blockReason: "安全策略：禁止在命令中引用敏感文件路径" };
+      return { block: true, blockReason: "安全策略：命令引用工作面限定为当前任务文件。" };
     }
   }
 

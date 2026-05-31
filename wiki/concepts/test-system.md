@@ -8,9 +8,9 @@ OpenClaw 的测试基础设施，覆盖从单元到端到端的多层验证：
 
 **入口与预设：**
 - `test-runner.js` — 唯一测试入口
-- 7 种预设：single / multi / concurrent / concurrent-multi / model / research-flow / research-auto
-- 5 个 suite：single, concurrent, benchmark, research, model
-- 精细控制：`--suite [name] [--filter xxx]`
+- 运行预设：`node extensions/watchdog/test-runner.js --preset single`
+- 单用例：`node extensions/watchdog/test-runner.js --case simple-03`
+- 旧 `--suite` / `--filter` / `--clean` 参数已退休，传入会 hard error
 
 **检查点与错误码：**
 - 13 个检查点（CP1-CP13）

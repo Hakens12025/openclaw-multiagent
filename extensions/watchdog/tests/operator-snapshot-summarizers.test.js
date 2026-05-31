@@ -1,7 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { summarizeAutomation } from "../lib/operator/operator-snapshot-summarizers.js";
+import { summarizeAutomation, summarizeSchedule } from "../lib/operator/operator-snapshot-summarizers.js";
+
+test("summarizeSchedule projects canonical schedule state without route hints", () => {
+  const summary = summarizeSchedule({
+    id: "schedule-canonical",
+    enabled: true,
+    trigger: {
+      type: "cron",
+      expr: "*/5 * * * *",
+    },
+    entry: {
+      targetAgent: "controller",
+      routeHint: "short",
+    },
+    systemActionDelivery: {
+      agentId: "controller",
+    },
+    deliveryTargets: [
+      { channel: "qqbot", target: "c2c:user-1" },
+    ],
+  });
+
+  assert.equal(summary.id, "schedule-canonical");
+  assert.equal(summary.targetAgent, "controller");
+  assert.equal("routeHint" in summary, false);
+  assert.equal(summary.systemActionDeliveryAgent, "controller");
+  assert.equal(summary.deliveryTargetCount, 1);
+  assert.deepEqual(summary.deliveryChannels, ["qqbot"]);
+});
 
 test("summarizeAutomation ignores stale summary fields and reads canonical automation state", () => {
   const summary = summarizeAutomation({

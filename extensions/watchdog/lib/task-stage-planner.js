@@ -1,13 +1,7 @@
-import {
-  buildInitialTaskStagePlan,
-  materializeTaskStagePlan,
-} from "./task-stage-plan.js";
-
-// Minimal default — planner agent decides the real stages at runtime.
-const DEFAULT_STAGES = Object.freeze(["执行"]);
+import { materializeTaskStagePlan } from "./task-stage-plan.js";
 
 export function planTaskStages() {
-  return [...DEFAULT_STAGES];
+  return null;
 }
 
 export function buildTaskStagePlanFromTask({
@@ -23,12 +17,5 @@ export function buildTaskStagePlanFromTask({
     phases,
     revisionPolicy,
   });
-  if (materialized) return materialized;
-
-  const stages = planTaskStages();
-  return buildInitialTaskStagePlan({
-    contractId,
-    stages,
-    revisionPolicy,
-  });
+  return materialized || null;
 }

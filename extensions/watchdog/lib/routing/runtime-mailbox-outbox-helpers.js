@@ -2,15 +2,29 @@
 
 import { copyFile, mkdir, readFile, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { OC } from "../state.js";
 import { evictContractSnapshotByPath } from "../store/contract-store.js";
-import { ARTIFACT_TYPES } from "../protocol-primitives.js";
+import { ARTIFACT_TYPES, RUNTIME_RESULT_FILE } from "../protocol-primitives.js";
 import {
   normalizeStageCompletion,
   normalizeStageRunResult,
 } from "../stage-results.js";
+import {
+  buildReviewerResult,
+  normalizeReviewerResult,
+} from "../harness/reviewer-result.js";
+import {
+  normalizeReviewerDecision,
+} from "./runtime-mailbox-outbox-reviewer-verdict.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
+import { OC } from "../state.js";
 
-const OUTPUT_DIR = join(OC, "workspaces", "controller", "output");
+const OUTPUT_DIR = CONTROL_PLANE_PATHS.outputDir;
+const CONTROL_OUTBOX_FILE_NAMES = new Set([
+  RUNTIME_RESULT_FILE,
+]);
+const LEGACY_OUTBOX_FILE_NAMES = new Set([
+  "_manifest.json",
+]);
 
 export { OUTPUT_DIR };
 
@@ -19,33 +33,76 @@ export async function removeFileQuietly(path) {
   evictContractSnapshotByPath(path);
 }
 
-export function normalizeManifestFilePath(filePath) {
-  const normalized = typeof filePath === "string" && filePath.trim()
-    ? filePath.trim()
-    : "";
-  if (!normalized) return null;
-  return basename(normalized);
+function listCommittedOutboxFiles(files) {
+  return [...new Set((Array.isArray(files) ? files : [])
+    .map((fileName) => typeof fileName === "string" ? fileName.trim() : "")
+    .filter((fileName) => fileName && !CONTROL_OUTBOX_FILE_NAMES.has(fileName)))];
 }
 
-export function findManifestArtifactFile(manifest, type, files, fallbackNames = []) {
-  const entries = Array.isArray(manifest?.artifacts) ? manifest.artifacts : [];
-  const match = entries.find((artifact) => artifact?.type === type && files.includes(normalizeManifestFilePath(artifact.path)));
-  if (match) {
-    return normalizeManifestFilePath(match.path);
-  }
-  return fallbackNames.find((name) => files.includes(name)) || null;
+function inferImplicitArtifactType(fileName) {
+  return fileName.toLowerCase().endsWith(".md")
+    ? ARTIFACT_TYPES.TEXT_OUTPUT
+    : "artifact";
 }
 
-export function listManifestArtifactFiles(manifest, type, files, fallbackFilter) {
-  const entries = Array.isArray(manifest?.artifacts) ? manifest.artifacts : [];
-  const explicitFiles = entries
-    .filter((artifact) => artifact?.type === type)
-    .map((artifact) => normalizeManifestFilePath(artifact.path))
-    .filter((fileName) => fileName && files.includes(fileName));
-  if (explicitFiles.length > 0) {
-    return [...new Set(explicitFiles)];
+function normalizeRuntimeResultReviewVerdict(value) {
+  if (!value || typeof value !== "object") {
+    return null;
   }
-  return files.filter(fallbackFilter);
+  const verdict = typeof value.verdict === "string" && value.verdict.trim()
+    ? value.verdict.trim()
+    : typeof value.action === "string" && value.action.trim()
+      ? value.action.trim()
+      : null;
+  if (!verdict) {
+    return null;
+  }
+  return {
+    ...value,
+    verdict,
+  };
+}
+
+function deriveRuntimeResultReviewerResult({ parsed, reviewVerdict, activeContract }) {
+  const explicit = normalizeReviewerResult(parsed?.reviewerResult);
+  if (explicit) {
+    return explicit;
+  }
+  if (!reviewVerdict) {
+    return null;
+  }
+  const decision = normalizeReviewerDecision(reviewVerdict);
+  return buildReviewerResult({
+    source: "system_action_review_delivery",
+    verdict: decision.mapped.verdict,
+    score: decision.score,
+    findings: decision.findings,
+    failureClass: decision.mapped.verdict === "fail" ? "review_rejected" : null,
+    reworkTarget: decision.reworkTarget,
+    continueHint: decision.mapped.continueHint,
+    contractId: activeContract?.id || null,
+    ts: Date.now(),
+  });
+}
+
+function resolvePreferredPrimaryArtifactFile({ artifactFiles, explicitPrimaryFileName, activeContract }) {
+  if (explicitPrimaryFileName && artifactFiles.includes(explicitPrimaryFileName)) {
+    return explicitPrimaryFileName;
+  }
+
+  const contractOutputFileName = typeof activeContract?.output === "string" && activeContract.output.trim()
+    ? basename(activeContract.output.trim())
+    : null;
+  if (contractOutputFileName && artifactFiles.includes(contractOutputFileName)) {
+    return contractOutputFileName;
+  }
+
+  const markdownFile = artifactFiles.find((fileName) => fileName.toLowerCase().endsWith(".md"));
+  if (markdownFile) {
+    return markdownFile;
+  }
+
+  return artifactFiles[0] || null;
 }
 
 export async function readActiveInboxContract(agentId) {
@@ -63,82 +120,21 @@ export async function readActiveInboxContract(agentId) {
 }
 
 export function buildStageDefaults(activeContract, agentId) {
-  const pipelineStage = activeContract?.pipelineStage && typeof activeContract.pipelineStage === "object"
+  const contractStage = activeContract?.pipelineStage && typeof activeContract.pipelineStage === "object"
     ? activeContract.pipelineStage
     : {};
   return {
-    stage: pipelineStage.stage || agentId || null,
-    pipelineId: pipelineStage.pipelineId || null,
-    loopId: pipelineStage.loopId || null,
-    loopSessionId: pipelineStage.loopSessionId || null,
-    round: Number.isFinite(pipelineStage.round) ? pipelineStage.round : null,
-    semanticStageId: pipelineStage.semanticStageId || activeContract?.stageRuntime?.currentStageId || null,
+    stage: contractStage.stage || agentId || null,
+    pipelineId: contractStage.pipelineId || null,
+    loopId: contractStage.loopId || null,
+    loopSessionId: contractStage.loopSessionId || null,
+    round: Number.isFinite(contractStage.round) ? contractStage.round : null,
+    semanticStageId: contractStage.semanticStageId || activeContract?.stageRuntime?.currentStageId || null,
   };
 }
 
 export function normalizeObservedStageRunResult(stageRunResult) {
   return normalizeStageRunResult(stageRunResult);
-}
-
-function normalizeArtifactPaths(artifactPaths, primaryOutputPath) {
-  const normalized = [
-    ...(Array.isArray(artifactPaths) ? artifactPaths : []),
-    primaryOutputPath,
-  ]
-    .map((entry) => typeof entry === "string" && entry.trim() ? entry.trim() : null)
-    .filter(Boolean);
-  return [...new Set(normalized)];
-}
-
-export function buildImplicitTextOutputStageRunResult({
-  activeContract,
-  agentId,
-  artifactPaths = [],
-  primaryOutputPath = null,
-  summary = null,
-  feedback = null,
-  transition,
-} = {}) {
-  const effectiveArtifactPaths = normalizeArtifactPaths(artifactPaths, primaryOutputPath);
-  const effectivePrimaryOutputPath = typeof primaryOutputPath === "string" && primaryOutputPath.trim()
-    ? primaryOutputPath.trim()
-    : effectiveArtifactPaths[0] || null;
-  if (!effectivePrimaryOutputPath) {
-    return null;
-  }
-
-  const effectiveSummary = typeof summary === "string" && summary.trim()
-    ? summary.trim()
-    : `${effectiveArtifactPaths.length} output file(s) collected`;
-  const effectiveFeedback = typeof feedback === "string" && feedback.trim()
-    ? feedback.trim()
-    : effectiveSummary;
-  const effectiveTransition = transition === undefined
-    ? {
-        kind: "follow_graph",
-        reason: "stage_completed",
-      }
-    : transition;
-  const stageDefaults = buildStageDefaults(activeContract, agentId);
-
-  return normalizeObservedStageRunResult(normalizeStageRunResult({
-    ...stageDefaults,
-    status: "completed",
-    summary: effectiveSummary,
-    feedback: effectiveFeedback,
-    artifacts: effectiveArtifactPaths.map((artifactPath) => ({
-      type: ARTIFACT_TYPES.TEXT_OUTPUT,
-      path: artifactPath,
-      label: basename(artifactPath),
-      required: true,
-      primary: artifactPath === effectivePrimaryOutputPath,
-    })),
-    primaryArtifactPath: effectivePrimaryOutputPath,
-    completion: buildCompletedStageCompletion({
-      feedback: effectiveFeedback,
-      transition: effectiveTransition,
-    }),
-  }));
 }
 
 export async function materializeOutboxArtifacts({
@@ -165,13 +161,13 @@ export async function materializeOutboxArtifacts({
       if (primaryFileName && fileName === primaryFileName && mirrorOutputPath && mirrorOutputPath !== dest) {
         await mkdir(dirname(mirrorOutputPath), { recursive: true });
         await copyFile(src, mirrorOutputPath);
-        logger?.info?.(`[router] collectOutbox: mirrored ${fileName} -> ${mirrorOutputPath}`);
+        logger?.info?.(`[mailbox] collectOutbox: mirrored ${fileName} -> ${mirrorOutputPath}`);
       }
       await removeFileQuietly(src);
       collected.push(fileName);
-      logger?.info?.(`[router] collectOutbox: ${fileName} -> output/${fileName}`);
+      logger?.info?.(`[mailbox] collectOutbox: ${fileName} -> output/${fileName}`);
     } catch (error) {
-      logger?.warn?.(`[router] collectOutbox: failed to move ${fileName}: ${error.message}`);
+      logger?.warn?.(`[mailbox] collectOutbox: failed to move ${fileName}: ${error.message}`);
     }
   }
 
@@ -219,41 +215,40 @@ export function buildCompletedStageCompletion({
   });
 }
 
-export function buildHoldStageCompletion(status, feedback) {
-  return normalizeStageCompletion({
-    status,
-    feedback,
-    transition: {
-      kind: "hold",
-      reason: feedback || status,
-    },
-  });
-}
-
-export async function collectExplicitStageResult({
+export async function collectRuntimeResult({
   agentId,
   outboxDir,
   files,
   logger,
-  manifest,
   activeContract,
 } = {}) {
-  const stageResultFile = findManifestArtifactFile(manifest, ARTIFACT_TYPES.STAGE_RESULT, files, ["stage_result.json"]);
-  if (!stageResultFile) return null;
+  const legacyFileName = (Array.isArray(files) ? files : []).find((fileName) => LEGACY_OUTBOX_FILE_NAMES.has(fileName));
+  if (legacyFileName) {
+    return { collected: false, error: `legacy outbox manifest is not accepted: ${legacyFileName}` };
+  }
+
+  if (!Array.isArray(files) || !files.includes(RUNTIME_RESULT_FILE)) {
+    return { collected: false, error: `missing ${RUNTIME_RESULT_FILE}` };
+  }
 
   try {
-    const raw = await readFile(join(outboxDir, stageResultFile), "utf8");
+    const raw = await readFile(join(outboxDir, RUNTIME_RESULT_FILE), "utf8");
     const parsed = JSON.parse(raw);
     const defaults = buildStageDefaults(activeContract, agentId);
     const normalized = normalizeStageRunResult(parsed, defaults);
     if (!normalized) {
-      logger?.warn?.("[router] collectOutbox: invalid stage_result.json");
-      return { collected: false, error: "invalid stage_result" };
+      logger?.warn?.(`[mailbox] collectOutbox: invalid ${RUNTIME_RESULT_FILE}`);
+      return { collected: false, error: "invalid runtime_result" };
     }
 
-    const artifactFiles = normalized.artifacts
+    const declaredArtifactFiles = normalized.artifacts
       .map((artifact) => basename(artifact.path))
       .filter((fileName) => files.includes(fileName));
+    const implicitArtifactFiles = listCommittedOutboxFiles(files);
+    const artifactFiles = [...new Set([
+      ...declaredArtifactFiles,
+      ...implicitArtifactFiles,
+    ])];
 
     // Collect external artifacts (absolute paths outside the outbox that exist on disk)
     const externalArtifacts = [];
@@ -269,7 +264,11 @@ export async function collectExplicitStageResult({
       }
     }
 
-    const primaryFileName = normalized.primaryArtifactPath ? basename(normalized.primaryArtifactPath) : (artifactFiles[0] || null);
+    const primaryFileName = resolvePreferredPrimaryArtifactFile({
+      artifactFiles,
+      explicitPrimaryFileName: normalized.primaryArtifactPath ? basename(normalized.primaryArtifactPath) : null,
+      activeContract,
+    });
     const mirrorOutputPath = typeof activeContract?.output === "string" && activeContract.output.trim()
       ? activeContract.output.trim()
       : null;
@@ -280,11 +279,34 @@ export async function collectExplicitStageResult({
       primaryFileName,
       mirrorOutputPath,
     });
-    await removeFileQuietly(join(outboxDir, stageResultFile));
+    await removeFileQuietly(join(outboxDir, RUNTIME_RESULT_FILE));
 
-    const stageRunResult = normalizeObservedStageRunResult(
-      remapStageRunArtifacts(normalized, materialized.pathByFile),
-    );
+    const remapped = remapStageRunArtifacts(normalized, materialized.pathByFile);
+    const remappedArtifacts = Array.isArray(remapped?.artifacts) ? remapped.artifacts : [];
+    const existingArtifactPaths = new Set(remappedArtifacts.map((artifact) => artifact.path));
+    for (const fileName of materialized.collected) {
+      const materializedPath = materialized.pathByFile.get(fileName);
+      if (!materializedPath || existingArtifactPaths.has(materializedPath)) {
+        continue;
+      }
+      remappedArtifacts.push({
+        type: inferImplicitArtifactType(fileName),
+        path: materializedPath,
+        label: fileName,
+        required: true,
+        primary: materializedPath === materialized.primaryArtifactPath,
+      });
+      existingArtifactPaths.add(materializedPath);
+    }
+
+    const stageRunResult = normalizeObservedStageRunResult(normalizeStageRunResult({
+      ...(remapped || normalized),
+      artifacts: remappedArtifacts,
+      primaryArtifactPath: materialized.primaryArtifactPath
+        || remapped?.primaryArtifactPath
+        || normalized.primaryArtifactPath
+        || null,
+    }));
 
     // Merge external artifacts into the stage run result
     if (externalArtifacts.length > 0 && stageRunResult) {
@@ -296,6 +318,13 @@ export async function collectExplicitStageResult({
       }
     }
 
+    const reviewVerdict = normalizeRuntimeResultReviewVerdict(parsed.reviewVerdict);
+    const reviewerResult = deriveRuntimeResultReviewerResult({
+      parsed,
+      reviewVerdict,
+      activeContract,
+    });
+
     return {
       collected: true,
       files: materialized.collected,
@@ -303,10 +332,13 @@ export async function collectExplicitStageResult({
       primaryOutputPath: stageRunResult?.primaryArtifactPath || null,
       stageRunResult,
       stageCompletion: normalizeStageCompletion(parsed.completion, stageRunResult?.completion || {}),
-      explicitStageResult: true,
+      explicitRuntimeResult: true,
+      ...(reviewerResult ? { reviewerResult } : {}),
+      ...(reviewVerdict ? { reviewVerdict } : {}),
+      ...(reviewerResult || reviewVerdict ? { artifactKind: "code_review" } : {}),
     };
   } catch (error) {
-    logger?.warn?.(`[router] collectOutbox: stage_result parse error: ${error.message}`);
+    logger?.warn?.(`[mailbox] collectOutbox: runtime_result parse error: ${error.message}`);
     return { collected: false, error: error.message };
   }
 }

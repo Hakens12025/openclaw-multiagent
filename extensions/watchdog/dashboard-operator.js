@@ -3,8 +3,8 @@ import { on } from './dashboard-bus.js';
 import { esc, toast } from './dashboard-common.js';
 import {
   closeSettingsMenu,
-  describePipelineProgression,
-  humanizePipelineProgressReason,
+  describeGraphRouteProgression,
+  humanizeGraphRouteProgressReason,
   loadAgentMeta,
 } from './dashboard.js';
 import { loadGraph } from './dashboard-graph.js';
@@ -22,6 +22,12 @@ const operatorState = {
 };
 let operatorSnapshotRefreshTimer = null;
 let operatorPlanAbortController = null;
+
+function formatSurfaceDisplayId(surfaceOrId, fallback = '--') {
+  return globalThis.OpenClawSurfaceDisplay?.formatSurfaceDisplayId?.(surfaceOrId, fallback)
+    || (typeof surfaceOrId === 'object' ? surfaceOrId?.displayId || surfaceOrId?.id || surfaceOrId?.surfaceId : surfaceOrId)
+    || fallback;
+}
 
 function operatorToken() {
   return new URLSearchParams(window.location.search).get('token') || '';
@@ -81,7 +87,7 @@ function ensureOperatorShell() {
         <div class="operator-runtime-card">
           <span class="operator-summary-label">LATEST PROGRESSION</span>
           <strong id="operatorProgressText">--</strong>
-          <div class="operator-runtime-detail" id="operatorProgressDetail">No recent runtime-owned loop route progression.</div>
+          <div class="operator-runtime-detail" id="operatorProgressDetail">No recent runtime graph progression.</div>
         </div>
       </div>
       <div class="operator-body">
@@ -217,20 +223,20 @@ function formatLoopRuntimeDetail(activeLoopSession) {
 
 function formatLatestProgressionDetail(snapshot) {
   const progression = snapshot?.loops?.latestProgression || null;
-  const ui = describePipelineProgression(progression);
+  const ui = describeGraphRouteProgression(progression);
   if (!progression || !ui) {
     return {
       title: '--',
-      detail: 'No recent runtime-owned loop route progression.',
+      detail: 'No recent runtime graph progression.',
       tone: 'idle',
     };
   }
 
   const detailParts = [
     progression.contractId ? `contract ${progression.contractId}` : null,
-    progression.pipelineId ? `route ${progression.pipelineId}` : null,
+    progression.pipelineId ? `loop ${progression.pipelineId}` : null,
     progression.loopId ? `loop ${progression.loopId}` : null,
-    progression.reason ? humanizePipelineProgressReason(progression.reason) : null,
+    progression.reason ? humanizeGraphRouteProgressReason(progression.reason) : null,
     progression.error || null,
   ].filter(Boolean);
 
@@ -327,7 +333,7 @@ function buildOperatorAvailableActionsHtml() {
       ${actions.map((surface) => `
         <div class="operator-step-card">
           <div class="operator-step-head">
-            <span>${esc(surface.id || '--')}</span>
+            <span>${esc(formatSurfaceDisplayId(surface, surface.id || '--'))}</span>
             <span>${esc(surface.risk || surface.stage || '--')}</span>
           </div>
           <div class="operator-step-body">${esc(surface.summary || '--')}</div>
@@ -471,8 +477,8 @@ function renderOperatorPlan() {
       ${steps.map((step, index) => `
         <div class="operator-step-card">
           <div class="operator-step-head">
-            <span>${index + 1}. ${esc(step.title || step.surfaceId || 'step')}</span>
-            <span>${esc(step.surfaceId || '--')}</span>
+            <span>${index + 1}. ${esc(step.title || formatSurfaceDisplayId(step.surfaceId, 'step'))}</span>
+            <span>${esc(formatSurfaceDisplayId(step.surfaceId, step.surfaceId || '--'))}</span>
           </div>
           <div class="operator-step-body">${esc(step.summary || '--')}</div>
           <pre class="operator-step-payload">${esc(JSON.stringify(step.payload || {}, null, 2))}</pre>
@@ -602,7 +608,7 @@ export async function executeOperatorPlanFromUI() {
     const stepText = Array.isArray(payload.results)
       ? payload.results.map((entry) => {
         const suffix = entry?.result?.skipped ? ' (skipped)' : '';
-        return `${entry.surfaceId}${suffix}`;
+        return `${formatSurfaceDisplayId(entry.surfaceId, entry.surfaceId || '--')}${suffix}`;
       }).join(', ')
       : '';
     pushOperatorMessage('assistant', `\u6267\u884C\u5B8C\u6210\uFF1A${payload.summary || 'operator plan applied'}\u3002${stepText ? ` surfaces: ${stepText}.` : ''}`);

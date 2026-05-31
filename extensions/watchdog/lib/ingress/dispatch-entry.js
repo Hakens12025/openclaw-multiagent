@@ -6,11 +6,8 @@ import {
   dispatchResolveIngressReplyTarget,
 } from "./dispatch-execution-contract-entry.js";
 import { normalizeIngressDirective } from "../protocol-primitives.js";
-import {
-  normalizeIngressPhases,
-} from "./ingress-classification.js";
+import { normalizeIngressPhases } from "./ingress-classification.js";
 import { normalizeRouteMetadata } from "../route-metadata.js";
-import { planTaskStages } from "../task-stage-planner.js";
 
 export {
   normalizeIngressPhases,
@@ -51,8 +48,7 @@ export async function dispatchAcceptIngressMessage(message, {
     ...(intentType != null ? { intentType } : {}),
     ...(phases != null ? { phases } : {}),
   });
-
-  const resolvedPhases = normalizeIngressPhases(normalizedDirective.phases) || planTaskStages(message);
+  const resolvedPhases = normalizeIngressPhases(normalizedDirective.phases) || null;
   return dispatchCreateExecutionContractEntry({
     message,
     source,

@@ -1,11 +1,10 @@
+import { readFile } from "node:fs/promises";
 import {
   materializeTaskStageTruth,
-  deriveCompatibilityPhases,
-  deriveCompatibilityTotal,
+  deriveDisplayPhases,
+  deriveDisplayTotal,
 } from "../task-stage-plan.js";
-import { getContractPath, mutateContractSnapshot } from "../contracts.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { hasDirectedEdge, loadGraph } from "../agent/agent-graph.js";
 import {
   routeAfterAgentEnd,
   resolveRouteAfterAgentEndTarget,
@@ -15,11 +14,23 @@ import {
   advanceLoopSession,
   loadLoopSessionState,
 } from "../loop/loop-session-store.js";
+import { isSessionHardStopped, getSessionHardStopReason, HARD_STOP_REASON } from "../loop/loop-detection.js";
+import { resolveLoopEpochKey } from "../loop/loop-epoch-key.js";
 import {
-  normalizePipelineStageDescriptor,
+  normalizeContractStageDescriptor,
   resolveStageAdvanceSignal,
 } from "./agent-end-stage-advance.js";
 import { mergeRuntimeDiagnostics } from "./agent-end-contract-refresh.js";
+import { evaluateTrace } from "../store/execution-trace-store.js";
+import { isDirectRequestEnvelope } from "../protocol-primitives.js";
+import {
+  buildGraphRouteProgressionDiagnostic,
+  buildSkippedGraphRouteProgressionDiagnostic,
+  buildLateCompletionDiagnostic,
+  mergeGraphRouteProgressionDiagnostics,
+  persistGraphRouteProgressionDiagnostics,
+} from "./agent-end-graph-route-diagnostics.js";
+import { evaluateLoopBudgetGovernance } from "./agent-end-loop-budget-governance.js";
 
 function normalizePositiveInteger(value, fallback = null) {
   const numeric = Number(value);
@@ -30,211 +41,134 @@ function normalizePositiveInteger(value, fallback = null) {
 }
 
 function contractRouteStage(contract) {
-  return normalizePipelineStageDescriptor(contract?.pipelineStage);
+  return normalizeContractStageDescriptor(contract?.pipelineStage);
 }
 
-function buildLoopFeedbackOutput(pipelineStage, stageAdvanceSignal, executionObservation, agentId) {
+function getRuntimeTraceVerdict(context, contractData) {
+  return evaluateTrace(context?.sessionKey)
+    || contractData?.runtimeDiagnostics?.executionTrace
+    || context?.trackingState?.contract?.runtimeDiagnostics?.executionTrace
+    || null;
+}
+
+function hasSemanticProgressObservation(executionObservation) {
+  if (!executionObservation || typeof executionObservation !== "object") {
+    return false;
+  }
+  return Boolean(
+    executionObservation.stageRunResult
+    || executionObservation.stageCompletion
+    || executionObservation.reviewerResult
+    || executionObservation.reviewVerdict
+    || executionObservation.researchDirection
+    || executionObservation.nextAction
+    || executionObservation.searchSpace
+    || executionObservation.systemAction
+    || (Array.isArray(executionObservation.files) && executionObservation.files.length > 0)
+    || (Array.isArray(executionObservation.artifactPaths) && executionObservation.artifactPaths.length > 0)
+    || executionObservation.primaryOutputPath
+  );
+}
+
+async function resolveHardStopProgressGate(context, contractData) {
+  const traceVerdict = getRuntimeTraceVerdict(context, contractData);
+  if (
+    traceVerdict?.systemActionSeen === true
+    || hasSemanticProgressObservation(context?.executionObservation)
+  ) {
+    return {
+      kind: "semantic_progress",
+    };
+  }
+
+  return null;
+}
+
+function resolveHardStopTerminalGate(context, contractData) {
+  const outputPath = String(
+    contractData?.output
+    || context?.trackingState?.contract?.output
+    || "",
+  ).trim();
+  const epochKey = resolveLoopEpochKey(context?.trackingState) || context?.sessionKey;
+  if (isSessionHardStopped(epochKey)) {
+    const hardStopReason = getSessionHardStopReason(epochKey) || HARD_STOP_REASON.LOOP_DETECTED;
+    const summaryByReason = {
+      [HARD_STOP_REASON.REPEAT_THRESHOLD]: "session terminated due to repeated identical tool calls before final output was committed",
+      [HARD_STOP_REASON.MAX_TOOL_CALLS]: "session terminated because executionPolicy.maxToolCalls budget was exhausted",
+      [HARD_STOP_REASON.MANUAL]: "session terminated by explicit operator intervention",
+    };
+    return {
+      routed: false,
+      owned: false,
+      action: "terminal",
+      reason: hardStopReason,
+      target: null,
+      terminalOutcome: {
+        status: CONTRACT_STATUS.FAILED,
+        source: "loop_runtime",
+        reason: hardStopReason,
+        summary: summaryByReason[hardStopReason]
+          || `session hard-stopped (${hardStopReason}) before final output was committed`,
+        artifact: outputPath || null,
+      },
+    };
+  }
+
+  return null;
+}
+
+// 中间 handoff 完成校验:即将转发给下一环时，若本环产物文件存在但内容为空/过短，
+// 不转发，判 terminal(retryable)——防止"agent 自以为做完、实际没产出实质交付物"被传送带原样推给下游。
+// 阈值保守(只拦近乎空/占位输出)，正常短答不误伤；只作用于"有产物文件但内容过短"，无文件交既有 progress gate。
+const MIN_HANDOFF_OUTPUT_CHARS = 24;
+export async function resolveIncompleteHandoffGate(context, targetAgent) {
+  const outputPath = context?.executionObservation?.primaryOutputPath;
+  // 复用 extract_output_markers 已读入的同一产物正文（先于 graph_route，避免重复读盘）；
+  // 无缓存才回退读盘。readFile 自身对缺失文件抛错，无需额外 existsSync。
+  let content = typeof context?._outputContent === "string" ? context._outputContent : null;
+  if (content == null) {
+    if (typeof outputPath !== "string" || !outputPath.trim()) {
+      return null;
+    }
+    try {
+      content = await readFile(outputPath, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  const len = content.trim().length;
+  if (len >= MIN_HANDOFF_OUTPUT_CHARS) {
+    return null;
+  }
   return {
-    result: stageAdvanceSignal.result || null,
-    feedback: stageAdvanceSignal.feedback || null,
-    artifactPaths: Array.isArray(stageAdvanceSignal.artifactPaths) ? stageAdvanceSignal.artifactPaths : [],
-    primaryArtifactPath: stageAdvanceSignal.primaryArtifactPath || null,
+    routed: false,
+    owned: false,
+    action: "terminal",
+    reason: "incomplete_output",
+    target: null,
+    terminalOutcome: {
+      status: CONTRACT_STATUS.FAILED,
+      source: "handoff_completion_gate",
+      reason: "incomplete_output",
+      retryable: true,
+      summary: `产物为空或过短（${len} 字 < ${MIN_HANDOFF_OUTPUT_CHARS} 阈值），未转发给下一环 ${targetAgent || "?"}；需重做并产出实质交付物`,
+      artifact: outputPath || null,
+    },
+  };
+}
+
+function buildLoopFeedbackOutput(contractStage, stageAdvanceSignal, executionObservation, agentId) {
+  return {
+    result: stageAdvanceSignal?.result || null,
+    feedback: stageAdvanceSignal?.feedback || null,
+    artifactPaths: Array.isArray(stageAdvanceSignal?.artifactPaths) ? stageAdvanceSignal.artifactPaths : [],
+    primaryArtifactPath: stageAdvanceSignal?.primaryArtifactPath || null,
     executionObservation: executionObservation || null,
-    fromStage: pipelineStage.stage,
+    fromStage: contractStage.stage,
     fromAgent: agentId,
     ts: Date.now(),
   };
-}
-
-function buildLoopStageTask({
-  baseTask,
-  previousStage,
-  previousFeedback,
-  previousArtifactPath,
-}) {
-  const normalizedBaseTask = typeof baseTask === "string" ? baseTask.trim() : "";
-  const handoffLines = [
-    previousStage ? `上阶段: ${previousStage}` : null,
-    previousFeedback ? `上阶段结论: ${previousFeedback}` : null,
-    previousArtifactPath ? `上阶段主产物: ${previousArtifactPath}` : null,
-  ].filter(Boolean);
-
-  if (handoffLines.length === 0) {
-    return normalizedBaseTask;
-  }
-
-  return [
-    normalizedBaseTask,
-    "阶段交接:",
-    ...handoffLines.map((line) => `- ${line}`),
-  ].filter(Boolean).join("\n");
-}
-
-function buildPipelineProgressionDiagnostic({
-  pipelineStage,
-  nextStage,
-  nextRound,
-  reason,
-}) {
-  return {
-    attempted: true,
-    action: "advanced",
-    reason: reason || "stage_advanced",
-    from: pipelineStage.stage,
-    to: nextStage,
-    targetAgent: nextStage,
-    pipelineId: pipelineStage.pipelineId || null,
-    loopId: pipelineStage.loopId || null,
-    loopSessionId: pipelineStage.loopSessionId || null,
-    round: nextRound,
-    ts: Date.now(),
-  };
-}
-
-function buildSkippedPipelineProgressionDiagnostic({
-  pipelineStage,
-  reason,
-  action = null,
-  error = null,
-}) {
-  return {
-    attempted: false,
-    skipped: true,
-    action,
-    reason: reason || "graph_hold",
-    error,
-    from: pipelineStage.stage,
-    pipelineId: pipelineStage.pipelineId || null,
-    loopId: pipelineStage.loopId || null,
-    loopSessionId: pipelineStage.loopSessionId || null,
-    round: pipelineStage.round || 1,
-    ts: Date.now(),
-  };
-}
-
-function normalizeLoopBudgetState(activeLoopSession, pipelineStage) {
-  const source = activeLoopSession?.budget;
-  if (!source || typeof source !== "object") {
-    return null;
-  }
-
-  const currentRound = normalizePositiveInteger(
-    pipelineStage?.round ?? activeLoopSession?.round,
-    1,
-  ) || 1;
-  return {
-    maxRounds: normalizePositiveInteger(source.maxRounds, null),
-    maxExperiments: normalizePositiveInteger(source.maxExperiments, null),
-    usedRounds: normalizePositiveInteger(source.usedRounds, currentRound) || currentRound,
-    usedExperiments: normalizePositiveInteger(source.usedExperiments, 0) || 0,
-  };
-}
-
-function evaluateLoopBudgetGovernance({
-  activeLoopSession,
-  pipelineStage,
-  nextStage,
-  nextRound,
-}) {
-  const budget = normalizeLoopBudgetState(activeLoopSession, pipelineStage);
-  if (!budget) {
-    return {
-      exhausted: false,
-      updatedBudget: null,
-    };
-  }
-
-  const normalizedNextRound = normalizePositiveInteger(nextRound, pipelineStage?.round || 1)
-    || pipelineStage?.round
-    || 1;
-  if (budget.maxRounds && normalizedNextRound > budget.maxRounds) {
-    return {
-      exhausted: true,
-      reason: "loop_budget_exhausted:max_rounds",
-      updatedBudget: {
-        ...budget,
-        usedRounds: budget.maxRounds,
-      },
-      terminalOutcome: {
-        status: CONTRACT_STATUS.COMPLETED,
-        source: "loop_runtime_governance",
-        reason: "loop_budget_exhausted:max_rounds",
-        summary: `Loop reached maxRounds=${budget.maxRounds} before routing to ${nextStage}`,
-        artifact: {
-          loopId: pipelineStage?.loopId || pipelineStage?.pipelineId || null,
-          loopSessionId: pipelineStage?.loopSessionId || null,
-          exhaustedBy: "maxRounds",
-          maxRounds: budget.maxRounds,
-          usedRounds: budget.maxRounds,
-          blockedNextStage: nextStage || null,
-        },
-      },
-    };
-  }
-
-  return {
-    exhausted: false,
-    updatedBudget: {
-      ...budget,
-      usedRounds: Math.max(budget.usedRounds, normalizedNextRound),
-    },
-  };
-}
-
-function buildLateCompletionDiagnostic(lateCompletionLease) {
-  if (!lateCompletionLease) {
-    return null;
-  }
-  return {
-    recovered: true,
-    reason: lateCompletionLease.reason || "tracker_timeout",
-    stage: lateCompletionLease.stage || null,
-    pipelineId: lateCompletionLease.pipelineId || null,
-    loopId: lateCompletionLease.loopId || null,
-    loopSessionId: lateCompletionLease.loopSessionId || null,
-    contractId: lateCompletionLease.contractId || null,
-    armedAt: lateCompletionLease.armedAt || null,
-    resumedAt: lateCompletionLease.resumedAt || Date.now(),
-    diagnostic: lateCompletionLease.diagnostic || null,
-  };
-}
-
-function mergeLoopProgressionDiagnostics(contract, progressionDiagnostic, lateCompletionDiagnostic = null) {
-  if (!contract || typeof contract !== "object") {
-    return;
-  }
-  contract.runtimeDiagnostics = mergeRuntimeDiagnostics(
-    contract.runtimeDiagnostics,
-    {
-      pipelineProgression: progressionDiagnostic,
-      ...(lateCompletionDiagnostic ? { lateCompletion: lateCompletionDiagnostic } : {}),
-    },
-  );
-}
-
-async function persistLoopProgressionDiagnostics(context, progressionDiagnostic, {
-  lateCompletionDiagnostic = null,
-} = {}) {
-  const contractPath = context?.trackingState?.contract?.path
-    || (context?.effectiveContractData?.id ? getContractPath(context.effectiveContractData.id) : null);
-  mergeLoopProgressionDiagnostics(
-    context?.effectiveContractData,
-    progressionDiagnostic,
-    lateCompletionDiagnostic,
-  );
-  if (context?.trackingState?.contract && context.trackingState.contract !== context.effectiveContractData) {
-    mergeLoopProgressionDiagnostics(
-      context.trackingState.contract,
-      progressionDiagnostic,
-      lateCompletionDiagnostic,
-    );
-  }
-  if (!contractPath) {
-    return;
-  }
-  await mutateContractSnapshot(contractPath, context?.logger, (contract) => {
-    mergeLoopProgressionDiagnostics(contract, progressionDiagnostic, lateCompletionDiagnostic);
-  });
 }
 
 function computeLoopNextRound(loop, fromStage, toStage, currentRound) {
@@ -253,7 +187,7 @@ function computeLoopNextRound(loop, fromStage, toStage, currentRound) {
 
 function buildLoopContractRouteMutation({
   contractData,
-  pipelineStage,
+  contractStage,
   stageAdvanceSignal,
   executionObservation,
   nextStage,
@@ -266,11 +200,11 @@ function buildLoopContractRouteMutation({
     stageRuntime: contractData?.stageRuntime || null,
     executionObservation,
   });
-  const progressionDiagnostic = buildPipelineProgressionDiagnostic({
-    pipelineStage,
+  const progressionDiagnostic = buildGraphRouteProgressionDiagnostic({
+    contractStage,
     nextStage,
     nextRound,
-    reason: stageAdvanceSignal.reason || stageAdvanceSignal.transitionKind,
+    reason: stageAdvanceSignal?.reason || stageAdvanceSignal?.transitionKind || "graph_route",
   });
   const lateCompletionDiagnostic = buildLateCompletionDiagnostic(lateCompletionLease);
 
@@ -284,8 +218,8 @@ function buildLoopContractRouteMutation({
       if (truth.stagePlan) {
         contract.stagePlan = truth.stagePlan;
         contract.stageRuntime = truth.stageRuntime;
-        contract.phases = deriveCompatibilityPhases(truth.stagePlan);
-        contract.total = deriveCompatibilityTotal(truth.stagePlan);
+        contract.phases = deriveDisplayPhases(truth.stagePlan);
+        contract.total = deriveDisplayTotal(truth.stagePlan);
       }
 
       const requestedTask = typeof contract.requestedTask === "string" && contract.requestedTask.trim()
@@ -294,28 +228,22 @@ function buildLoopContractRouteMutation({
       if (requestedTask && contract.requestedTask !== requestedTask) {
         contract.requestedTask = requestedTask;
       }
-      contract.task = buildLoopStageTask({
-        baseTask: requestedTask,
-        previousStage: pipelineStage.stage,
-        previousFeedback: stageAdvanceSignal.result || stageAdvanceSignal.feedback || null,
-        previousArtifactPath: stageAdvanceSignal.primaryArtifactPath || null,
-      });
+      if (requestedTask && contract.task !== requestedTask) {
+        contract.task = requestedTask;
+      }
 
       contract.pipelineStage = {
         ...(contract.pipelineStage && typeof contract.pipelineStage === "object"
           ? contract.pipelineStage
           : {}),
-        pipelineId: pipelineStage.pipelineId || null,
-        loopId: pipelineStage.loopId || null,
-        loopSessionId: pipelineStage.loopSessionId || null,
+        pipelineId: contractStage.pipelineId || null,
+        loopId: contractStage.loopId || null,
+        loopSessionId: contractStage.loopSessionId || null,
         stage: nextStage,
         round: nextRound,
         semanticStageId: truth.stageRuntime?.currentStageId || null,
-        previousStage: pipelineStage.stage,
-        previousFeedback: stageAdvanceSignal.result || stageAdvanceSignal.feedback || null,
-        previousArtifactPath: stageAdvanceSignal.primaryArtifactPath || null,
       };
-      mergeLoopProgressionDiagnostics(
+      mergeGraphRouteProgressionDiagnostics(
         contract,
         progressionDiagnostic,
         lateCompletionDiagnostic,
@@ -325,31 +253,31 @@ function buildLoopContractRouteMutation({
   };
 }
 
-async function routeLoopTaggedSharedContract(context, pipelineStage) {
+async function routeLoopTaggedSharedContract(context, contractStage) {
   const contractData = context.effectiveContractData || context.trackingState?.contract || null;
   const stageAdvanceSignal = resolveStageAdvanceSignal(context.executionObservation);
   const lateCompletionDiagnostic = buildLateCompletionDiagnostic(context.lateCompletionLease);
   const loopSessionState = await loadLoopSessionState();
-  const activeLoopSession = loopSessionState?.activeSession?.id === pipelineStage.loopSessionId
+  const activeLoopSession = loopSessionState?.activeSession?.id === contractStage.loopSessionId
     ? loopSessionState.activeSession
     : null;
   const archivedLoopSession = activeLoopSession
     ? null
     : (Array.isArray(loopSessionState?.recentSessions)
-      ? loopSessionState.recentSessions.find((entry) => entry?.id === pipelineStage.loopSessionId) || null
+      ? loopSessionState.recentSessions.find((entry) => entry?.id === contractStage.loopSessionId) || null
       : null);
   if (!activeLoopSession) {
-    const progressionDiagnostic = buildSkippedPipelineProgressionDiagnostic({
-      pipelineStage,
+    const progressionDiagnostic = buildSkippedGraphRouteProgressionDiagnostic({
+      contractStage,
       reason: archivedLoopSession?.status
         ? `inactive_loop_session:${archivedLoopSession.status}`
         : "missing_loop_session",
       action: "loop_session_inactive",
       error: archivedLoopSession?.status
-        ? `loop session ${pipelineStage.loopSessionId} is ${archivedLoopSession.status}`
-        : `loop session ${pipelineStage.loopSessionId} is missing`,
+        ? `loop session ${contractStage.loopSessionId} is ${archivedLoopSession.status}`
+        : `loop session ${contractStage.loopSessionId} is missing`,
     });
-    await persistLoopProgressionDiagnostics(context, progressionDiagnostic, {
+    await persistGraphRouteProgressionDiagnostics(context, progressionDiagnostic, {
       lateCompletionDiagnostic,
     });
     return {
@@ -360,79 +288,29 @@ async function routeLoopTaggedSharedContract(context, pipelineStage) {
       target: null,
     };
   }
-  if (!stageAdvanceSignal.ok) {
-    const progressionDiagnostic = buildSkippedPipelineProgressionDiagnostic({
-      pipelineStage,
-      reason: stageAdvanceSignal.reason,
-    });
-    await persistLoopProgressionDiagnostics(context, progressionDiagnostic, {
-      lateCompletionDiagnostic,
-    });
-    return {
-      routed: false,
-      owned: true,
-      action: "hold",
-      reason: stageAdvanceSignal.reason,
-      target: null,
-    };
-  }
-
-  if (stageAdvanceSignal.transitionKind === "conclude") {
-    return {
-      routed: false,
-      action: "terminal",
-      reason: "explicit_conclude",
-      target: null,
-    };
-  }
+  const semanticTruth = materializeTaskStageTruth({
+    contractId: contractData?.id || null,
+    stagePlan: contractData?.stagePlan || null,
+    stageRuntime: contractData?.stageRuntime || null,
+    executionObservation: context.executionObservation || null,
+  });
 
   const resolvedLoops = await listResolvedGraphLoops();
   const targetLoop = resolvedLoops.find((loop) => (
-    loop?.id === pipelineStage.loopId
-    || loop?.id === pipelineStage.pipelineId
+    loop?.id === contractStage.loopId
+    || loop?.id === contractStage.pipelineId
   )) || null;
-  const graph = await loadGraph();
-
-  if (
-    stageAdvanceSignal.suggestedNext
-    && !hasDirectedEdge(graph, context.agentId, stageAdvanceSignal.suggestedNext)
-  ) {
-    const progressionDiagnostic = buildSkippedPipelineProgressionDiagnostic({
-      pipelineStage,
-      reason: "illegal_transition",
-      action: "invalid_state",
-      error: `illegal transition ${context.agentId} -> ${stageAdvanceSignal.suggestedNext}`,
-    });
-    await persistLoopProgressionDiagnostics(context, progressionDiagnostic, {
-      lateCompletionDiagnostic,
-    });
-    return {
-      routed: false,
-      owned: true,
-      action: "invalid_state",
-      reason: "illegal_transition",
-      error: `illegal transition ${context.agentId} -> ${stageAdvanceSignal.suggestedNext}`,
-      target: null,
-    };
-  }
-
-  const resolvedRoute = stageAdvanceSignal.suggestedNext
-    ? {
-        routable: true,
-        action: "explicit",
-        target: stageAdvanceSignal.suggestedNext,
-      }
-    : await resolveRouteAfterAgentEndTarget(context.agentId, {
-        status: "completed",
-      });
+  const resolvedRoute = await resolveRouteAfterAgentEndTarget(context.agentId, {
+    status: "completed",
+  });
 
   if (!resolvedRoute.routable || !resolvedRoute.target) {
-    const progressionDiagnostic = buildSkippedPipelineProgressionDiagnostic({
-      pipelineStage,
+    const progressionDiagnostic = buildSkippedGraphRouteProgressionDiagnostic({
+      contractStage,
       reason: resolvedRoute.action || "terminal",
       action: resolvedRoute.action || null,
     });
-    await persistLoopProgressionDiagnostics(context, progressionDiagnostic, {
+    await persistGraphRouteProgressionDiagnostics(context, progressionDiagnostic, {
       lateCompletionDiagnostic,
     });
     return {
@@ -446,24 +324,32 @@ async function routeLoopTaggedSharedContract(context, pipelineStage) {
 
   const nextRound = computeLoopNextRound(
     targetLoop,
-    pipelineStage.stage,
+    contractStage.stage,
     resolvedRoute.target,
-    pipelineStage.round,
+    contractStage.round,
   );
   const budgetGovernance = evaluateLoopBudgetGovernance({
     activeLoopSession,
-    pipelineStage,
+    contractStage,
     nextStage: resolvedRoute.target,
     nextRound,
   });
   if (budgetGovernance.exhausted) {
-    const progressionDiagnostic = buildSkippedPipelineProgressionDiagnostic({
-      pipelineStage,
+    if (contractStage.loopSessionId && budgetGovernance.updatedBudget) {
+      await advanceLoopSession({
+        sessionId: contractStage.loopSessionId,
+        currentStage: contractStage.stage,
+        round: contractStage.round || 1,
+        budget: budgetGovernance.updatedBudget,
+      });
+    }
+    const progressionDiagnostic = buildSkippedGraphRouteProgressionDiagnostic({
+      contractStage,
       reason: budgetGovernance.reason,
       action: "loop_budget_exhausted",
-      error: `loop runtime blocked routing to ${resolvedRoute.target} after round ${pipelineStage.round || 1}`,
+      error: `loop runtime blocked routing to ${resolvedRoute.target} after round ${contractStage.round || 1}`,
     });
-    await persistLoopProgressionDiagnostics(context, progressionDiagnostic, {
+    await persistGraphRouteProgressionDiagnostics(context, progressionDiagnostic, {
       lateCompletionDiagnostic,
     });
     return {
@@ -477,7 +363,7 @@ async function routeLoopTaggedSharedContract(context, pipelineStage) {
   }
   const mutation = buildLoopContractRouteMutation({
     contractData,
-    pipelineStage,
+    contractStage,
     stageAdvanceSignal,
     executionObservation: context.executionObservation || null,
     nextStage: resolvedRoute.target,
@@ -497,16 +383,16 @@ async function routeLoopTaggedSharedContract(context, pipelineStage) {
     },
   );
 
-  if (routeResult.routed && pipelineStage.loopSessionId) {
+  if (routeResult.routed && contractStage.loopSessionId) {
     await advanceLoopSession({
-      sessionId: pipelineStage.loopSessionId,
-      previousStage: pipelineStage.stage,
+      sessionId: contractStage.loopSessionId,
+      previousStage: contractStage.stage,
       currentStage: resolvedRoute.target,
       round: nextRound,
       budget: budgetGovernance.updatedBudget,
       feedback: stageAdvanceSignal.feedback || stageAdvanceSignal.result || null,
       feedbackOutput: buildLoopFeedbackOutput(
-        pipelineStage,
+        contractStage,
         stageAdvanceSignal,
         context.executionObservation || null,
         context.agentId,
@@ -530,17 +416,81 @@ export async function runAgentEndGraphRoute(context) {
   if (!contractId || !context.event?.success) {
     return null;
   }
-  if (contractId.startsWith("DIRECT-")) {
+  if (isDirectRequestEnvelope(contractData) || isDirectRequestEnvelope(context.trackingState?.contract)) {
     return {
       routed: false,
       action: "direct_request",
       target: null,
     };
   }
+  if (
+    context.event?.protocolBoundary === "canonical_outbox_commit"
+    && context.event?.commitType === "output_commit"
+  ) {
+    return {
+      routed: false,
+      owned: true,
+      action: "output_commit_observed",
+      target: null,
+    };
+  }
 
-  const pipelineStage = contractRouteStage(contractData);
-  if (pipelineStage) {
-    return routeLoopTaggedSharedContract(context, pipelineStage);
+  const contractStage = contractRouteStage(contractData);
+  if (contractStage) {
+    const hardStopGate = resolveHardStopTerminalGate(context, contractData);
+    if (hardStopGate) {
+      const progressGate = await resolveHardStopProgressGate(context, contractData);
+      if (!progressGate) return hardStopGate;
+    }
+    return routeLoopTaggedSharedContract(context, contractStage);
+  }
+
+  const resolvedRoute = await resolveRouteAfterAgentEndTarget(context.agentId, {
+    status: "completed",
+  });
+  const hardStopGate = resolveHardStopTerminalGate(context, contractData);
+  if (hardStopGate) {
+    const traceVerdict = getRuntimeTraceVerdict(context, contractData);
+    if (traceVerdict?.outputCommitted === true && resolvedRoute.routable && resolvedRoute.target) {
+      return routeAfterAgentEnd(context.agentId, contractId, {
+        status: "completed",
+        api: context.api,
+        logger: context.logger,
+        targetAgent: resolvedRoute.target,
+      });
+    }
+    const progressGate = await resolveHardStopProgressGate(context, contractData);
+    if (progressGate) {
+      if (resolvedRoute.routable && resolvedRoute.target) {
+        return routeAfterAgentEnd(context.agentId, contractId, {
+          status: "completed",
+          api: context.api,
+          logger: context.logger,
+          targetAgent: resolvedRoute.target,
+        });
+      }
+      if (!resolvedRoute.routable || resolvedRoute.action === "terminal") {
+        return {
+          routed: false,
+          action: resolvedRoute.action || "terminal",
+          target: resolvedRoute.target || null,
+        };
+      }
+    }
+    return hardStopGate;
+  }
+  if (resolvedRoute.routable && resolvedRoute.target) {
+    const incompleteGate = await resolveIncompleteHandoffGate(context, resolvedRoute.target);
+    if (incompleteGate) {
+      context.logger?.warn?.(`[graph-route] incomplete_output: ${contractId} 产物为空/过短，未转发给 ${resolvedRoute.target}`);
+      return incompleteGate;
+    }
+    return routeAfterAgentEnd(context.agentId, contractId, {
+      status: "completed",
+      api: context.api,
+      logger: context.logger,
+      targetAgent: resolvedRoute.target,
+    });
   }
 
   const routeResult = await routeAfterAgentEnd(context.agentId, contractId, {
@@ -550,3 +500,12 @@ export async function runAgentEndGraphRoute(context) {
   });
   return routeResult;
 }
+
+// Re-export diagnostic helpers for consumers that import from this module
+export {
+  buildLateCompletionDiagnostic,
+  mergeGraphRouteProgressionDiagnostics,
+} from "./agent-end-graph-route-diagnostics.js";
+
+// Re-export budget governance for consumers
+export { evaluateLoopBudgetGovernance } from "./agent-end-loop-budget-governance.js";

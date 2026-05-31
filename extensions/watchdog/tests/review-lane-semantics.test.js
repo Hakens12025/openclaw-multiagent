@@ -3,13 +3,19 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { loadGraph, saveGraph } from "../lib/agent/agent-graph.js";
+import { loadGraph } from "../lib/agent/agent-graph.js";
+import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
 import { runtimeAgentConfigs, agentWorkspace } from "../lib/state.js";
 import { SYSTEM_ACTION_STATUS } from "../lib/core/runtime-status.js";
 import { systemActionRunRequestReview } from "../lib/system-action/system-action-request-review.js";
 import { deliveryRunSystemActionReviewVerdict } from "../lib/routing/delivery-system-action-review-verdict.js";
+import {
+  clearSystemActionDeliveryTicketStore,
+  registerSystemActionDeliveryTicket,
+} from "../lib/routing/delivery-system-action-ticket.js";
 import { buildDeferredSystemActionFollowUp } from "../lib/system-action/system-action-runtime-ledger.js";
-import { runGlobalTestEnvironmentSerial } from "./test-locks.js";
+import { WAKE_SEMANTIC_TYPE } from "../lib/transport/runtime-wake-envelope.js";
+import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {
   info() {},
@@ -138,13 +144,133 @@ test("request_review accepts any graph-authorized source agent instead of only s
   }
 }));
 
+test("request_review uses unified semantic wake reason when caller does not provide one", async () => runGlobalTestEnvironmentSerial(async () => {
+  const previousRuntimeConfigs = new Map(runtimeAgentConfigs);
+  const previousGraph = await loadGraph();
+  const sourceAgentId = `review-semantic-source-${Date.now()}`;
+  const reviewerAgentId = `review-semantic-target-${Date.now()}`;
+  const heartbeatCalls = [];
+
+  try {
+    setRuntimeAgents([
+      { id: sourceAgentId, role: "executor", specialized: true, workspace: agentWorkspace(sourceAgentId) },
+      { id: reviewerAgentId, role: "reviewer", workspace: agentWorkspace(reviewerAgentId) },
+    ]);
+    await saveGraph({
+      edges: [
+        { from: sourceAgentId, to: reviewerAgentId, label: "review" },
+      ],
+    });
+
+    const result = await systemActionRunRequestReview({
+      type: "request_review",
+      params: {
+        instruction: "请审查这个实现",
+        artifactManifest: [{ path: "/tmp/demo-artifact.js", label: "demo" }],
+      },
+    }, {
+      agentId: sourceAgentId,
+      sessionKey: `agent:${sourceAgentId}:main`,
+      contractData: {
+        id: `TC-REVIEW-SEMANTIC-${Date.now()}`,
+        replyTo: { agentId: "controller", sessionKey: "agent:controller:main" },
+      },
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow(payload) {
+              heartbeatCalls.push(payload);
+            },
+          },
+        },
+      },
+      logger,
+      actionReplyTo: { agentId: sourceAgentId, sessionKey: `agent:${sourceAgentId}:main` },
+    });
+
+    assert.equal(result.status, SYSTEM_ACTION_STATUS.DISPATCHED);
+    assert.equal(result.targetAgent, reviewerAgentId);
+    assert.equal(heartbeatCalls.length, 1);
+    assert.equal(heartbeatCalls[0]?.wakeEnvelope?.semanticType, WAKE_SEMANTIC_TYPE.REQUEST_REVIEW_DISPATCH);
+    assert.equal(
+      heartbeatCalls[0]?.reason,
+      "处理当前审阅任务。",
+    );
+  } finally {
+    runtimeAgentConfigs.clear();
+    for (const [key, value] of previousRuntimeConfigs.entries()) {
+      runtimeAgentConfigs.set(key, value);
+    }
+    await saveGraph(previousGraph);
+    await rm(agentWorkspace(sourceAgentId), { recursive: true, force: true });
+    await rm(agentWorkspace(reviewerAgentId), { recursive: true, force: true });
+  }
+}));
+
+test("request_review cannot bypass missing graph edge to reviewer", async () => runGlobalTestEnvironmentSerial(async () => {
+  const previousRuntimeConfigs = new Map(runtimeAgentConfigs);
+  const previousGraph = await loadGraph();
+  const sourceAgentId = `review-denied-source-${Date.now()}`;
+  const reviewerAgentId = `review-denied-target-${Date.now()}`;
+  const heartbeatCalls = [];
+
+  try {
+    setRuntimeAgents([
+      { id: sourceAgentId, role: "executor", specialized: true, workspace: agentWorkspace(sourceAgentId) },
+      { id: reviewerAgentId, role: "reviewer", workspace: agentWorkspace(reviewerAgentId) },
+    ]);
+    await saveGraph({ edges: [] });
+
+    const result = await systemActionRunRequestReview({
+      type: "request_review",
+      params: {
+        instruction: "请审查这个实现",
+        artifactManifest: [{ path: "/tmp/demo-artifact.js", label: "demo" }],
+      },
+    }, {
+      agentId: sourceAgentId,
+      sessionKey: `agent:${sourceAgentId}:main`,
+      contractData: {
+        id: `TC-REVIEW-DENIED-${Date.now()}`,
+        replyTo: { agentId: "controller", sessionKey: "agent:controller:main" },
+      },
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow(payload) {
+              heartbeatCalls.push(payload);
+            },
+          },
+        },
+      },
+      logger,
+      actionReplyTo: { agentId: sourceAgentId, sessionKey: `agent:${sourceAgentId}:main` },
+    });
+
+    assert.equal(result.status, SYSTEM_ACTION_STATUS.INVALID_STATE);
+    assert.match(result.error || "", /graph disallows request_review/);
+    assert.equal(heartbeatCalls.length, 0);
+    await assert.rejects(
+      readFile(join(agentWorkspace(reviewerAgentId), "inbox", "code_review.json"), "utf8"),
+      /ENOENT/,
+    );
+  } finally {
+    runtimeAgentConfigs.clear();
+    for (const [key, value] of previousRuntimeConfigs.entries()) {
+      runtimeAgentConfigs.set(key, value);
+    }
+    await saveGraph(previousGraph);
+    await rm(agentWorkspace(sourceAgentId), { recursive: true, force: true });
+    await rm(agentWorkspace(reviewerAgentId), { recursive: true, force: true });
+  }
+}));
+
 test("request_review verdict delivery records the actual reviewer session agent instead of re-resolving executor handlers", async () => {
   const previousRuntimeConfigs = new Map(runtimeAgentConfigs);
   const sourceAgentId = `review-result-source-${Date.now()}`;
   const otherExecutorId = `review-result-executor-${Date.now()}`;
   const reviewerAgentId = `review-result-reviewer-${Date.now()}`;
   const artifactPath = join(agentWorkspace(reviewerAgentId), "inbox", "code_review.json");
-  const verdictPath = join(agentWorkspace(reviewerAgentId), "outbox", "code_verdict.json");
 
   try {
     setRuntimeAgents([
@@ -153,9 +279,23 @@ test("request_review verdict delivery records the actual reviewer session agent 
       { id: reviewerAgentId, role: "reviewer", workspace: agentWorkspace(reviewerAgentId) },
     ]);
     await mkdir(join(agentWorkspace(reviewerAgentId), "inbox"), { recursive: true });
-    await mkdir(join(agentWorkspace(reviewerAgentId), "outbox"), { recursive: true });
     await writeFile(artifactPath, JSON.stringify({ protocol: { source: "request_review" } }, null, 2), "utf8");
-    await writeFile(verdictPath, JSON.stringify({ verdict: "reject" }, null, 2), "utf8");
+    await clearSystemActionDeliveryTicketStore();
+    const deliveryTicket = await registerSystemActionDeliveryTicket({
+      lane: "delivery:system_action_review_verdict",
+      intentType: "request_review",
+      sourceAgentId,
+      sourceSessionKey: `agent:${sourceAgentId}:main`,
+      sourceContractId: "TC-REVIEW-SOURCE",
+      replyTo: {
+        agentId: sourceAgentId,
+        sessionKey: `agent:${sourceAgentId}:main`,
+      },
+      upstreamReplyTo: {
+        agentId: "controller",
+        sessionKey: "agent:controller:main",
+      },
+    });
 
     const result = await deliveryRunSystemActionReviewVerdict({
       trackingState: {
@@ -192,7 +332,7 @@ test("request_review verdict delivery records the actual reviewer session agent 
             ownerAgentId: reviewerAgentId,
           },
           systemActionDeliveryTicket: {
-            id: `ticket-${Date.now()}`,
+            id: deliveryTicket.id,
           },
           domain: "generic",
         },
@@ -217,6 +357,11 @@ test("request_review verdict delivery records the actual reviewer session agent 
       await readFile(join(agentWorkspace(sourceAgentId), "inbox", "contract.json"), "utf8"),
     );
     assert.equal(delivered.systemActionDelivery?.reviewerAgentId, reviewerAgentId);
+    await assert.rejects(
+      readFile(artifactPath, "utf8"),
+      /ENOENT/,
+      "handled review requests should clear the reviewer inbox payload",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     for (const [key, value] of previousRuntimeConfigs.entries()) {
@@ -225,6 +370,7 @@ test("request_review verdict delivery records the actual reviewer session agent 
     await rm(agentWorkspace(sourceAgentId), { recursive: true, force: true });
     await rm(agentWorkspace(otherExecutorId), { recursive: true, force: true });
     await rm(agentWorkspace(reviewerAgentId), { recursive: true, force: true });
+    await clearSystemActionDeliveryTicketStore();
   }
 });
 

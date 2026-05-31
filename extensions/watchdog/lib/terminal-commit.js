@@ -1,9 +1,10 @@
 import { mergeContractFields, updateContractStatus, writeTaskState } from "./contracts.js";
-import { qqTypingStop } from "./qq.js";
+import { qqTypingStop } from "./channel-notify.js";
 import { CONTRACT_STATUS } from "./core/runtime-status.js";
 import { refreshTrackingProjection } from "./stage-projection.js";
 import { materializeTaskStageTruth } from "./task-stage-plan.js";
 import { normalizeTerminalOutcome } from "./terminal-outcome.js";
+import { removeDispatchContract } from "./routing/dispatch-runtime-state.js";
 
 function buildTerminalLabel(terminalStatus, terminalOutcome) {
   if (terminalStatus === CONTRACT_STATUS.COMPLETED) {
@@ -92,6 +93,7 @@ export async function commitSemanticTerminalState({
       return { committed: false, reason: "contract_persist_failed", error: retry?.error };
     }
   }
+  await removeDispatchContract(trackingState.contract.id, logger);
   await refreshTrackingProjection(trackingState);
   await writeTaskState(trackingState, logger);
   qqTypingStop(trackingState.contract.id);

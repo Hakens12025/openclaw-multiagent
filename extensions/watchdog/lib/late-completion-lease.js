@@ -32,12 +32,12 @@ export function armLateCompletionLease(trackingState, {
   leaseMs = LATE_COMPLETION_LEASE_MS,
   reason = "tracker_timeout",
   diagnostic = null,
-  pipelineStage = null,
+  loopStage = null,
 } = {}) {
-  const effectivePipelineStage = pipelineStage && typeof pipelineStage === "object"
-    ? pipelineStage
+  const effectiveLoopStage = loopStage && typeof loopStage === "object"
+    ? loopStage
     : trackingState?.contract?.pipelineStage;
-  if (!trackingState || !effectivePipelineStage?.stage) {
+  if (!trackingState || !effectiveLoopStage?.stage) {
     return null;
   }
 
@@ -46,17 +46,17 @@ export function armLateCompletionLease(trackingState, {
     leaseMs,
     leaseFields: {
       reason,
-      stage: effectivePipelineStage.stage,
-      pipelineId: effectivePipelineStage.pipelineId || null,
-      loopId: effectivePipelineStage.loopId || null,
-      loopSessionId: effectivePipelineStage.loopSessionId || null,
-      round: Number.isFinite(effectivePipelineStage.round) ? effectivePipelineStage.round : null,
+      stage: effectiveLoopStage.stage,
+      pipelineId: effectiveLoopStage.pipelineId || null,
+      loopId: effectiveLoopStage.loopId || null,
+      loopSessionId: effectiveLoopStage.loopSessionId || null,
+      round: Number.isFinite(effectiveLoopStage.round) ? effectiveLoopStage.round : null,
       contractId: trackingState.contract?.id || null,
       diagnostic: diagnostic && typeof diagnostic === "object" ? diagnostic : null,
     },
     applyTrackingSideEffects(ts, lease) {
       ts.status = TRACKING_STATUS.WAITING_FOLLOWUP;
-      ts.lastLabel = `等待迟到收口: ${effectivePipelineStage.stage}`;
+      ts.lastLabel = `等待迟到收口: ${effectiveLoopStage.stage}`;
       ts.estimatedPhase = "等待迟到收口";
     },
   });

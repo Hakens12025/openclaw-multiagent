@@ -189,14 +189,14 @@ export function materializeTaskStagePlan({
   });
 }
 
-export function deriveCompatibilityPhases(stagePlan) {
+export function deriveDisplayPhases(stagePlan) {
   const normalized = normalizeTaskStagePlan(stagePlan);
   if (!normalized) return [];
   return normalized.stages.map((entry) => entry.label);
 }
 
-export function deriveCompatibilityTotal(stagePlan) {
-  return deriveCompatibilityPhases(stagePlan).length;
+export function deriveDisplayTotal(stagePlan) {
+  return deriveDisplayPhases(stagePlan).length;
 }
 
 export function buildInitialTaskStageRuntime({ stagePlan } = {}) {

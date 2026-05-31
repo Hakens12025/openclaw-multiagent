@@ -19,10 +19,9 @@
 ## 否决的替代方案
 
 以下协议/文件已删除：
-- `stage_result.json`
-- `contract_result.json`
-- `code_verdict.json`
-- `next_action.json`
+- 旧多文件结构化回执协议
+- 旧代码 verdict 文件协议
+- 旧下一步声明文件协议
 - `system_action.json` 协议（被 `[ACTION]` 标记替代）
 - 要求 agent 写 artifact checklist、transition declaration 等结构化输出
 

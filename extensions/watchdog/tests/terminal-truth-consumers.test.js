@@ -8,10 +8,10 @@ import {
   extractContractArtifact,
   extractContractScore,
   extractContractSummary,
-  extractPipelineArtifact,
-  extractPipelineScore,
-  extractPipelineSummary,
-  derivePipelineTerminalStatus,
+  extractLoopRuntimeArtifact,
+  extractLoopRuntimeScore,
+  extractLoopRuntimeSummary,
+  deriveLoopRuntimeTerminalStatus,
 } from "../lib/automation/automation-result-extractors.js";
 import { readContractCompletionArtifact } from "../lib/contracts.js";
 import { buildBaseEvidence } from "../lib/harness/harness-module-evidence.js";
@@ -66,8 +66,8 @@ test("automation result extractors do not fall back to legacy workflowConclusion
   );
 });
 
-test("pipeline result extractors prefer feedbackOutput over legacy workflowConclusion or researchConclusion", () => {
-  const pipeline = {
+test("loop runtime result extractors prefer feedbackOutput over legacy workflowConclusion or researchConclusion", () => {
+  const loopRuntime = {
     workflowConclusion: {
       score: 91,
       artifactPath: "/tmp/legacy-workflow.md",
@@ -82,25 +82,25 @@ test("pipeline result extractors prefer feedbackOutput over legacy workflowConcl
     },
     feedbackOutput: {
       score: 0.82,
-      feedback: "canonical pipeline summary",
+      feedback: "canonical loop runtime summary",
       result: {
         score: 0.83,
         status: "cancelled",
       },
     },
     conclusionArtifact: {
-      path: "/tmp/canonical-pipeline.md",
+      path: "/tmp/canonical-loop-runtime.md",
     },
   };
 
-  assert.equal(extractPipelineScore(pipeline), 0.83);
-  assert.equal(extractPipelineArtifact(pipeline), "/tmp/canonical-pipeline.md");
-  assert.equal(extractPipelineSummary(pipeline), "canonical pipeline summary");
-  assert.equal(derivePipelineTerminalStatus(pipeline), CONTRACT_STATUS.CANCELLED);
+  assert.equal(extractLoopRuntimeScore(loopRuntime), 0.83);
+  assert.equal(extractLoopRuntimeArtifact(loopRuntime), "/tmp/canonical-loop-runtime.md");
+  assert.equal(extractLoopRuntimeSummary(loopRuntime), "canonical loop runtime summary");
+  assert.equal(deriveLoopRuntimeTerminalStatus(loopRuntime), CONTRACT_STATUS.CANCELLED);
 });
 
-test("pipeline result extractors do not fall back to legacy workflowConclusion or researchConclusion", () => {
-  const pipeline = {
+test("loop runtime result extractors do not fall back to legacy workflowConclusion or researchConclusion", () => {
+  const loopRuntime = {
     workflowConclusion: {
       score: 91,
       artifactPath: "/tmp/legacy-workflow.md",
@@ -113,16 +113,16 @@ test("pipeline result extractors do not fall back to legacy workflowConclusion o
       summary: "legacy research summary",
       status: "completed",
     },
-    requestedTask: "pipeline fallback should use requestedTask when canonical feedback is absent",
+    requestedTask: "loop runtime fallback should use requestedTask when canonical feedback is absent",
   };
 
-  assert.equal(extractPipelineScore(pipeline), null);
-  assert.equal(extractPipelineArtifact(pipeline), null);
+  assert.equal(extractLoopRuntimeScore(loopRuntime), null);
+  assert.equal(extractLoopRuntimeArtifact(loopRuntime), null);
   assert.equal(
-    extractPipelineSummary(pipeline),
-    "pipeline fallback should use requestedTask when canonical feedback is absent",
+    extractLoopRuntimeSummary(loopRuntime),
+    "loop runtime fallback should use requestedTask when canonical feedback is absent",
   );
-  assert.equal(derivePipelineTerminalStatus(pipeline), CONTRACT_STATUS.COMPLETED);
+  assert.equal(deriveLoopRuntimeTerminalStatus(loopRuntime), CONTRACT_STATUS.COMPLETED);
 });
 
 test("harness base evidence prefers terminalOutcome over legacy workflow conclusion residue", () => {
@@ -203,6 +203,41 @@ test("contract completion artifact reader prefers terminalOutcome artifact over 
     assert.deepEqual(artifact, {
       type: "text",
       content: "canonical artifact content",
+      mimeType: "text/markdown",
+    });
+  } finally {
+    await rm(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("contract completion artifact reader returns sanitized user-facing artifact content", async () => {
+  const artifactDir = await mkdtemp(join(tmpdir(), "openclaw-terminal-artifact-sanitize-"));
+  const artifactPath = join(artifactDir, "metadata-heavy-terminal.md");
+  await writeFile(artifactPath, [
+    "# 任务交付",
+    "## 合约信息",
+    "- 合约ID: TC-RAW-A2A",
+    "- 执行节点: worker2",
+    "## 交付内容",
+    "今天是星期日。",
+    "---",
+    "*本文件由 worker2 执行节点生成*",
+  ].join("\n"), "utf8");
+
+  try {
+    const artifact = await readContractCompletionArtifact(`TC-RAW-A2A-${Date.now()}`, {
+      status: CONTRACT_STATUS.COMPLETED,
+      output: artifactPath,
+      terminalOutcome: {
+        status: CONTRACT_STATUS.COMPLETED,
+        source: "completion_criteria",
+        summary: "任务完成标识",
+      },
+    });
+
+    assert.deepEqual(artifact, {
+      type: "text",
+      content: "今天是星期日。",
       mimeType: "text/markdown",
     });
   } finally {

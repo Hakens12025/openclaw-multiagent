@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -158,4 +158,40 @@ test("recordHarnessRun rejects legacy adapter module kinds", async () => {
     }),
     /invalid harness run/,
   );
+});
+
+test("recordHarnessRun supports concurrent writes to the same run file", async () => {
+  const runId = `harness:test-concurrent:${Date.now()}`;
+  const baseRun = {
+    id: runId,
+    automationId: `automation-concurrent-${Date.now()}`,
+    round: 1,
+    requestedAt: Date.now() - 1000,
+    enabled: true,
+    executionMode: "freeform",
+    status: "completed",
+    startedAt: Date.now() - 500,
+    finalizedAt: Date.now(),
+    contractId: "TC-HARNESS-CONCURRENT",
+  };
+
+  try {
+    const writes = Array.from({ length: 8 }, (_, index) => recordHarnessRun({
+      ...baseRun,
+      summary: `concurrent write ${index}`,
+      score: index,
+    }));
+
+    const results = await Promise.all(writes);
+    assert.equal(results.length, 8);
+
+    const persisted = await getHarnessRun(runId);
+    assert.equal(persisted?.id, runId);
+    assert.match(persisted?.summary || "", /^concurrent write \d+$/);
+
+    const raw = await readFile(runPath(runId), "utf8");
+    assert.equal(JSON.parse(raw).id, runId);
+  } finally {
+    await unlink(runPath(runId)).catch(() => {});
+  }
 });

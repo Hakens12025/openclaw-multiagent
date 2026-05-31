@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, unlink } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 
 import {
   normalizeTerminalOutcome,
   resolveTerminalOutcome,
 } from "../lib/terminal-outcome.js";
 import { handleCrashRecovery } from "../lib/lifecycle/crash-recovery.js";
-import { runAgentEndPipeline } from "../lib/lifecycle/agent-end-pipeline.js";
+import { runAgentEndLifecycle } from "../lib/lifecycle/agent-end-lifecycle.js";
 import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
 import { CONTRACT_STATUS, TRACKING_STATUS } from "../lib/core/runtime-status.js";
 import { createTrackingState } from "../lib/session-bootstrap.js";
@@ -17,7 +17,7 @@ import {
   getTerminalTrackingSessionReason,
   rememberTrackingState,
 } from "../lib/store/tracker-store.js";
-import { taskHistory } from "../lib/state.js";
+import { runtimeAgentConfigs, taskHistory } from "../lib/state.js";
 
 const logger = {
   info() {},
@@ -28,7 +28,7 @@ const logger = {
 test("normalizeTerminalOutcome preserves terminal evidence fields", () => {
   const terminalOutcome = normalizeTerminalOutcome({
     status: CONTRACT_STATUS.COMPLETED,
-    source: "stage_result",
+    source: "runtime_result",
     reason: "stage completed",
     summary: "rich terminal summary",
     verdict: "pass",
@@ -44,7 +44,7 @@ test("normalizeTerminalOutcome preserves terminal evidence fields", () => {
   });
 
   assert.equal(terminalOutcome.status, CONTRACT_STATUS.COMPLETED);
-  assert.equal(terminalOutcome.source, "stage_result");
+  assert.equal(terminalOutcome.source, "runtime_result");
   assert.equal(terminalOutcome.reason, "stage completed");
   assert.equal(terminalOutcome.summary, "rich terminal summary");
   assert.equal(terminalOutcome.verdict, "pass");
@@ -57,46 +57,59 @@ test("normalizeTerminalOutcome preserves terminal evidence fields", () => {
 });
 
 test("resolveTerminalOutcome carries reviewer verdict evidence from executionObservation", async () => {
-  const resolved = await resolveTerminalOutcome({
-    trackingState: {
-      contract: {
+  const reviewArtifactPath = `/tmp/review-verdict-${Date.now()}.json`;
+  await writeFile(reviewArtifactPath, JSON.stringify({ verdict: "reject" }), "utf8");
+
+  try {
+    const resolved = await resolveTerminalOutcome({
+      trackingState: {
+        contract: {
+          id: "TC-TERMINAL-REVIEW-EVIDENCE",
+          task: "review evidence contract",
+          status: CONTRACT_STATUS.RUNNING,
+        },
+      },
+      contractData: {
         id: "TC-TERMINAL-REVIEW-EVIDENCE",
         task: "review evidence contract",
         status: CONTRACT_STATUS.RUNNING,
       },
-    },
-    contractData: {
-      id: "TC-TERMINAL-REVIEW-EVIDENCE",
-      task: "review evidence contract",
-      status: CONTRACT_STATUS.RUNNING,
-    },
-    executionObservation: {
-      collected: true,
-      contractId: "TC-TERMINAL-REVIEW-EVIDENCE",
-      reviewerResult: {
-        source: "system_action_review_delivery",
-        verdict: "fail",
-        score: 35,
-        continueHint: "rework",
-      },
-      reviewVerdict: {
-        verdict: "reject",
-        score: 35,
-      },
-      stageRunResult: {
-        status: "completed",
-        summary: "review verdict captured",
-        feedback: "reviewer rejected current implementation",
-        primaryArtifactPath: "/tmp/review-verdict.json",
-        artifacts: [
-          {
-            path: "/tmp/review-verdict.json",
-            type: "evaluation_verdict",
-            label: "review verdict",
-            primary: true,
+      executionObservation: {
+        collected: true,
+        contractId: "TC-TERMINAL-REVIEW-EVIDENCE",
+        reviewerResult: {
+          source: "system_action_review_delivery",
+          verdict: "fail",
+          score: 35,
+          continueHint: "rework",
+        },
+        reviewVerdict: {
+          verdict: "reject",
+          score: 35,
+        },
+        stageRunResult: {
+          status: "completed",
+          summary: "review verdict captured",
+          feedback: "reviewer rejected current implementation",
+          primaryArtifactPath: reviewArtifactPath,
+          artifacts: [
+            {
+              path: reviewArtifactPath,
+              type: "evaluation_verdict",
+              label: "review verdict",
+              primary: true,
+            },
+          ],
+          completion: {
+            status: "completed",
+            feedback: "reviewer rejected current implementation",
+            transition: {
+              kind: "hold",
+              reason: "evaluation_rework",
+            },
           },
-        ],
-        completion: {
+        },
+        stageCompletion: {
           status: "completed",
           feedback: "reviewer rejected current implementation",
           transition: {
@@ -105,26 +118,130 @@ test("resolveTerminalOutcome carries reviewer verdict evidence from executionObs
           },
         },
       },
-      stageCompletion: {
-        status: "completed",
-        feedback: "reviewer rejected current implementation",
-        transition: {
-          kind: "hold",
-          reason: "evaluation_rework",
+      logger,
+    });
+
+    assert.equal(resolved.terminalStatus, CONTRACT_STATUS.COMPLETED);
+    assert.equal(resolved.terminalOutcome.status, CONTRACT_STATUS.COMPLETED);
+    assert.equal(resolved.terminalOutcome.source, "completion_criteria");
+    assert.equal(resolved.terminalOutcome.reason, "reviewer rejected current implementation");
+    assert.equal(resolved.terminalOutcome.summary, "review verdict captured");
+    assert.equal(resolved.terminalOutcome.verdict, "fail");
+    assert.equal(resolved.terminalOutcome.score, 35);
+    assert.equal(resolved.terminalOutcome.testsPassed, false);
+  } finally {
+    await unlink(reviewArtifactPath).catch(() => {});
+  }
+});
+
+test("resolveTerminalOutcome treats contract.output as default artifact evidence", async () => {
+  const contractId = `TC-TERMINAL-NO-IMPLICIT-OUTPUT-${Date.now()}`;
+  const outputPath = `/tmp/${contractId}.md`;
+
+  await writeFile(outputPath, "This file exists but was not declared by runtime_result.\n", "utf8");
+
+  try {
+    const resolved = await resolveTerminalOutcome({
+      trackingState: {
+        contract: {
+          id: contractId,
+          task: "existing output file should not be a protocol",
+          status: CONTRACT_STATUS.RUNNING,
+          output: outputPath,
         },
+      },
+      contractData: {
+        id: contractId,
+        task: "existing output file should not be a protocol",
+        status: CONTRACT_STATUS.RUNNING,
+        output: outputPath,
+      },
+      executionObservation: {
+        collected: false,
+      },
+      logger,
+    });
+
+    assert.equal(resolved.terminalStatus, CONTRACT_STATUS.COMPLETED);
+    assert.equal(resolved.terminalOutcome.status, CONTRACT_STATUS.COMPLETED);
+    assert.equal(resolved.terminalOutcome.source, "completion_criteria");
+  } finally {
+    await unlink(outputPath).catch(() => {});
+  }
+});
+
+test("resolveTerminalOutcome ignores legacy contractResult and requires artifact evidence", async () => {
+  const contractId = `TC-TERMINAL-LEGACY-CONTRACT-RESULT-${Date.now()}`;
+
+  const resolved = await resolveTerminalOutcome({
+    trackingState: {
+      contract: {
+        id: contractId,
+        task: "legacy contract result should not complete",
+        status: CONTRACT_STATUS.RUNNING,
+      },
+    },
+    contractData: {
+      id: contractId,
+      task: "legacy contract result should not complete",
+      status: CONTRACT_STATUS.RUNNING,
+    },
+    executionObservation: {
+      collected: true,
+      contractResult: {
+        status: CONTRACT_STATUS.COMPLETED,
+        summary: "legacy completion should be ignored",
       },
     },
     logger,
   });
 
-  assert.equal(resolved.terminalStatus, CONTRACT_STATUS.COMPLETED);
-  assert.equal(resolved.terminalOutcome.status, CONTRACT_STATUS.COMPLETED);
-  assert.equal(resolved.terminalOutcome.source, "stage_result");
-  assert.equal(resolved.terminalOutcome.reason, "reviewer rejected current implementation");
-  assert.equal(resolved.terminalOutcome.summary, "review verdict captured");
-  assert.equal(resolved.terminalOutcome.verdict, "fail");
-  assert.equal(resolved.terminalOutcome.score, 35);
-  assert.equal(resolved.terminalOutcome.testsPassed, false);
+  assert.equal(resolved.terminalStatus, CONTRACT_STATUS.FAILED);
+  assert.equal(resolved.terminalOutcome.status, CONTRACT_STATUS.FAILED);
+  assert.equal(resolved.terminalOutcome.source, "completion_criteria");
+  assert.equal(resolved.terminalOutcome.reason, "missing runtime_result");
+});
+
+test("resolveTerminalOutcome still honors explicit completion criteria files", async () => {
+  const contractId = `TC-TERMINAL-EXPLICIT-CRITERIA-${Date.now()}`;
+  const outputPath = `/tmp/${contractId}.md`;
+
+  await writeFile(outputPath, "Declared completion criteria output.\n", "utf8");
+
+  try {
+    const resolved = await resolveTerminalOutcome({
+      trackingState: {
+        contract: {
+          id: contractId,
+          task: "explicit completion criteria should be valid",
+          status: CONTRACT_STATUS.RUNNING,
+          output: outputPath,
+          completionCriteria: {
+            requiredFiles: [{ path: outputPath, label: "declared_output", nonEmpty: true }],
+          },
+        },
+      },
+      contractData: {
+        id: contractId,
+        task: "explicit completion criteria should be valid",
+        status: CONTRACT_STATUS.RUNNING,
+        output: outputPath,
+        completionCriteria: {
+          requiredFiles: [{ path: outputPath, label: "declared_output", nonEmpty: true }],
+        },
+      },
+      executionObservation: {
+        collected: false,
+      },
+      logger,
+    });
+
+    assert.equal(resolved.terminalStatus, CONTRACT_STATUS.COMPLETED);
+    assert.equal(resolved.terminalOutcome.status, CONTRACT_STATUS.COMPLETED);
+    assert.equal(resolved.terminalOutcome.source, "completion_criteria");
+  } finally {
+    await unlink(outputPath).catch(() => {});
+  }
 });
 
 test("handleCrashRecovery persists terminalOutcome when retries are exhausted into abandoned", async () => {
@@ -252,11 +369,12 @@ test("handleCrashRecovery carries contract read diagnostics into retry-scheduled
   }
 });
 
-test("runAgentEndPipeline retry crash suspends session without terminalizing tracking history", async () => {
+test("runAgentEndLifecycle retry crash suspends session without terminalizing tracking history", async () => {
   const contractId = `TC-TERMINAL-RETRY-ACTIVE-${Date.now()}`;
   const contractPath = getContractPath(contractId);
   const sessionKey = `agent:contractor:retry-active:${Date.now()}`;
   const originalHistoryLength = taskHistory.length;
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
   const wakeCalls = [];
 
   await persistContractSnapshot(contractPath, {
@@ -292,17 +410,26 @@ test("runAgentEndPipeline retry crash suspends session without terminalizing tra
   };
 
   const originalSetTimeout = globalThis.setTimeout;
+  const timerPromises = [];
   globalThis.setTimeout = ((callback, _delay, ...args) => {
-    callback(...args);
+    timerPromises.push(Promise.resolve(callback(...args)));
     return 0;
   });
 
   try {
     clearTrackingStore();
     taskHistory.length = 0;
+    runtimeAgentConfigs.set("contractor", {
+      id: "contractor",
+      role: "executor",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      skills: [],
+    });
     rememberTrackingState(sessionKey, trackingState);
 
-    await runAgentEndPipeline({
+    await runAgentEndLifecycle({
       event: {
         success: false,
         error: "simulated retry crash",
@@ -325,6 +452,7 @@ test("runAgentEndPipeline retry crash suspends session without terminalizing tra
       wakePlanner: async () => null,
       trackingState,
     });
+    await Promise.all(timerPromises);
 
     const persisted = JSON.parse(await readFile(contractPath, "utf8"));
     assert.equal(persisted.status, CONTRACT_STATUS.RUNNING);
@@ -339,6 +467,10 @@ test("runAgentEndPipeline retry crash suspends session without terminalizing tra
     globalThis.setTimeout = originalSetTimeout;
     clearTrackingStore();
     taskHistory.length = originalHistoryLength;
+    runtimeAgentConfigs.clear();
+    for (const [agentId, config] of originalRuntimeConfigs.entries()) {
+      runtimeAgentConfigs.set(agentId, config);
+    }
     await unlink(contractPath).catch(() => {});
   }
 });

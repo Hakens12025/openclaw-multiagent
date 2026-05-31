@@ -23,7 +23,7 @@
     position: sticky; top: 0; z-index: 1;
     display: flex; justify-content: space-between; align-items: baseline;
   }
-  .contract-card {
+  .work-item-card {
     background: var(--bg-secondary);
     border: 1px solid var(--border-primary);
     border-top: 3px solid var(--accent-orange);
@@ -32,20 +32,24 @@
     position: relative;
     transition: border-color 0.15s;
   }
-  .contract-card:hover { border-color: var(--accent-orange); }
-  .contract-card.status-completed { border-top-color: var(--accent-green); opacity: 0.75; }
-  .contract-card.status-failed { border-top-color: var(--accent-red); }
-  .contract-card.status-draft { border-top-color: var(--text-muted); }
-  .contract-card.status-running { border-top-color: var(--accent-blue); }
-  .contract-card.status-abandoned { border-top-color: var(--text-muted); opacity: 0.5; }
-  .contract-card::before, .contract-card::after {
+  .work-item-card:hover { border-color: var(--accent-orange); }
+  .work-item-card.focused {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px rgba(72,118,170,0.22), 0 0 22px rgba(72,118,170,0.22);
+  }
+  .work-item-card.status-completed { border-top-color: var(--accent-green); opacity: 0.75; }
+  .work-item-card.status-failed { border-top-color: var(--accent-red); }
+  .work-item-card.status-draft { border-top-color: var(--text-muted); }
+  .work-item-card.status-running { border-top-color: var(--accent-blue); }
+  .work-item-card.status-abandoned { border-top-color: var(--text-muted); opacity: 0.5; }
+  .work-item-card::before, .work-item-card::after {
     content: ""; position: absolute; width: 10px; height: 10px;
   }
-  .contract-card::before {
+  .work-item-card::before {
     top: -1px; left: -1px;
     border-top: 2px solid var(--accent-orange); border-left: 2px solid var(--accent-orange);
   }
-  .contract-card::after {
+  .work-item-card::after {
     bottom: -1px; right: -1px;
     border-bottom: 2px solid var(--accent-orange); border-right: 2px solid var(--accent-orange);
   }
@@ -133,7 +137,7 @@
     border-color: var(--accent-red);
   }
 
-  /* ── PIPELINE CHIP TRANSITION ── */
+  /* ── ROUTE CHIP TRANSITION ── */
   .contract-progress-chip-wrapper {
     overflow: hidden;
     max-height: 0;

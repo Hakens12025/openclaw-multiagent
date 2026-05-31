@@ -34,10 +34,10 @@ find "$OC/agents" -name "*.jsonl" -delete 2>/dev/null || true
 find "$OC/agents" -name "sessions.json" -delete 2>/dev/null || true
 echo "  → Deleted all session files"
 
-# 3. Clean workspace state
-echo "[3/5] Cleaning workspace state..."
-rm -f "$OC/workspaces/controller/.watchdog-state.json" 2>/dev/null || true
-rm -f "$OC/workspaces/controller/TASK_STATE.md" 2>/dev/null || true
+# 3. Clean control-plane state
+echo "[3/5] Cleaning control-plane state..."
+rm -f "$OC/control-plane/watchdog-state.json" 2>/dev/null || true
+rm -f "$OC/control-plane/task-state.md" 2>/dev/null || true
 echo "  → Deleted watchdog state"
 
 # 4. Clean inbox/outbox (optional - keeps contracts/deliveries)

@@ -1,33 +1,44 @@
-import { detectCycles, getEdgesFrom, getEdgesTo } from "./agent/agent-graph.js";
+// Template builder assembly for platform workspace docs.
+// Graph helpers: platform-doc-graph.js
+// Directory helpers: platform-doc-directory.js
+
 import {
   composeDefaultCapabilityProjection,
-  getCapabilityDirectoryOrder,
 } from "./agent/agent-capability-policy.js";
 import { getSemanticSkillSpec, listAutoInjectedAgentSkillRefs } from "./semantic-skill-registry.js";
 import { normalizeString, uniqueStrings } from "./core/normalize.js";
-import { AGENT_ROLE, normalizeAgentRole } from "./agent/agent-identity.js";
+import { AGENT_ROLE } from "./agent/agent-identity.js";
 import { MANAGED_BOOTSTRAP_MARKER } from "./soul-template-builder.js";
 import { PROTOCOL_ID } from "../protocol-registry.js";
+import {
+  formatAgentIdList,
+  buildRegisteredLoopSection,
+  getGraphCollaborationSummary,
+} from "./platform-doc-graph.js";
+import { buildOfficeDirectoryLines } from "./platform-doc-directory.js";
 
 function buildHeartbeatTemplate() {
   return `${MANAGED_BOOTSTRAP_MARKER}
 # HEARTBEAT.md
 
-这是 runtime 唤起。
+这是 runtime 唤起。目标是处理本轮待办。
 
-严格按下面顺序执行：
+按下面顺序执行：
 
-1. 检查 \`inbox/contract.json\`（唯一任务输入）
-2. 存在就按 \`SOUL.md\` 执行当前任务
-3. 缺席时，回复 \`HEARTBEAT_OK\` 并停止
+1. 先识别本轮唤醒语义，优先以本轮系统唤醒信息为准
+2. 若本轮明确是系统派工，按当前任务继续处理
+3. 若本轮是直达会话恢复或普通唤醒，按当前会话继续处理
+4. 空闲轮次以 \`HEARTBEAT_OK\` 收尾
 `;
 }
 
 function buildAgentsTemplate(agentId, role, skills) {
   const normalizedSkills = uniqueStrings(skills || []);
-  const skillSummary = normalizedSkills.length > 0 ? normalizedSkills.join("、") : "基础能力";
+  const skillSummary = normalizedSkills.length > 0 ? normalizedSkills.join("、") : "基础技能集";
   const hasSystemAction = normalizedSkills.includes("system-action");
-  const primaryResultRule = "主结果写 contract 的 `output`";
+  const actionLine = hasSystemAction
+    ? "需要协作时使用 `[ACTION]` 标记（见 PLATFORM-GUIDE.md 协作动作）"
+    : "协作方式：按当前会话和 `SOUL.md` 执行";
   return `${MANAGED_BOOTSTRAP_MARKER}
 # AGENTS.md
 
@@ -39,18 +50,18 @@ function buildAgentsTemplate(agentId, role, skills) {
 
 执行时先看：
 1. \`SOUL.md\`：主循环和绝对规则
-2. \`inbox/contract.json\`：当前任务真值；缺席时通常回复 \`HEARTBEAT_OK\`
+2. 当前会话输入：先看本轮系统唤醒和当前会话上下文；只有这轮明确是系统派工时，才读取对应 contract
 3. \`PLATFORM-GUIDE.md\`：平台入口、出口、协作方式
 4. 需要找协作者时再查 \`BUILDING-MAP.md\`
 5. 准备显式协作时再查 \`COLLABORATION-GRAPH.md\`
 6. 处理 delivery 语义时再查 \`DELIVERY.md\`
 7. 已加载技能：遇到对应问题时按 skill 走
 
-最低规则：
-- 先读 \`inbox/contract.json\`
-- ${primaryResultRule}
-- ${hasSystemAction ? "需要协作时在产物里写 `[ACTION]` 标记（见 PLATFORM-GUIDE.md 协作动作）" : "协作能力由已加载 skill 与 runtime surface 提供"}
-- 其他 agent workspace 由 runtime 投递与 delivery 管理
+工作顺序：
+- 先识别当前会话输入
+- 只有本轮明确给出 contract 协议时，才按该协议读写对应文件
+- ${actionLine}
+- 当前工作面是本 agent workspace 与本轮明确给出的路径
 `;
 }
 
@@ -71,207 +82,20 @@ function buildSkillGuideLine(skillId) {
   }
 }
 
-function getWorkspaceGuidanceSkills(agentId, role, fallbackSkills = [], agentEntries = []) {
-  const entry = agentEntries.find((e) => e.id === agentId);
-  const entrySkills = uniqueStrings(entry?.skills || []);
-  return uniqueStrings([
-    ...listAutoInjectedAgentSkillRefs(role),
-    ...fallbackSkills,
-    ...entrySkills,
-  ]);
-}
-
-function describeAgentIngress(entry) {
-  if (!entry.gateway) return "内部办公室";
-  switch (entry.ingressSource) {
-    case "webui":
-      return "前台入口（WebUI）";
-    case "qq":
-      return "前台入口（QQ）";
-    case "test":
-      return "测试入口";
-    default:
-      return "网关入口";
-  }
-}
-
-function describeAgentCallUse(entry) {
-  switch (entry.role) {
-    case AGENT_ROLE.BRIDGE:
-      return entry.gateway
-        ? "前台入口。适合接待外部来客，并把请求送进楼内。"
-        : "桥接型节点，负责消息出入口。";
-    case AGENT_ROLE.PLANNER:
-      return "复杂、多阶段、需要拆分或分工时找它规划。";
-    case AGENT_ROLE.EXECUTOR:
-      return entry.specialized
-        ? "专项执行办公室。适合特化编码、实验、重执行或明确需要该专长的任务。"
-        : "通用执行办公室。适合明确、边界清晰、可直接落地的子任务。";
-    case AGENT_ROLE.RESEARCHER:
-      return "研究检索办公室。适合资料搜集、研究方向探索、提出假设和研究路线。";
-    case AGENT_ROLE.REVIEWER:
-      return "审查评估办公室。适合代码审查、质量闸、研究方向评价与继续/收口判断。";
-    default:
-      return "通用节点。优先按 Contract 和已加载 skill 工作。";
-  }
-}
-
-function buildWorkspaceAgentDirectory(agentId, role, skills, agentEntries = []) {
-  const entries = [];
-  for (const raw of agentEntries) {
-    const entryRole = normalizeAgentRole(raw.role, raw.id);
-    const entrySkills = getWorkspaceGuidanceSkills(raw.id, entryRole, [], agentEntries);
-    entries.push({
-      id: raw.id,
-      role: entryRole,
-      gateway: raw.gateway === true,
-      ingressSource: normalizeString(raw.ingressSource)?.toLowerCase() || null,
-      specialized: raw.specialized === true,
-      skills: entrySkills,
-    });
-  }
-
-  if (!entries.some((entry) => entry.id === agentId)) {
-    entries.push({
-      id: agentId,
-      role,
-      gateway: false,
-      ingressSource: null,
-      specialized: false,
-      skills: getWorkspaceGuidanceSkills(agentId, role, skills, agentEntries),
-    });
-  }
-
-  return entries.sort((left, right) => {
-    if (left.id === agentId) return -1;
-    if (right.id === agentId) return 1;
-    const leftOrder = getCapabilityDirectoryOrder(left.role);
-    const rightOrder = getCapabilityDirectoryOrder(right.role);
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    return left.id.localeCompare(right.id);
-  });
-}
-
-function formatAgentIdList(agentIds, {
-  emptyLabel = "空",
-} = {}) {
-  return agentIds.length > 0
-    ? agentIds.map((id) => `\`${id}\``).join("、")
-    : emptyLabel;
-}
-
-function formatLoopNodePath(agentIds) {
-  return uniqueStrings(agentIds || [])
-    .map((id) => `\`${id}\``)
-    .join(" → ");
-}
-
-function buildRegisteredLoopSection(agentId, loops = []) {
-  const normalizedAgentId = normalizeString(agentId);
-  const resolvedLoops = (Array.isArray(loops) ? loops : [])
-    .filter((loop) => loop?.id)
-    .slice()
-    .sort((left, right) => {
-      if ((left?.active === true) !== (right?.active === true)) {
-        return left?.active === true ? -1 : 1;
-      }
-      return String(left?.id || "").localeCompare(String(right?.id || ""));
-    });
-
-  if (resolvedLoops.length === 0) {
-    return "- 当前已登记 loop 为空。";
-  }
-
-  return resolvedLoops.map((loop) => {
-    const nodes = uniqueStrings(loop?.nodes || []);
-    const flags = [];
-    if (normalizeString(loop?.entryAgentId) === normalizedAgentId) flags.push("你是 entry");
-    if (nodes.includes(normalizedAgentId)) flags.push("你在回路中");
-    const flagSuffix = flags.length > 0 ? ` | ${flags.join(" | ")}` : "";
-    const missingEdges = Array.isArray(loop?.missingEdges) ? loop.missingEdges : [];
-    const missingText = missingEdges.length > 0
-      ? `; missingEdges=${missingEdges.map((edge) => `\`${edge.from}->${edge.to}\``).join("、")}`
-      : "";
-    return `- \`${loop.id}\` [${loop?.active === true ? "active" : "inactive"}${flagSuffix}] entry=\`${normalizeString(loop?.entryAgentId) || "unknown"}\`; nodes=${formatLoopNodePath(nodes)}${missingText}`;
-  }).join("\n");
-}
-
-function rotateCycleToStart(cycle, agentId) {
-  const nodes = uniqueStrings(
-    (Array.isArray(cycle) ? cycle : [])
-      .map((entry) => normalizeString(entry))
-      .filter(Boolean),
-  );
-  if (nodes.length === 0) return [];
-  const startIndex = nodes.indexOf(agentId);
-  return startIndex >= 0
-    ? [...nodes.slice(startIndex), ...nodes.slice(0, startIndex)]
-    : nodes;
-}
-
-function getAgentCycleDescriptions(graph, agentId) {
-  const descriptions = [];
-  const seen = new Set();
-  for (const cycle of detectCycles(graph)) {
-    if (!Array.isArray(cycle) || !cycle.includes(agentId)) continue;
-    const ordered = rotateCycleToStart(cycle, agentId);
-    if (ordered.length === 0) continue;
-    const closedLoop = [...ordered, ordered[0]];
-    const key = closedLoop.join("->");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    descriptions.push(closedLoop.map((id) => `\`${id}\``).join(" → "));
-  }
-  return descriptions;
-}
-
-function getGraphCollaborationSummary(graph, agentId) {
-  return {
-    outgoingTargets: uniqueStrings(
-      getEdgesFrom(graph, agentId)
-        .map((edge) => normalizeString(edge?.to))
-        .filter(Boolean),
-    ),
-    incomingSources: uniqueStrings(
-      getEdgesTo(graph, agentId)
-        .map((edge) => normalizeString(edge?.from))
-        .filter(Boolean),
-    ),
-    cycles: getAgentCycleDescriptions(graph, agentId),
-  };
-}
-
-function buildOfficeDirectoryLines(agentId, role, skills, agentEntries = []) {
-  const directory = buildWorkspaceAgentDirectory(agentId, role, skills, agentEntries);
-  return directory
-    .filter((entry) => entry.id !== agentId)
-    .map((entry) => {
-      const flags = [];
-      if (entry.gateway) flags.push(describeAgentIngress(entry));
-      if (entry.specialized) flags.push("specialized");
-      const flagText = flags.length > 0 ? ` [${flags.join(" | ")}]` : "";
-      return [
-        `### \`${entry.id}\`${flagText}`,
-        `- Role: \`${entry.role}\``,
-        `- 何时找它: ${describeAgentCallUse(entry)}`,
-      ].join("\n");
-    }).join("\n\n");
-}
-
 function buildBuildingMapTemplate(agentId, role, skills, agentEntries = []) {
   const directoryLines = buildOfficeDirectoryLines(agentId, role, skills, agentEntries);
 
   return `${MANAGED_BOOTSTRAP_MARKER}
 # BUILDING-MAP.md
 
-这是一份楼宇黄页，回答“别人是谁、什么时候通常找谁”。
+这是一份楼宇黄页，只回答"别人是谁、什么时候通常找谁"。
 
 ## 这栋楼的分工
 
 - 前台（bridge）负责接待外部来客，并把外部请求送进楼内
 - 办公室负责内容生产、研究、审查与决策；具体该找谁，以当前实际 agent 目录为准
 - 图权限见 \`COLLABORATION-GRAPH.md\`
-- delivery 语义见 \`DELIVERY.md\`
+- 结果自动送达语义见 \`DELIVERY.md\`
 
 ## 楼宇目录
 
@@ -289,18 +113,18 @@ function buildCollaborationGraphTemplate(agentId, role, graph = { edges: [] }, l
   return `${MANAGED_BOOTSTRAP_MARKER}
 # COLLABORATION-GRAPH.md
 
-这份文档回答：你现在能主动找谁，以及哪些显式协作动作受图约束。
+这份文档只回答：你现在能主动找谁，以及哪些显式协作动作受图约束。
 
 ## 当前图权限
 
-- 你可直接调用: ${formatAgentIdList(outgoingTargets, { emptyLabel: "当前显式出边为空" })}
-- 可直接调用你: ${formatAgentIdList(incomingSources, { emptyLabel: "当前显式入边为空" })}
+- 你可直接调用: ${formatAgentIdList(outgoingTargets, { emptyLabel: "出边集合: 空" })}
+- 可直接调用你: ${formatAgentIdList(incomingSources, { emptyLabel: "入边集合: 空" })}
 - \`assign_task\` / \`wake_agent\` / \`request_review\` 这类显式点对点协作，都先看这份图权限
 - 是否允许某个动作，还要同时遵守 \`SOUL.md\` 和对应 skill 的角色边界
 
 ## 当前显式回路
 
-${cycles.length > 0 ? cycles.map((cycle) => `- ${cycle}`).join("\n") : "- 当前显式回路为空"}
+${cycles.length > 0 ? cycles.map((cycle) => `- ${cycle}`).join("\n") : "- 显式回路: 空"}
 
 ## 已登记回路
 
@@ -309,8 +133,8 @@ ${buildRegisteredLoopSection(agentId, loops)}
 ## 使用原则
 
 - 先用 \`BUILDING-MAP.md\` 选候选协作者，再用这份文档确认当前权限
-- 显式 agent-to-agent 协作按图上的出边执行
-- loop 是图上的推进结构
+- 只沿图上的出边发起显式 agent-to-agent 协作
+- loop 是图上的推进结构，由 runtime 执行
 `;
 }
 
@@ -318,12 +142,12 @@ function buildDeliveryTemplate() {
   return `${MANAGED_BOOTSTRAP_MARKER}
 # DELIVERY.md
 
-这份文档回答：结果如何离开当前 contract，以及为什么会自动送到正确的下一跳。
+这份文档只回答：结果如何离开当前 contract，以及为什么会自动送到正确的下一跳。
 
 ## 两条 delivery 语义
 
-- \`${PROTOCOL_ID.DELIVERY.TERMINAL}\`：contract 到终态后，把结果送到最终用户或前台入口（controller / QQ）
-- \`delivery:system_action\`：概念家族；运行时落到具体的 system_action return variant
+- \`${PROTOCOL_ID.DELIVERY.TERMINAL}\`：contract 到终态后，把结果送到最终用户或前台入口（controller / agent-for-kksl）
+- \`delivery:system_action\`：文档里的概念家族；运行时落到具体的 system_action return variant
 
 ## 核心字段
 
@@ -335,36 +159,36 @@ function buildDeliveryTemplate() {
 
 - 普通 contract 完成后，runtime 走 terminal delivery
 - 若目标是 QQ / controller，这一跳直接送到最终用户侧
-- 这是“任务结束后往外送”的出口
+- 这是"任务结束后往外送"的出口
 
 ## delivery:system_action（概念家族）
 
 - 子任务完成后，结果先按 \`replyTo\` 回给直接上游
 - 直接上游处理完后，再按 \`upstreamReplyTo\` 继续往上回
 - direct service 同会话恢复时，runtime 会结合 delivery ticket、sessionKey 和 wake 机制把结果送回原会话
-- runtime 根据票据和 route metadata 负责回件
+- 叶子 agent 提交本轮结果；runtime 根据票据和 route metadata 负责回件
 
-## 为什么没出边也能回去
+## 自动回件语义
 
-- 图权限回答“你能主动找谁”
-- delivery 回答“你做完后结果自动送到哪”
-- worker 可以通过 delivery 自动把结果退回上游
+- 图权限回答"你能主动找谁"
+- delivery 回答"你做完后结果自动送到哪"
+- worker 做完后，结果可以按 delivery 票据自动退回上游
 
 ## 两类常见 system_action delivery
 
 - \`${PROTOCOL_ID.DELIVERY.SYSTEM_ACTION_ASSIGN_TASK_RESULT}\`：子任务委派完成后，把结果送回委派者
-- \`${PROTOCOL_ID.DELIVERY.SYSTEM_ACTION_CONTRACT_RESULT}\`：普通 runtime 子流程完成后，把结果送回发起该子流程的上游
+- \`${PROTOCOL_ID.DELIVERY.SYSTEM_ACTION_RUNTIME_RESULT}\`：普通 runtime 子流程完成后，把结果送回发起该子流程的上游
 - \`${PROTOCOL_ID.DELIVERY.SYSTEM_ACTION_REVIEW_VERDICT}\`：审查 verdict 送回发起审查的 agent / session
 
 ## 使用原则
 
-- 子任务结果由 runtime delivery 搬运
-- delivery 语义保留在这份文档
-- delivery 问题以这份文档和 runtime 票据为准
+- 子任务结果交给 runtime 回送
+- delivery 语义保留在 \`DELIVERY.md\`
+- 理解 delivery 问题时，以这份文档为准
 `;
 }
 
-function buildOutboxManifestExample(role) {
+function buildOutboxCommitExample(role) {
   switch (role) {
     case AGENT_ROLE.RESEARCHER:
     case AGENT_ROLE.REVIEWER:
@@ -373,10 +197,8 @@ function buildOutboxManifestExample(role) {
       return `\`\`\`json
 {
   "version": 1,
-  "kind": "execution_result",
-  "artifacts": [
-    { "type": "text_output", "path": "<output文件名>.md", "required": true }
-  ]
+  "status": "completed",
+  "summary": "一句话总结本阶段完成了什么"
 }
 \`\`\``;
   }
@@ -393,40 +215,14 @@ function buildPlatformGuideTemplate(agentId, role, skills, graph = { edges: [] }
   const hasSystemAction = normalizedSkills.includes("system-action");
   const guideLines = normalizedSkills.length > 0
     ? normalizedSkills.map((skillId) => buildSkillGuideLine(skillId)).join("\n")
-    : "- 当前使用基础能力。后续注入 skill 时按 skill 说明执行。";
-  const specialEntrances = [];
-  const primaryResultRules = "- 主结果写到 contract 的 `output`";
+    : "- 基础技能集：按 `SOUL.md`、当前会话和本页入口语义执行。";
+  const primaryResultRules = "- 主结果写到本轮会话明确给出的目标位置\n- 若本轮是系统派工，正式提交方式以本轮系统唤醒说明和对应平台文档为准\n- runtime 负责结果回送与 delivery";
   const platformOutboxRule = hasSystemAction
-    ? "- 需要协作时在产物末尾写 `[ACTION]` 标记（系统自动提取并执行）"
-    : "- 协作能力由已加载 skill 与 runtime surface 提供";
+    ? "- 需要协作时使用 `[ACTION]` 标记"
+    : "- 协作能力：basic";
   const platformActionSection = hasSystemAction
-    ? [
-        "需要协作时，在产物 markdown 里写 `[ACTION]` 标记。系统会自动提取并执行。",
-        "",
-        "简写命令：",
-        "",
-        "```",
-        "[ACTION] wake <agentId> — <理由>          唤醒指定 agent",
-        "[ACTION] delegate <agentId> — <任务描述>   触发 assign_task",
-        "[ACTION] review <agentId> — <审理指示>     请求审理",
-        "```",
-        "",
-        "复杂参数动作：",
-        "",
-        "```",
-        "[ACTION] {\"type\":\"create_task\",\"params\":{...}}",
-        "[ACTION] {\"type\":\"assign_task\",\"params\":{...}}",
-        "[ACTION] {\"type\":\"request_review\",\"params\":{...}}",
-        "[ACTION] {\"type\":\"advance_loop\",\"params\":{\"suggestedNext\":\"<stageId>\",\"reason\":\"<理由>\"}}",
-        "```",
-        "",
-        "规则：",
-        "- 自己能完成就自己完成",
-        "- 先看 `COLLABORATION-GRAPH.md` 确认你有权调用的 agent",
-        "- 一次最多写一个 [ACTION]（系统只执行第一个）",
-        "- 协作结果默认由 runtime 自动送达；delivery 语义看 `DELIVERY.md`",
-      ].join("\n")
-    : "当前协作边界以现有角色硬路径和已加载技能为准。";
+    ? "需要协作时使用 `[ACTION]` 标记；协作者见 `BUILDING-MAP.md`，图授权见 `COLLABORATION-GRAPH.md`，delivery 语义见 `DELIVERY.md`。"
+    : "协作方式：本地完成，按当前会话和 `SOUL.md` 执行。";
 
   return `${MANAGED_BOOTSTRAP_MARKER}
 # PLATFORM-GUIDE.md
@@ -439,24 +235,23 @@ function buildPlatformGuideTemplate(agentId, role, skills, graph = { edges: [] }
 - 图权限见 \`COLLABORATION-GRAPH.md\`
 - delivery 语义见 \`DELIVERY.md\`
 
-## 平台固定入口
+## 平台入口语义
 
-- 第一入口永远是 \`inbox/contract.json\`
-- Contract 会告诉你当前任务、阶段和主输出路径
-${specialEntrances.join("\n")}
+- 用户直达：外部用户直接对话当前 agent，本轮输入以当前会话和直达请求为准
+- 系统派工：runtime 派来 contract 或系统任务，本轮输入以系统唤醒说明为准；必要时会明确指向 contract 文件
+- Contract、输出路径和正式提交方式，都以这轮系统唤醒和对应平台文档为准
 
-这些入口都缺席时，通常直接 \`HEARTBEAT_OK\`。
+空闲轮次以 \`HEARTBEAT_OK\` 收尾。
 
 ## 平台固定出口
 
 ${primaryResultRules}
 ${platformOutboxRule}
 
-## 外部工具受限规则
+## 外部工具
 
-- \`web_search\`、\`web_fetch\` 等外部工具是增强能力
-- 外部工具因无 key、无网络、权限不足或服务异常而失败时，只要当前任务还能基于现有 context / contract / 本地文件继续，就继续推进并在产物里注明限制
-- 可选工具失败时，基于现有 context / contract / 本地文件继续推进并标注限制
+- \`web_search\`、\`web_fetch\` 等外部工具用于补充证据
+- 使用当前 context / contract / 本地文件持续推进；外部证据缺口写入产物
 
 ## 协作命令
 
@@ -468,4 +263,4 @@ ${guideLines}
 `;
 }
 
-export { buildHeartbeatTemplate, buildAgentsTemplate, buildBuildingMapTemplate, buildCollaborationGraphTemplate, buildDeliveryTemplate, buildOutboxManifestExample, buildPlatformGuideTemplate };
+export { buildHeartbeatTemplate, buildAgentsTemplate, buildBuildingMapTemplate, buildCollaborationGraphTemplate, buildDeliveryTemplate, buildOutboxCommitExample, buildPlatformGuideTemplate };

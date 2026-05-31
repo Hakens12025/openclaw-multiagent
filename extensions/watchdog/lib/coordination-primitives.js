@@ -14,7 +14,7 @@ export function normalizeReplyTarget(target) {
     ...(channel ? { channel } : {}),
   };
 
-  for (const key of ["target", "kind", "runId"]) {
+  for (const key of ["target", "kind", "runId", "messageId", "replyToId", "accountId"]) {
     const normalized = normalizeString(value[key]);
     if (normalized) output[key] = normalized;
   }

@@ -4,9 +4,18 @@ import { DASHBOARD_NAV_ITEMS, renderNav } from "./dashboard-nav.js";
 
 let clockTimer = null;
 
-function buildTokenHref(path) {
-  const token = getToken();
-  return token ? `${path}?token=${encodeURIComponent(token)}` : path;
+export function buildTokenHref(path, tokenOverride = null) {
+  const token = tokenOverride ?? getToken();
+  if (!path) {
+    return token ? `?token=${encodeURIComponent(token)}` : "";
+  }
+  if (!token) {
+    return path;
+  }
+
+  const url = new URL(path, "http://localhost");
+  url.searchParams.set("token", token);
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function updateClock() {

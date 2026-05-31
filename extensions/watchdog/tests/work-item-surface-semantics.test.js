@@ -153,3 +153,48 @@ test("operator snapshot retains work item backing semantics for artifact-backed 
     clearTrackingStore();
   }
 });
+
+test("operator snapshot exposes unified ioObservation for active work items", async () => {
+  const now = Date.now();
+  const sessionKey = `agent:worker:io-snapshot:${now}`;
+  const ioObservation = {
+    version: 1,
+    input: {
+      contractId: "TC-WORK-ITEM-IO",
+      task: "show exact agent input/output on operator snapshot",
+      effectiveTools: ["read", "write", "edit"],
+    },
+    output: {
+      primaryOutputPath: "/tmp/work-item-io.md",
+      artifactPaths: ["/tmp/work-item-io.md"],
+      textPreview: "snapshot io preview",
+    },
+  };
+
+  try {
+    rememberTrackingState(sessionKey, {
+      sessionKey,
+      agentId: "worker",
+      status: "running",
+      startMs: now - 1000,
+      toolCallTotal: 1,
+      lastLabel: "处理中",
+      ioObservation,
+      contract: {
+        id: "TC-WORK-ITEM-IO",
+        task: "show exact agent input/output on operator snapshot",
+        assignee: "worker",
+        status: "running",
+        createdAt: now - 1200,
+        updatedAt: now - 500,
+      },
+    });
+
+    const snapshot = await buildOperatorSnapshot({ listLimit: 10 });
+    const item = snapshot.workItems.active.find((entry) => entry?.id === "TC-WORK-ITEM-IO");
+
+    assert.deepEqual(item?.ioObservation, ioObservation);
+  } finally {
+    clearTrackingStore();
+  }
+});

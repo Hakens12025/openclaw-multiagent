@@ -4,20 +4,21 @@ import { join } from "node:path";
 import { EVENT_TYPE } from "../core/event-types.js";
 import {
   OC,
-  QUEUE_STATE_FILE,
   STATE_FILE,
   agentWorkspace,
   atomicWriteFile,
   clearRecentOperationGuards,
   operationLocks,
 } from "../state.js";
-import { qqTypingStopAll } from "../qq.js";
+import { qqTypingStopAll } from "../channel-notify.js";
 import { clearContractStore, listSharedContractEntries } from "../store/contract-store.js";
 import {
   clearDispatchChainStore, getDispatchChainSize,
 } from "../store/contract-flow-store.js";
 import { clearTrackingStore, getTrackingSessionCount } from "../store/tracker-store.js";
 import { clearAllTraces } from "../store/execution-trace-store.js";
+import { clearAllExecutionIncidents } from "../runtime/execution-incident-store.js";
+import { clearAllPendingSignals } from "../runtime/pending-signal-registry.js";
 import { clearSystemActionDeliveryTicketStore } from "../routing/delivery-system-action-ticket.js";
 // cancelAllPlanDispatches eliminated: DRAFT lifecycle removed.
 import { clearLoopSessionState } from "../loop/loop-session-store.js";
@@ -35,6 +36,9 @@ import {
   persistDispatchRuntimeState,
   resetAllDispatchStates,
 } from "../routing/dispatch-runtime-state.js";
+import { syncAllRuntimeWorkspaceGuidance } from "../workspace-guidance-writer.js";
+import { clearProtocolCommitReconcileState } from "../protocol-commit-reconcile.js";
+import { clearRuntimeDirectEnvelopeStores } from "../runtime-direct-envelope-queue.js";
 
 function getDefaultResetSessionAgents() {
   const runtimeAgentIds = listRuntimeAgentIds();
@@ -52,6 +56,7 @@ function getDefaultResetSessionAgents() {
     ? ids
     : [
         AGENT_IDS.CONTROLLER,
+        AGENT_IDS.OPERATOR,
         AGENT_IDS.QQ_BRIDGE,
         AGENT_IDS.PLANNER,
         "worker",
@@ -63,12 +68,17 @@ export async function resetRuntimeState({
   logger = null,
   onAlert = null,
   resetSessionAgents = getDefaultResetSessionAgents(),
+  runtimeApi = null,
 } = {}) {
   const sessionCount = getTrackingSessionCount();
   const historyCount = getTaskHistoryCount();
   const chainCount = getDispatchChainSize();
   const contractCacheCount = clearContractStore();
+  const executionIncidentCount = clearAllExecutionIncidents();
+  const pendingSignalAgentCount = clearAllPendingSignals();
   const systemActionDeliveryTicketCount = await clearSystemActionDeliveryTicketStore();
+  clearProtocolCommitReconcileState();
+  const runtimeDirectEnvelopeClear = await clearRuntimeDirectEnvelopeStores(resetSessionAgents, { logger });
   await clearLoopSessionState();
 
   clearTrackingStore();
@@ -94,15 +104,6 @@ export async function resetRuntimeState({
     }, null, 2));
   } catch (error) {
     logger?.warn?.(`[watchdog] RESET: failed to rewrite ${STATE_FILE}: ${error.message}`);
-  }
-
-  try {
-    await atomicWriteFile(QUEUE_STATE_FILE, JSON.stringify({
-      targets: {},
-      savedAt: Date.now(),
-    }, null, 2));
-  } catch (error) {
-    logger?.warn?.(`[watchdog] RESET: failed to rewrite ${QUEUE_STATE_FILE}: ${error.message}`);
   }
 
   try {
@@ -154,10 +155,18 @@ export async function resetRuntimeState({
     }
   } catch (e) { logger?.warn?.(`[reset] contract list/cleanup error: ${e?.message}`); }
 
+  if (runtimeApi?.config) {
+    try {
+      await syncAllRuntimeWorkspaceGuidance(runtimeApi.config, logger);
+    } catch (error) {
+      logger?.warn?.(`[reset] workspace guidance sync error: ${error?.message}`);
+    }
+  }
+
   logger?.info?.(
     `[watchdog] RESET: cleared ${sessionCount} sessions, ${historyCount} history, `
     + `${chainCount} chains, ${queueCount} queued, `
-    + `${contractsRemoved} contract files removed, ${contractCacheCount} cached contracts, ${systemActionDeliveryTicketCount} delivery tickets, ${sessionFilesCleared} session files, `
+    + `${contractsRemoved} contract files removed, ${contractCacheCount} cached contracts, ${executionIncidentCount} execution incidents, ${pendingSignalAgentCount} pending-signal agents, ${systemActionDeliveryTicketCount} delivery tickets, ${runtimeDirectEnvelopeClear.files} direct-envelope files, ${sessionFilesCleared} session files, `
     + `${mailboxFilesCleared} mailbox files`,
   );
 
@@ -170,7 +179,10 @@ export async function resetRuntimeState({
     queue: queueCount,
     contracts: contractsRemoved,
     contractCache: contractCacheCount,
+    executionIncidents: executionIncidentCount,
+    pendingSignalAgents: pendingSignalAgentCount,
     systemActionDeliveryTickets: systemActionDeliveryTicketCount,
+    runtimeDirectEnvelopeFiles: runtimeDirectEnvelopeClear.files,
     sessionFiles: sessionFilesCleared,
     mailboxes: mailboxFilesCleared,
   };

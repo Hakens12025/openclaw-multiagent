@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { agentWorkspace } from "./state.js";
+import { RUNTIME_RESULT_FILE } from "./protocol-primitives.js";
 
 function normalizeObservationRecord(value) {
   return value && typeof value === "object" ? value : null;
@@ -32,7 +33,7 @@ function hasObservationChanged(previousObservation, nextObservation) {
     || previous.size !== nextObservation.size;
 }
 
-export async function observeCanonicalStageResultCommit({
+export async function observeCanonicalRuntimeResultCommit({
   trackingState,
   agentId,
   observedAt = Date.now(),
@@ -44,28 +45,28 @@ export async function observeCanonicalStageResultCommit({
     return null;
   }
 
-  const stageResultPath = join(agentWorkspace(agentId.trim()), "outbox", "stage_result.json");
-  const stageResultStats = await statFile(stageResultPath);
-  if (!stageResultStats?.isFile?.()) {
+  const runtimeResultPath = join(agentWorkspace(agentId.trim()), "outbox", RUNTIME_RESULT_FILE);
+  const runtimeResultStats = await statFile(runtimeResultPath);
+  if (!runtimeResultStats?.isFile?.()) {
     return null;
   }
 
-  const nextObservation = buildFileObservation(stageResultPath, stageResultStats, observedAt);
+  const nextObservation = buildFileObservation(runtimeResultPath, runtimeResultStats, observedAt);
   const currentRuntimeObservation = normalizeObservationRecord(trackingState.runtimeObservation) || {};
-  const currentStageResultObservation = normalizeObservationRecord(currentRuntimeObservation.stageResultCommit);
+  const currentRuntimeResultObservation = normalizeObservationRecord(currentRuntimeObservation.runtimeResultCommit);
 
-  if (!hasObservationChanged(currentStageResultObservation, nextObservation)) {
+  if (!hasObservationChanged(currentRuntimeResultObservation, nextObservation)) {
     return null;
   }
 
   trackingState.runtimeObservation = {
     ...currentRuntimeObservation,
-    stageResultCommit: nextObservation,
+    runtimeResultCommit: nextObservation,
   };
 
   return {
-    type: "stage_result",
-    fileName: "stage_result.json",
-    commitPath: stageResultPath,
+    type: "runtime_result",
+    fileName: RUNTIME_RESULT_FILE,
+    commitPath: runtimeResultPath,
   };
 }

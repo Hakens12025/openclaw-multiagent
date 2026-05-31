@@ -17,7 +17,7 @@
 - 三种标记解析器：action、stage、finding（备忘录96）
 
 **已删除的反模式：**
-- stage_result.json, contract_result.json, code_verdict.json, next_action.json — 全部删除
+- 旧多文件结构化回执和下一步声明协议 — 全部删除
 - Agent 连接点从 27+ 降至 3+2 个活跃接口（备忘录95）
 
 ## 为什么存在
@@ -40,7 +40,7 @@
 ## 演化
 
 1. 核心设计指标 §十二：确立原则
-2. 早期：Agent 需要写 stage_result.json 等多种结构化文件
+2. 早期：Agent 需要写多种结构化回执文件
 3. 备忘录95：审计发现 27+ 连接点，启动精简
 4. 备忘录96：引入三种标记解析器（action/stage/finding）
 5. 连接点降至 3+2 个活跃接口

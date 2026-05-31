@@ -1,9 +1,9 @@
-// tests/suite-benchmark.js — Benchmark evaluation + report generator
+// Benchmark evaluation + report generator
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { OUTPUT_DIR, PORT } from "./infra.js";
-import { summarizeTestDiagnosis } from "./suite-single.js";
+import { OUTPUT_DIR, PORT } from "../lib/formal-runtime/infra.js";
+import { summarizeTestDiagnosis } from "../lib/formal-runtime/suite-single.js";
 
 // ── Benchmark Cases ───────────────────────────────────────────────────────────
 
@@ -158,11 +158,11 @@ export function generateBenchmarkReport(benchResults, totalDuration) {
 
   for (const br of benchResults) {
     const { testResult, benchScore, testCase } = br;
-    const complexityLabel = testCase.complexity === "simple" ? "SIMPLE" : "COMPLEX";
+    const pathLabel = testCase.complexity === "simple" ? "SIMPLE" : "COMPLEX";
     const result = testResult.pass ? "PASS" : "FAIL";
 
     lines.push(`── ${testCase.id} "${testCase.message.slice(0, 40)}" ──`);
-    lines.push(`Complexity: ${complexityLabel}  Duration: ${testResult.duration}s  Chain: ${result}`);
+    lines.push(`Task: ${pathLabel}  Duration: ${testResult.duration}s  Chain: ${result}`);
     lines.push(`Score: ${benchScore.total}/${benchScore.max} (${Math.round(benchScore.total/benchScore.max*100)}%)`);
     lines.push("");
 

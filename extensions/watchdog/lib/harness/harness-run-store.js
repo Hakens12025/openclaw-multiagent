@@ -5,7 +5,7 @@
 // All records use the rich normalizeHarnessRun format.
 
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeHarnessRun } from "./harness-run.js";
 
@@ -20,7 +20,10 @@ async function ensureDir() {
 }
 
 async function atomicWrite(filePath, data) {
-  const tmp = `${filePath}.tmp`;
+  const tmp = join(
+    dirname(filePath),
+    `.${basename(filePath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+  );
   await writeFile(tmp, data, "utf8");
   await rename(tmp, filePath);
 }

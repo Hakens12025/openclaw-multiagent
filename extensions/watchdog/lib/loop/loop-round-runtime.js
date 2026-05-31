@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import {
@@ -14,66 +13,30 @@ import {
 } from "./loop-session-store.js";
 import { normalizeString } from "../core/normalize.js";
 import { withLock } from "../state.js";
-import { annotateExecutionContract } from "../protocol-primitives.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { agentWorkspace, CONTRACTS_DIR } from "../state.js";
+import { CONTRACTS_DIR } from "../state.js";
 import { mkdir } from "node:fs/promises";
 import {
   getContractPath,
-  mutateContractSnapshot,
   persistContractSnapshot,
 } from "../contracts.js";
 import { dispatchRouteExecutionContract } from "../routing/dispatch-graph-policy.js";
-import { removeDispatchContract } from "../routing/dispatch-runtime-state.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import { broadcast } from "../transport/sse.js";
-import { normalizeTerminalOutcome } from "../terminal-outcome.js";
 import {
-  buildInitialTaskStageRuntime,
-  deriveCompatibilityPhases,
-  deriveCompatibilityTotal,
   materializeTaskStagePlan,
   materializeTaskStageRuntime,
+  buildInitialTaskStageRuntime,
 } from "../task-stage-plan.js";
-import { buildTaskStagePlanFromTask } from "../task-stage-planner.js";
 import { buildAgentContractSessionKey } from "../session-keys.js";
-import { listSharedContractEntries } from "../store/contract-store.js";
-import { routeInbox } from "../../runtime-mailbox.js";
+import { cleanupInterruptedLoopContracts } from "./loop-cleanup.js";
+import { resolveLoopStartBudget } from "./loop-budget.js";
+import {
+  buildLoopContractId,
+  buildLoopContract,
+} from "./loop-contract-builder.js";
 
 const LOOP_RUNTIME_LOCK_KEY = "loop-runtime";
-const DEFAULT_LOOP_MAX_ROUNDS = 3;
-const DEFAULT_LOOP_MAX_EXPERIMENTS = 30;
-
-function normalizePositiveInteger(value, fallback = null) {
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return Math.trunc(numeric);
-  }
-  return fallback;
-}
-
-function normalizeLoopBudget(budget, { currentRound = 1 } = {}) {
-  const source = budget && typeof budget === "object" ? budget : {};
-  const normalizedCurrentRound = normalizePositiveInteger(currentRound, 1) || 1;
-  return {
-    maxRounds: normalizePositiveInteger(source.maxRounds, DEFAULT_LOOP_MAX_ROUNDS),
-    maxExperiments: normalizePositiveInteger(source.maxExperiments, DEFAULT_LOOP_MAX_EXPERIMENTS),
-    usedRounds: normalizePositiveInteger(source.usedRounds, normalizedCurrentRound) || normalizedCurrentRound,
-    usedExperiments: normalizePositiveInteger(source.usedExperiments, 0) || 0,
-  };
-}
-
-function resolveLoopStartBudget(config, { currentRound = 1 } = {}) {
-  const source = config && typeof config === "object" ? config : {};
-  const budget = source.budget && typeof source.budget === "object" ? source.budget : {};
-  return normalizeLoopBudget({
-    ...budget,
-    ...(source.maxRounds !== undefined ? { maxRounds: source.maxRounds } : {}),
-    ...(source.maxExperiments !== undefined ? { maxExperiments: source.maxExperiments } : {}),
-  }, {
-    currentRound,
-  });
-}
 
 function normalizeLoopRuntime(session) {
   if (!session) {
@@ -98,15 +61,6 @@ function normalizeLoopRuntime(session) {
     semanticStageMode: session.semanticStageMode || null,
     pendingSoftGate: session.pendingSoftGate || null,
   };
-}
-
-function buildLoopContractId(now = Date.now()) {
-  return `TC-${now}-${randomBytes(3).toString("hex")}`;
-}
-
-async function readActiveLoopRuntime() {
-  const state = await loadLoopSessionState();
-  return normalizeLoopRuntime(state.activeSession);
 }
 
 function resolveLoopTarget({
@@ -142,170 +96,9 @@ function findLatestLoopSessionByLoopId(loopSessions, loopId) {
     .sort((left, right) => (right?.updatedAt || 0) - (left?.updatedAt || 0))[0] || null;
 }
 
-async function wakeLoopTarget(wakeupFunc, targetAgentId, contractId, logger) {
-  if (typeof wakeupFunc !== "function") {
-    return null;
-  }
-  try {
-    return await wakeupFunc(targetAgentId, {
-      sessionKey: buildAgentContractSessionKey(targetAgentId, contractId),
-    });
-  } catch (error) {
-    logger?.warn?.(`[loop-runtime] wake failed for ${targetAgentId}: ${error.message}`);
-    return {
-      ok: false,
-      targetAgent: targetAgentId,
-      error: error.message,
-    };
-  }
-}
-
-function buildLoopStageDescriptor({
-  loopId,
-  loopSessionId,
-  startAgent,
-  round,
-  stageRuntime,
-}) {
-  return {
-    pipelineId: loopId,
-    loopId,
-    loopSessionId,
-    stage: startAgent,
-    round,
-    semanticStageId: stageRuntime?.currentStageId || null,
-  };
-}
-
-function buildLoopContract({
-  contractId,
-  loop,
-  loopSessionId,
-  startAgent,
-  requestedTask,
-  requestedSource,
-  operatorContext,
-  replyTo,
-  taskStagePlan = null,
-  taskStageRuntime = null,
-}) {
-  const stagePlan = buildTaskStagePlanFromTask({
-    contractId,
-    task: requestedTask,
-    stagePlan: taskStagePlan,
-  });
-  const stageRuntime = materializeTaskStageRuntime({
-    stagePlan,
-    stageRuntime: taskStageRuntime,
-  }) || buildInitialTaskStageRuntime({ stagePlan });
-  return annotateExecutionContract({
-    id: contractId,
-    task: requestedTask,
-    assignee: startAgent,
-    ...(replyTo ? { replyTo } : {}),
-    stagePlan,
-    stageRuntime,
-    phases: deriveCompatibilityPhases(stagePlan),
-    total: deriveCompatibilityTotal(stagePlan),
-    output: join(agentWorkspace(startAgent), "output", `${contractId}.md`),
-    status: CONTRACT_STATUS.PENDING,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    requestedSource: requestedSource || null,
-    operatorContext: operatorContext || null,
-    pipelineStage: buildLoopStageDescriptor({
-      loopId: loop.id,
-      loopSessionId,
-      startAgent,
-      round: 1,
-      stageRuntime,
-    }),
-  }, {
-    source: "loop-runtime",
-    route: "loop",
-  });
-}
-
-function matchesLoopSessionContract(contract, loopSessionId) {
-  return contract?.pipelineStage?.loopSessionId === loopSessionId;
-}
-
-function buildInterruptedContractOutcome({
-  reason,
-  loopId,
-  loopSessionId,
-  interruptedStage,
-}) {
-  return normalizeTerminalOutcome({
-    status: CONTRACT_STATUS.CANCELLED,
-    source: "loop_runtime_interrupt",
-    reason: ["loop_interrupted", reason, interruptedStage].filter(Boolean).join(":"),
-    summary: `Loop ${loopId || "unknown"} interrupted while ${interruptedStage || "unknown"} was active`,
-    artifact: {
-      loopId: loopId || null,
-      loopSessionId: loopSessionId || null,
-      interruptedStage: interruptedStage || null,
-    },
-  }, {
-    terminalStatus: CONTRACT_STATUS.CANCELLED,
-  });
-}
-
-async function cleanupInterruptedLoopContracts(activeSession, reason, logger) {
-  if (!activeSession?.id) {
-    return {
-      matchedContracts: [],
-      updatedContracts: [],
-    };
-  }
-
-  const entries = await listSharedContractEntries();
-  const matchedContracts = entries
-    .filter((entry) => matchesLoopSessionContract(entry?.contract, activeSession.id))
-    .map((entry) => ({
-      contractId: entry.contract.id,
-      assignee: entry.contract.assignee || null,
-      path: entry.path,
-    }));
-
-  const interruptedStage = activeSession.currentStage || null;
-  const terminalOutcome = buildInterruptedContractOutcome({
-    reason,
-    loopId: activeSession.loopId || activeSession.pipelineId || null,
-    loopSessionId: activeSession.id,
-    interruptedStage,
-  });
-
-  for (const entry of matchedContracts) {
-    await mutateContractSnapshot(entry.path, logger, (contract) => {
-      contract.status = CONTRACT_STATUS.CANCELLED;
-      contract.terminalOutcome = terminalOutcome;
-      contract.runtimeDiagnostics = {
-        ...(contract.runtimeDiagnostics && typeof contract.runtimeDiagnostics === "object"
-          ? contract.runtimeDiagnostics
-          : {}),
-        loopInterrupt: {
-          reason: normalizeString(reason) || "manual_interrupt",
-          loopId: activeSession.loopId || activeSession.pipelineId || null,
-          loopSessionId: activeSession.id,
-          interruptedStage,
-          ts: Date.now(),
-        },
-      };
-    });
-    await removeDispatchContract(entry.contractId, logger);
-    if (entry.assignee) {
-      await routeInbox(entry.assignee, logger, {
-        contractIdHint: entry.contractId,
-        contractPathHint: entry.path,
-      });
-    }
-  }
-
-  return {
-    matchedContracts,
-    updatedContracts: matchedContracts.map((entry) => entry.contractId),
-  };
+async function readActiveLoopRuntime() {
+  const state = await loadLoopSessionState();
+  return normalizeLoopRuntime(state.activeSession);
 }
 
 export async function loadActiveLoopRuntime() {
@@ -319,6 +112,7 @@ export async function withLoopRuntimeLock(fn, { skipLock = false } = {}) {
   return skipLock ? fn() : withLock(LOOP_RUNTIME_LOCK_KEY, fn);
 }
 
+// W5 alias — kept for back-compat
 export async function getActiveLoopRuntime() {
   return loadActiveLoopRuntime();
 }
@@ -375,19 +169,19 @@ export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, l
     }
 
     const contractId = buildLoopContractId();
-    const stagePlan = buildTaskStagePlanFromTask({
+    const stagePlan = materializeTaskStagePlan({
       contractId,
-      task: requestedTask,
-      stagePlan: materializeTaskStagePlan({
-        contractId,
-        stagePlan: normalizedConfig.taskStagePlan || null,
-      }),
+      stagePlan: normalizedConfig.taskStagePlan || null,
     });
-    const stageRuntime = materializeTaskStageRuntime({
-      stagePlan,
-      stageRuntime: normalizedConfig.taskStageRuntime || null,
-    }) || buildInitialTaskStageRuntime({ stagePlan });
-    const loopBudget = resolveLoopStartBudget(normalizedConfig, { currentRound: 1 });
+    const stageRuntime = stagePlan
+      ? (
+          materializeTaskStageRuntime({
+            stagePlan,
+            stageRuntime: normalizedConfig.taskStageRuntime || null,
+          }) || buildInitialTaskStageRuntime({ stagePlan })
+        )
+      : null;
+    const loopBudget = resolveLoopStartBudget(normalizedConfig, { currentRound: 1, loopSpec: targetLoop });
     const loopSession = await startLoopSession({
       loop: targetLoop,
       pipelineId: targetLoop.id,
@@ -399,7 +193,7 @@ export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, l
       requestedSource: normalizeString(normalizedConfig.requestedSource) || "loop.start",
       taskStagePlan: stagePlan,
       taskStageRuntime: stageRuntime,
-      semanticStageMode: "task_stage_truth",
+      semanticStageMode: stagePlan ? "task_stage_truth" : null,
       resumeFromLoopSessionId: normalizeString(normalizedConfig.resumeFromLoopSessionId) || null,
       resumeReason: normalizeString(normalizedConfig.resumeReason) || null,
       metadata: {
@@ -416,6 +210,7 @@ export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, l
       requestedSource: normalizeString(normalizedConfig.requestedSource) || "loop.start",
       operatorContext: normalizedConfig.operatorContext || null,
       replyTo: normalizedConfig.replyTo ?? replyTo ?? null,
+      workingDir: normalizeString(normalizedConfig.workingDir) || null,
       taskStagePlan: stagePlan,
       taskStageRuntime: stageRuntime,
     });
@@ -423,12 +218,28 @@ export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, l
     await mkdir(CONTRACTS_DIR, { recursive: true });
     await persistContractSnapshot(getContractPath(contractId), contract, logger);
 
+    const dispatchApi = normalizedConfig.runtimeApi && typeof normalizedConfig.runtimeApi === "object"
+      ? normalizedConfig.runtimeApi
+      : null;
     const dispatchResult = await dispatchRouteExecutionContract(
       contractId,
       "system",
       startAgent,
-      null,
+      dispatchApi,
       logger,
+      {
+        wakeupFunc,
+        wakePayload: {
+          sessionKey: buildAgentContractSessionKey(startAgent, contractId),
+        },
+        runtimeAuthority: {
+          kind: "loop_start",
+          loopId: targetLoop.id,
+          startAgent,
+          entryAgentId: targetLoop.entryAgentId || null,
+          nodes: targetLoop.nodes,
+        },
+      },
     );
     if (dispatchResult?.failed) {
       await clearActiveLoopSession({
@@ -445,9 +256,6 @@ export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, l
         targetAgent: startAgent,
       };
     }
-    const wake = dispatchResult?.queued
-      ? null
-      : await wakeLoopTarget(wakeupFunc, startAgent, contractId, logger);
 
     broadcast("alert", {
       type: EVENT_TYPE.LOOP_STARTED,
@@ -468,7 +276,7 @@ export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, l
       contractId,
       currentStage: startAgent,
       targetAgent: startAgent,
-      wake,
+      wake: dispatchResult?.wake || null,
     };
   });
 }
@@ -563,6 +371,7 @@ export async function resumeLoopRound({
   loopId = null,
   startStage = null,
   reason = "manual_resume",
+  runtimeApi = null,
 } = {}, wakeupFunc = null, logger = null) {
   const existing = await readActiveLoopRuntime();
   if (existing?.currentStage) {
@@ -606,6 +415,7 @@ export async function resumeLoopRound({
     taskStageRuntime: latestSession?.taskStageRuntime || null,
     resumeFromLoopSessionId: latestSession?.id || null,
     resumeReason: reason,
+    runtimeApi,
   }, wakeupFunc, null, null, logger);
 
   if (resumed?.action !== "started") {

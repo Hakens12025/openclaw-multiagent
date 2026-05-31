@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  normalizeStoredAgentBindings,
   normalizeStoredAgentConfig,
   readStoredAgentBinding,
   writeStoredAgentBinding,
 } from "../lib/agent/agent-binding-store.js";
+import { composeEffectiveSkillRefs } from "../lib/agent/agent-binding-policy.js";
+import { composeDefaultCapabilityProjection } from "../lib/agent/agent-capability-policy.js";
 
 test("writeStoredAgentBinding projects runtime-owned fields to top-level config", () => {
   const agent = { id: "worker-z" };
@@ -41,7 +44,10 @@ test("writeStoredAgentBinding projects runtime-owned fields to top-level config"
   assert.equal(agent.workspace, "~/.openclaw/workspaces/worker-z");
   assert.deepEqual(agent.model, { primary: "demo/runtime-model" });
   assert.deepEqual(agent.heartbeat, { every: "6h" });
-  assert.deepEqual(agent.skills, ["model-switcher"]);
+  assert.deepEqual(agent.skills, composeEffectiveSkillRefs({
+    role: "executor",
+    configuredSkills: ["model-switcher"],
+  }));
   assert.deepEqual(agent.tools, { allow: ["read", "write"] });
   assert.equal(agent.routerHandlerId, "executor_contract");
   assert.deepEqual(agent.outboxCommitKinds, ["execution_result"]);
@@ -97,7 +103,10 @@ test("normalizeStoredAgentConfig migrates runtime-owned binding fields to top-le
   assert.equal(normalized.workspace, "~/.openclaw/workspaces/planner");
   assert.deepEqual(normalized.model, { primary: "demo/planner-model" });
   assert.deepEqual(normalized.heartbeat, { every: "2h" });
-  assert.deepEqual(normalized.skills, ["system-action"]);
+  assert.deepEqual(normalized.skills, composeEffectiveSkillRefs({
+    role: "planner",
+    configuredSkills: ["system-action"],
+  }));
   assert.deepEqual(normalized.tools, { allow: ["read", "write"] });
   assert.equal(normalized.gateway, true);
   assert.equal(normalized.protected, true);
@@ -110,4 +119,57 @@ test("normalizeStoredAgentConfig migrates runtime-owned binding fields to top-le
   assert.deepEqual(normalized.binding?.skills, { configured: ["system-action"] });
   assert.equal(normalized.binding?.capabilities, undefined);
   assert.equal(normalized.binding?.policies, undefined);
+});
+
+test("normalizeStoredAgentConfig synthesizes role default tools into top-level runtime truth", () => {
+  const normalized = normalizeStoredAgentConfig({
+    id: "planner",
+    role: "planner",
+    workspace: "~/.openclaw/workspaces/planner",
+    model: { primary: "demo/planner-model" },
+  });
+
+  assert.deepEqual(
+    normalized.tools,
+    { allow: composeDefaultCapabilityProjection({ role: "planner" }).tools },
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(normalized.binding?.capabilities?.configured || {}, "tools"),
+    false,
+  );
+});
+
+test("normalizeStoredAgentBindings projects effective skills as OpenClaw core skill filter", () => {
+  const config = {
+    agents: {
+      defaults: {
+        skills: ["model-switcher"],
+      },
+      list: [
+        {
+          id: "worker-skill-filter",
+          role: "executor",
+          workspace: "~/.openclaw/workspaces/worker-skill-filter",
+          model: { primary: "demo/executor-model" },
+        },
+      ],
+    },
+  };
+
+  const changed = normalizeStoredAgentBindings(config);
+  const agent = config.agents.list[0];
+  const expectedEffectiveSkills = composeEffectiveSkillRefs({
+    config,
+    role: "executor",
+    configuredSkills: [],
+  });
+
+  assert.equal(changed, true);
+  assert.deepEqual(agent.skills, expectedEffectiveSkills);
+  assert.ok(agent.skills.length > 0);
+  assert.ok(agent.skills.length < 10);
+  assert.deepEqual(agent.binding?.skills, { configured: [] });
+
+  const binding = readStoredAgentBinding(agent);
+  assert.deepEqual(binding.skills?.configured, []);
 });

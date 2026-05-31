@@ -39,7 +39,7 @@
             <strong>${app.esc(statusLabel)}</strong>
           </div>
           <div class="devtool-detail-line"><span>DRAFT</span><strong>${app.esc(verification?.title || draft.id || "--")}</strong></div>
-          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(verification?.surfaceId || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(verification?.surfaceDisplayId || app.formatKnownSurfaceDisplayId(verification?.surfaceId, verification?.surfaceId || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>PRESET</span><strong>${app.esc(verification?.presetId || "--")}</strong></div>
           <div class="devtool-detail-line"><span>CLEAN MODE</span><strong>${app.esc(verification?.cleanMode || "--")}</strong></div>
           <div class="devtool-detail-line"><span>EXECUTION</span><strong>${app.esc(verification?.executionId || verification?.executionStatus || "--")}</strong></div>
@@ -81,7 +81,7 @@
           </div>
           <div class="devtool-detail-line"><span>ORIGIN DRAFT</span><strong>${app.esc(run.originDraftId || "--")}</strong></div>
           <div class="devtool-detail-line"><span>ORIGIN EXEC</span><strong>${app.esc(run.originExecutionId || "--")}</strong></div>
-          <div class="devtool-detail-line"><span>ORIGIN SURFACE</span><strong>${app.esc(run.originSurfaceId || originDraft?.surfaceId || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>ORIGIN SURFACE</span><strong>${app.esc(app.formatKnownSurfaceDisplayId(run.originSurfaceId || originDraft?.surfaceId, run.originSurfaceId || originDraft?.surfaceId || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>DRAFT STATUS</span><strong>${app.esc(originDraft?.lastVerificationStatus || originDraft?.status || "--")}</strong></div>
           <div class="devtool-detail-line"><span>TITLE</span><strong>${app.esc(originDraft?.title || "--")}</strong></div>
           <div class="devtool-detail-text">${app.esc(

@@ -16,15 +16,51 @@ import {
   SYSTEM_ACTION_STATUS,
   isTerminalContractStatus,
 } from "../core/runtime-status.js";
-import { listStageArtifactPaths } from "../stage-results.js";
 import { materializeExecutionObservation } from "../execution-observation.js";
-import { recordHarnessRun } from "../harness/harness-run-store.js";
 import { mergeRuntimeDiagnostics } from "./agent-end-contract-refresh.js";
 import {
   maybeFinalizeLoopSession,
-  normalizePipelineStageDescriptor,
+  normalizeContractStageDescriptor,
 } from "./agent-end-stage-advance.js";
-import { isSessionHardStopped } from "../loop/loop-detection.js";
+import { buildOutputIoObservation, mergeIoObservation } from "../io-observation.js";
+import { getExecutionIncident } from "../runtime/execution-incident-store.js";
+import { resolveLoopEpochKey } from "../loop/loop-epoch-key.js";
+import { recordAgentEndHarnessRun } from "./agent-end-harness-recorder.js";
+
+export { resolveAgentEndHarnessAutomationId } from "./agent-end-harness-automation-id.js";
+
+function buildIncidentClarification(executionIncident) {
+  if (!executionIncident?.rootFault) {
+    return null;
+  }
+  const parts = [
+    executionIncident.rootFault,
+    executionIncident.firstFaultCode || null,
+  ];
+  if (Array.isArray(executionIncident.amplifiers) && executionIncident.amplifiers.length > 0) {
+    parts.push(`amplifiers=${executionIncident.amplifiers.join(",")}`);
+  }
+  return `runtime incident: ${parts.filter(Boolean).join(" / ")}`;
+}
+
+function applyExecutionIncidentToTerminalOutcome(terminalOutcome, executionIncident) {
+  if (!terminalOutcome || !executionIncident?.rootFault) {
+    return terminalOutcome;
+  }
+
+  return normalizeTerminalOutcome({
+    ...terminalOutcome,
+    reason: executionIncident.terminationReason
+      || executionIncident.firstFaultCode
+      || terminalOutcome.reason,
+    clarification: [
+      terminalOutcome.clarification,
+      buildIncidentClarification(executionIncident),
+    ].filter(Boolean).join(" | ") || null,
+  }, {
+    terminalStatus: terminalOutcome.status,
+  });
+}
 
 function buildSystemActionContractFields(systemActionResult, {
   deferredFollowUp = null,
@@ -86,7 +122,6 @@ function resolveGraphTerminalOutcome(graphRouteResult) {
 export async function handleSuccessfulTrackingCompletion(context) {
   const {
     agentId,
-    event,
     logger,
     executionObservation,
     systemActionResult,
@@ -97,13 +132,18 @@ export async function handleSuccessfulTrackingCompletion(context) {
   const duplicateTerminalContract = isTerminalContractStatus(effectiveContractData?.status);
   const runtimeDiagnostics = {};
   let effectiveContractForOutcome = effectiveContractData || trackingState?.contract || null;
-  const effectiveExecutionObservation = materializeExecutionObservation(executionObservation, {
+  let effectiveExecutionObservation = materializeExecutionObservation(executionObservation, {
     contractId: effectiveContractForOutcome?.id || trackingState?.contract?.id || null,
     fallbackPrimaryOutputPath: effectiveContractForOutcome?.output || trackingState?.contract?.output || null,
   });
   context.executionObservation = effectiveExecutionObservation;
 
   const traceVerdict = evaluateTrace(context.sessionKey);
+  const executionIncident = getExecutionIncident({
+    contractId: effectiveContractForOutcome?.id || trackingState?.contract?.id || null,
+    epochKey: resolveLoopEpochKey(trackingState) || context.sessionKey,
+    sessionKey: context.sessionKey,
+  });
   if (traceVerdict) {
     runtimeDiagnostics.executionTrace = traceVerdict;
     effectiveContractForOutcome = {
@@ -124,6 +164,9 @@ export async function handleSuccessfulTrackingCompletion(context) {
 
   if (contractReadDiagnostic) {
     runtimeDiagnostics.contractRead = contractReadDiagnostic;
+  }
+  if (executionIncident) {
+    runtimeDiagnostics.executionIncident = executionIncident;
   }
   if (context.lateCompletionLease) {
     runtimeDiagnostics.lateCompletion = {
@@ -180,16 +223,34 @@ export async function handleSuccessfulTrackingCompletion(context) {
         ? systemActionFailureOutcome
         : graphTerminalOutcome
           ? graphTerminalOutcome
-        : await resolveTerminalOutcome({
+          : await resolveTerminalOutcome({
             trackingState,
             contractData: effectiveContractForOutcome,
             executionObservation: effectiveExecutionObservation,
             logger,
           });
-    const { terminalOutcome, terminalStatus } = resolvedOutcome;
+    const terminalOutcome = applyExecutionIncidentToTerminalOutcome(
+      resolvedOutcome.terminalOutcome,
+      executionIncident,
+    );
+    const terminalStatus = terminalOutcome?.status || resolvedOutcome.terminalStatus;
+    const outputIoObservation = await buildOutputIoObservation({
+      executionObservation: effectiveExecutionObservation,
+      terminalOutcome,
+    });
+    if (outputIoObservation) {
+      trackingState.ioObservation = mergeIoObservation(
+        trackingState.ioObservation,
+        outputIoObservation,
+      );
+    }
     const terminalExtraFields = {
       ...buildSystemActionContractFields(systemActionResult, { deferredFollowUp }),
       executionObservation: effectiveExecutionObservation || null,
+      runtimeDiagnostics: mergeRuntimeDiagnostics(
+        effectiveContractForOutcome?.runtimeDiagnostics || trackingState?.contract?.runtimeDiagnostics,
+        trackingState.ioObservation ? { ioObservation: trackingState.ioObservation } : null,
+      ),
     };
 
     const commitResult = await commitSemanticTerminalState({
@@ -222,10 +283,10 @@ export async function handleSuccessfulTrackingCompletion(context) {
     });
     const reviewDeliveryResult = systemActionDeliveryResult.results.system_action_review_verdict || { handled: false };
 
-    const suppressCompletionEgress = deferredSystemAction || systemActionDeliveryResult.suppressCompletionEgress;
+    const suppressTerminalDelivery = deferredSystemAction || systemActionDeliveryResult.suppressCompletionEgress;
 
-    if (trackingState.contract && !suppressCompletionEgress) {
-      runtimeDiagnostics.completionEgress = await deliveryRunTerminalRuntime({
+    if (trackingState.contract && !suppressTerminalDelivery) {
+      runtimeDiagnostics.terminalDelivery = await deliveryRunTerminalRuntime({
         trackingState,
         contractData: effectiveContractData,
         terminalStatus,
@@ -234,11 +295,11 @@ export async function handleSuccessfulTrackingCompletion(context) {
         logger,
       });
 
-    } else if (suppressCompletionEgress) {
+    } else if (suppressTerminalDelivery) {
       const deferredBy = deferredSystemAction
         ? systemActionResult.actionType
         : systemActionDeliveryResult.suppressCompletionEgressBy || "unknown";
-      logger.info(`[watchdog] completion egress deferred for ${agentId} via ${deferredBy}`);
+      logger.info(`[watchdog] terminal delivery deferred for ${agentId} via ${deferredBy}`);
     } else if (reviewDeliveryResult.handled) {
       logger.info(`[watchdog] request_review verdict bridged for ${agentId}`);
     }
@@ -248,77 +309,18 @@ export async function handleSuccessfulTrackingCompletion(context) {
     }
   }
 
-  // Record HarnessRun for observability (non-blocking — must never break the pipeline)
-  try {
-    // H3: Path A dedup — skip if automation lifecycle already recorded a rich HarnessRun
-    const pathARunId = trackingState?.contract?.automationContext?.harnessRunId;
-    if (pathARunId) {
-      runtimeDiagnostics.harnessRunId = pathARunId;
-      logger.info(`[watchdog] harness run already recorded via Path A: ${pathARunId}, skipping Path C`);
-    } else {
-      const pipelineStage = normalizePipelineStageDescriptor(
-        effectiveContractData?.pipelineStage || trackingState?.contract?.pipelineStage,
-      );
-      const contractId = trackingState?.contract?.id || effectiveContractData?.id || null;
-      const toolCallCount = effectiveContractData?.toolCallCount
-        || trackingState?.contract?.toolCallCount
-        || 0;
-      const stageRunResult = effectiveExecutionObservation?.stageRunResult || null;
-      const artifactPaths = listStageArtifactPaths(stageRunResult);
-      const terminalStatus = trackingState?.contract?.status || null;
-      const harnessScopeId = pipelineStage?.loopSessionId
-        ? `loop_session:${pipelineStage.loopSessionId}`
-        : pipelineStage?.pipelineId
-          ? `pipeline:${pipelineStage.pipelineId}`
-          : undefined;
-
-      // H1: loop detection diagnostics
-      const loopDetected = isSessionHardStopped(context.sessionKey);
-      const warnings = runtimeDiagnostics.executionTrace?.offTrack ? ["execution_trace_off_track"] : [];
-      if (loopDetected) warnings.push("loop_detected");
-
-      const automationId = harnessScopeId || `agent_end:${agentId}`;
-
-      const harnessRun = await recordHarnessRun({
-        automationId,
-        round: pipelineStage?.round || 1,
-        trigger: "agent_end_terminal",
-        enabled: true,
-        executionMode: "freeform",
-        assuranceLevel: "low_assurance",
-        agentId,
-        contractId,
-        pipelineId: pipelineStage?.pipelineId || null,
-        loopId: pipelineStage?.loopId || null,
-        sessionKey: context.sessionKey,
-        status: terminalStatus === CONTRACT_STATUS.COMPLETED ? "completed" : "failed",
-        terminalStatus,
-        completionReason: loopDetected ? "loop_detected" : undefined,
-        summary: loopDetected ? "session terminated due to repeated tool calls" : (stageRunResult?.summary || ""),
-        executor: {
-          kind: "agent",
-          agentId,
-        },
-        toolUsage: { totalCalls: toolCallCount },
-        artifacts: artifactPaths.map((p) => ({ kind: "stage_artifact", path: p })),
-        diagnostics: {
-          traceId: context.sessionKey,
-          warnings,
-          error: runtimeDiagnostics.contractRead?.error || null,
-        },
-        outcome: {
-          result: terminalStatus,
-          retryable: false,
-          summary: stageRunResult?.summary || "",
-        },
-      });
-      runtimeDiagnostics.harnessRunId = harnessRun.id;
-      logger.info(`[watchdog] harness run recorded: ${harnessRun.id} for ${agentId} (contract: ${contractId})`);
-    }
-  } catch (harnessError) {
-    const harnessMsg = harnessError instanceof Error ? harnessError.message : String(harnessError || "unknown");
-    logger.warn(`[watchdog] harness run recording failed for ${agentId}: ${harnessMsg}`);
-  }
+  // Record HarnessRun for observability (Path C). Never breaks lifecycle commit.
+  const contractStage = normalizeContractStageDescriptor(
+    effectiveContractData?.pipelineStage || trackingState?.contract?.pipelineStage,
+  );
+  // Pass contractStage via context so harness recorder can read it
+  context._contractStageForHarness = contractStage;
+  const harnessFragment = await recordAgentEndHarnessRun(context, {
+    runtimeDiagnostics,
+    effectiveContractData,
+    effectiveExecutionObservation,
+  });
+  Object.assign(runtimeDiagnostics, harnessFragment);
 
   if (Object.keys(runtimeDiagnostics).length > 0) {
     await mergeTrackingContractFields({

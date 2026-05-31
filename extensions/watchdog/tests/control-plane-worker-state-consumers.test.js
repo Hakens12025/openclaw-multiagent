@@ -28,20 +28,27 @@ test("control-plane consumers use dispatch-runtime-state instead of raw legacy s
       required: [/from "\.\.\/routing\/dispatch-runtime-state\.js"/],
     },
     {
-      filePath: fileUrl("../lib/operator/operator-snapshot-runtime.js"),
-      forbidden: [
-        /import\s*\{[\s\S]*\btaskQueue\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
-        /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
-      ],
-      required: [/from "\.\.\/routing\/dispatch-runtime-state\.js"/],
-    },
-    {
+      // P-D.2 收口：api.js 不再直接 import dispatch-runtime-state，
+      // 改为经 CLI-system inspect.runtime_state surface 读取 dispatch runtime
+      // （cli-runtime-inspector 内部仍走 dispatch-runtime-state，真值边界唯一）。
+      // forbidden 规则（不读 raw legacy state globals）仍然成立。
       filePath: fileUrl("../routes/api.js"),
       forbidden: [
         /import\s*\{[\s\S]*\btaskQueue\b[\s\S]*\}\s*from "\.\.\/lib\/state\.js"/,
         /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/lib\/state\.js"/,
       ],
-      required: [/from "\.\.\/lib\/routing\/dispatch-runtime-state\.js"/],
+      required: [/from "\.\.\/lib\/cli-system\/cli-surface-registry\.js"/, /inspect\.runtime_state/],
+    },
+    {
+      // P-D.2 收口：边界上移后，cli-runtime-inspector 成为 dispatch runtime 真值读取的
+      // 唯一新边界（inspect.runtime_state 的 source）。它必须经 dispatch-runtime-state 正源，
+      // 同样禁止读 raw legacy state globals —— 把守随边界一起上移，保护不留缺口。
+      filePath: fileUrl("../lib/cli-system/cli-runtime-inspector.js"),
+      forbidden: [
+        /import\s*\{[\s\S]*\btaskQueue\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
+        /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
+      ],
+      required: [/from "\.\.\/routing\/dispatch-runtime-state\.js"/],
     },
   ];
 
@@ -54,6 +61,39 @@ test("control-plane consumers use dispatch-runtime-state instead of raw legacy s
       assert.match(content, pattern, `${expectation.filePath} should use dispatch-runtime-state api`);
     }
   }
+});
+
+test("operator runtime snapshot consumes canonical CLI runtime dispatch snapshot instead of raw legacy state globals", async () => {
+  const source = await readFile(
+    fileUrl("../lib/operator/operator-snapshot-runtime.js"),
+    "utf8",
+  );
+
+  assert.doesNotMatch(
+    source,
+    /import\s*\{[\s\S]*\btaskQueue\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
+    "operator runtime snapshot should not import raw taskQueue",
+  );
+  assert.doesNotMatch(
+    source,
+    /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
+    "operator runtime snapshot should not import raw workerPool",
+  );
+  assert.match(
+    source,
+    /from "\.\.\/cli-system\/cli-runtime-inspector\.js"/,
+    "operator runtime snapshot should consume the CLI runtime inspector boundary",
+  );
+  assert.match(
+    source,
+    /inspectCliRuntimeState\(\)/,
+    "operator runtime snapshot should derive runtime state through the inspector",
+  );
+  assert.match(
+    source,
+    /runtimeState\.dispatchRuntime/,
+    "operator runtime snapshot should read canonical dispatch runtime payload from the inspector",
+  );
 });
 
 test("dispatch-runtime-state stays side-effect light while session edges own QQ notifications", async () => {
@@ -82,13 +122,13 @@ test("dispatch-runtime-state stays side-effect light while session edges own QQ 
   );
   assert.match(
     sessionBootstrapSource,
-    /from "\.\/qq\.js"/,
-    "session-bootstrap should own dispatch-start QQ side effects",
+    /from "\.\/channel-notify\.js"/,
+    "session-bootstrap should send dispatch-start QQ notifications through channel-notify",
   );
   assert.match(
     runtimeLifecycleSource,
-    /from "\.\.\/qq\.js"/,
-    "runtime-lifecycle should own release-time QQ side effects",
+    /from "\.\.\/channel-notify\.js"/,
+    "runtime-lifecycle should send release-time QQ notifications through channel-notify",
   );
 });
 
@@ -133,8 +173,8 @@ test("dispatch runtime snapshot consumers read canonical targets shape instead o
   );
   assert.match(
     ingressEntrySource,
-    /runtimeSnapshot\.targets/,
-    "ingress receipt should read canonical targets payload",
+    /listDispatchTargetIds/,
+    "ingress receipt should use canonical dispatch target id API",
   );
 });
 
@@ -214,7 +254,7 @@ test("SSE routes use transport/sse helpers instead of the raw sseClients set", a
   );
 });
 
-test("QQ typing interval consumers use qq.js helpers instead of the raw qqTypingIntervals map", async () => {
+test("QQ typing interval consumers use channel-notify helpers instead of raw typing maps", async () => {
   const indexSource = await readFile(
     fileUrl("../index.js"),
     "utf8",
@@ -223,8 +263,8 @@ test("QQ typing interval consumers use qq.js helpers instead of the raw qqTyping
     fileUrl("../lib/admin/runtime-admin.js"),
     "utf8",
   );
-  const qqSource = await readFile(
-    fileUrl("../lib/qq.js"),
+  const channelNotifySource = await readFile(
+    fileUrl("../lib/channel-notify.js"),
     "utf8",
   );
 
@@ -234,20 +274,20 @@ test("QQ typing interval consumers use qq.js helpers instead of the raw qqTyping
   ]) {
     assert.doesNotMatch(
       source,
-      /import\s*\{[\s\S]*\bqqTypingIntervals\b[\s\S]*\}\s*from "\.\.?(?:\/lib)?\/state\.js"/,
-      `${label} should not import raw qqTypingIntervals from state.js`,
+      /\bqqTypingIntervals\b/,
+      `${label} should not use raw QQ typing maps`,
     );
     assert.match(
       source,
-      /from "\.\/lib\/qq\.js"|from "\.\.\/qq\.js"/,
-      `${label} should use qq.js typing helpers`,
+      /from "\.\/lib\/channel-notify\.js"|from "\.\.\/channel-notify\.js"/,
+      `${label} should use channel-notify typing helpers`,
     );
   }
 
   assert.match(
-    qqSource,
+    channelNotifySource,
     /export function listQQTypingContracts|export function qqTypingStopAll/,
-    "qq.js should own helper APIs for typing interval inspection and reset",
+    "channel-notify should own helper APIs for typing interval inspection and reset",
   );
 });
 

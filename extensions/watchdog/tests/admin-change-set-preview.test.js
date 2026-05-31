@@ -1,7 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { normalizeVerificationStatus } from "../lib/admin/admin-change-set-history.js";
 import { buildAdminChangeSetPreview } from "../lib/admin/admin-change-set-preview.js";
+
+test("normalizeVerificationStatus treats finalizing test runs as running", () => {
+  assert.equal(
+    normalizeVerificationStatus({
+      status: "finalizing",
+      totalCases: 3,
+      completedCases: 3,
+    }),
+    "running",
+  );
+});
 
 test("buildAdminChangeSetPreview does not fall back to stale draft surface metadata", () => {
   const preview = buildAdminChangeSetPreview({

@@ -3,11 +3,18 @@ import assert from "node:assert/strict";
 
 const qqTypingStopCalls = [];
 const wakeCalls = [];
+const writtenFiles = [];
 
 mock.module("../lib/state.js", {
   namedExports: {
+    cfg: {
+      qqAppId: "",
+      qqClientSecret: "",
+    },
     agentWorkspace: (agentId) => `/tmp/${agentId}`,
-    atomicWriteFile: async () => {},
+    atomicWriteFile: async (path, content) => {
+      writtenFiles.push({ path, content });
+    },
     CONTRACTS_DIR: "/tmp/contracts",
     isWorker: () => true,
   },
@@ -44,7 +51,7 @@ mock.module("../lib/contracts.js", {
   },
 });
 
-mock.module("../lib/qq.js", {
+mock.module("../lib/channel-notify.js", {
   namedExports: {
     qqNotify: () => {},
     qqTypingStop: (contractId) => {
@@ -76,10 +83,12 @@ const logger = { info() {}, warn() {}, error() {} };
 test("retry-scheduled worker crash keeps reservation and only stops typing", async () => {
   qqTypingStopCalls.length = 0;
   wakeCalls.length = 0;
+  writtenFiles.length = 0;
 
   const originalSetTimeout = globalThis.setTimeout;
+  const timerPromises = [];
   globalThis.setTimeout = ((callback, _delay, ...args) => {
-    callback(...args);
+    timerPromises.push(Promise.resolve(callback(...args)));
     return 0;
   });
 
@@ -107,10 +116,19 @@ test("retry-scheduled worker crash keeps reservation and only stops typing", asy
       maxRetryCount: 3,
       retryDelays: [1],
     });
+    await Promise.all(timerPromises);
 
     assert.equal(result.status, "retry_scheduled");
     assert.equal(trackingState.status, TRACKING_STATUS.WAITING_RETRY);
     assert.deepEqual(qqTypingStopCalls, ["TC-RETRY"]);
+    assert.equal(wakeCalls.length, 1);
+    assert.match(wakeCalls[0][1], /Retry scheduled/i);
+    assert.match(wakeCalls[0][1], /inbox\/retry-hint\.md/);
+    assert.doesNotMatch(wakeCalls[0][1], /simulated crash/);
+    assert.equal(writtenFiles.length, 1);
+    assert.match(writtenFiles[0].path, /retry-hint\.md$/);
+    assert.match(writtenFiles[0].content, /Next retry/);
+    assert.doesNotMatch(writtenFiles[0].content, /避免|请/u);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }

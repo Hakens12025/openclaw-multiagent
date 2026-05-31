@@ -2,6 +2,10 @@ import {
   getAdminChangeSetDetails,
   recordAdminChangeSetExecution,
 } from "./admin-change-sets.js";
+import {
+  CommitVerificationBlockedError,
+  evaluateCommitVerificationGate,
+} from "./admin-change-set-commit-gate.js";
 import { makeExecutionId } from "./admin-change-set-history.js";
 import {
   buildAdminChangeSetPreview,
@@ -9,7 +13,6 @@ import {
 } from "./admin-change-set-preview.js";
 import { executeAdminSurfaceOperation } from "./admin-surface-operations.js";
 import { normalizeRecord } from "../core/normalize.js";
-import { startTestRun } from "../test-runs.js";
 
 export async function previewAdminChangeSetExecution({ id }) {
   const draft = await getAdminChangeSetDetails(id);
@@ -29,6 +32,7 @@ export async function executeAdminChangeSet({
   dryRun = false,
   startVerification = false,
   explicitConfirm = false,
+  requireVerification = true,
   logger = null,
   onAlert = null,
   runtimeContext = null,
@@ -55,6 +59,7 @@ export async function executeAdminChangeSet({
 
   const startedAt = Date.now();
   if (dryRun) {
+    const finishedAt = Date.now();
     const recorded = await recordAdminChangeSetExecution({
       id: draft.id,
       executionId,
@@ -63,8 +68,8 @@ export async function executeAdminChangeSet({
       status: "completed",
       executionStatus: "previewed",
       startedAt,
-      finishedAt: Date.now(),
-      durationMs: Date.now() - startedAt,
+      finishedAt,
+      durationMs: finishedAt - startedAt,
       payload: preview.payload,
       managementContext: preview.managementContext,
       result: {
@@ -89,24 +94,51 @@ export async function executeAdminChangeSet({
       runtimeContext: effectiveRuntimeContext,
     });
     const normalizedResult = normalizeRecord(result);
+
+    // 强制 verify 门（代码硬路径）：apply 已发生，但 commit-to-applied 前必须
+    // 已有一条 passed 的 verification 记录（复用既有 verificationHistory 字段链）。
+    // 不过门 -> 不记 applied，改记 verification_blocked 并抛错，commit 被硬拦。
+    const commitGate = evaluateCommitVerificationGate({ draft, preview, requireVerification });
+    if (commitGate.required && !commitGate.passed) {
+      const blockedAt = Date.now();
+      await recordAdminChangeSetExecution({
+        id: draft.id,
+        executionId,
+        surfaceId: preview.surfaceId,
+        dryRun: false,
+        status: "failed",
+        executionStatus: "verification_blocked",
+        startedAt,
+        finishedAt: blockedAt,
+        durationMs: blockedAt - startedAt,
+        payload: preview.payload,
+        managementContext: preview.managementContext,
+        result: { ...normalizedResult, commitGate },
+        error: commitGate.reason,
+      });
+      throw new CommitVerificationBlockedError(preview.surfaceId, commitGate);
+    }
+
     let verification = null;
     let verificationWarning = null;
     if (verificationRequest) {
       try {
-        const run = startTestRun({
-          presetId: verificationRequest.presetId,
-          cleanMode: verificationRequest.cleanMode,
-          originDraftId: draft.id,
-          originExecutionId: executionId,
-          originSurfaceId: preview.surfaceId,
+        const verificationResult = await executeAdminSurfaceOperation({
+          surfaceId: "test_runs.start",
+          payload: {
+            presetId: verificationRequest.presetId,
+            cleanMode: verificationRequest.cleanMode,
+          },
+          logger,
+          onAlert,
           runtimeContext: effectiveRuntimeContext,
-        }, logger);
+        });
         verification = {
           kind: verificationRequest.kind,
           status: "started",
           presetId: verificationRequest.presetId,
           cleanMode: verificationRequest.cleanMode,
-          run,
+          run: verificationResult.run,
         };
       } catch (error) {
         verification = {
@@ -146,6 +178,10 @@ export async function executeAdminChangeSet({
       verificationWarning,
     };
   } catch (error) {
+    // 门拦截已自记 verification_blocked，直接上抛，避免重复记录。
+    if (error instanceof CommitVerificationBlockedError) {
+      throw error;
+    }
     const finishedAt = Date.now();
     await recordAdminChangeSetExecution({
       id: draft.id,

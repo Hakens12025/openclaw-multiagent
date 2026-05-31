@@ -1,16 +1,14 @@
 import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { normalizeBoolean, normalizeFiniteNumber, normalizePositiveInteger, normalizeRecord, normalizeString } from "../core/normalize.js";
 import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
 import { normalizeHarnessSelection } from "../harness/harness-registry.js";
-import {
-  AUTOMATION_STORE,
-  CONTROL_PLANE_DIR,
-  atomicWriteFile,
-  withLock,
-} from "../state.js";
+import { atomicWriteFile, withLock } from "../state.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 
+export const AUTOMATION_STORE = CONTROL_PLANE_PATHS.automationRegistryFile;
 const AUTOMATION_STORE_LOCK = "store:automation-specs";
 
 const DEFAULT_WAKE_COOLDOWN_SECONDS = 300;
@@ -47,9 +45,9 @@ function normalizeAutomationObjective(value) {
 
 function normalizeAutomationEntry(value, objective) {
   const source = normalizeRecord(value, {});
-  const targetAgent = normalizeString(source.targetAgent || source.agentId) || "controller";
+  const targetAgent = normalizeString(source.targetAgent || source.agentId);
   const message = normalizeString(source.message || source.instruction || objective?.instruction);
-  if (!message) return null;
+  if (!message || !targetAgent) return null;
 
   return {
     type: normalizeString(source.type)?.toLowerCase() || "workflow",
@@ -179,14 +177,14 @@ function sortAutomations(automations) {
     .sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
 }
 
-async function writeAutomationStore(automations) {
+export async function writeAutomationStore(automations) {
   const normalized = sortAutomations(
     (Array.isArray(automations) ? automations : [])
       .map((entry) => normalizeAutomationSpec(entry))
       .filter(Boolean),
   );
   const now = Date.now();
-  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
+  await mkdir(dirname(AUTOMATION_STORE), { recursive: true });
   await atomicWriteFile(AUTOMATION_STORE, JSON.stringify({
     updatedAt: now,
     automations: normalized,

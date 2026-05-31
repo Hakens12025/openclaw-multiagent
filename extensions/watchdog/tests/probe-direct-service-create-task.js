@@ -3,11 +3,11 @@
 import {
   loadConfig,
   SSEClient,
-} from "./infra.js";
+} from "../lib/formal-runtime/infra.js";
 import {
   DIRECT_SERVICE_CASES,
   runDirectServiceCreateTaskProbe,
-} from "./suite-direct-service.js";
+} from "../lib/formal-runtime/suite-direct-service.js";
 
 await loadConfig();
 const sse = new SSEClient();

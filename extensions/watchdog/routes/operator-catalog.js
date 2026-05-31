@@ -1,23 +1,28 @@
-import { listLifecycleWorkItems } from "../lib/contracts.js";
 import { summarizeLocalAgentDiscovery } from "../lib/agent/agent-enrollment-discovery.js";
 import {
   readLocalAgentGuidancePreview,
 } from "../lib/agent/agent-enrollment-guidance.js";
 import { buildOperatorSnapshot } from "../lib/operator/operator-snapshot.js";
-import { summarizeCliSystemSurfaces } from "../lib/cli-system/cli-surface-registry.js";
-import { summarizeAgentJoinRegistry } from "../lib/agent/agent-join-registry.js";
-import { summarizeScheduleRegistry } from "../lib/schedule/schedule-registry.js";
-import { summarizeAutomationRuntimeRegistry } from "../lib/automation/automation-runtime.js";
+import { inspectCliSystemSurface, summarizeCliSystemSurfaces } from "../lib/cli-system/cli-surface-registry.js";
 import { summarizeHarnessDashboard } from "../lib/harness/harness-dashboard.js";
 import {
   listAgentRegistry,
   listModelRegistry,
   listSkillRegistry,
-  loadCapabilityRegistry,
   readAgentDefaultsRegistry,
 } from "../lib/capability/capability-registry.js";
 import { summarizeAdminSurfaces } from "../lib/admin/admin-surface-registry.js";
-import { summarizeSystemActionDeliveryTickets } from "../lib/routing/delivery-system-action-ticket.js";
+import { getAgentIdentitySnapshot } from "../lib/agent/agent-identity.js";
+
+function isMainViewWorkItem(workItem) {
+  if (!workItem || typeof workItem !== "object") return false;
+  if (workItem.mainViewVisible === false) return false;
+  const assignee = typeof workItem.assignee === "string" ? workItem.assignee.trim() : "";
+  if (assignee && getAgentIdentitySnapshot(assignee).mainViewVisible === false) {
+    return false;
+  }
+  return true;
+}
 
 export function register(api, {
   checkAuth,
@@ -84,8 +89,8 @@ export function register(api, {
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
       try {
-        const workItems = await listLifecycleWorkItems();
-        sendJson(res, 200, workItems);
+        const workItems = await inspectCliSystemSurface({ surfaceId: "inspect.work_items" });
+        sendJson(res, 200, workItems.filter((item) => isMainViewWorkItem(item)));
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
@@ -151,10 +156,13 @@ export function register(api, {
         const enabled = url.searchParams.has("enabled")
           ? url.searchParams.get("enabled") === "true"
           : null;
-        const payload = await summarizeAgentJoinRegistry({
-          enabled,
-          status: url.searchParams.get("status"),
-          protocolType: url.searchParams.get("protocolType"),
+        const payload = await inspectCliSystemSurface({
+          surfaceId: "inspect.agent_joins",
+          params: {
+            enabled,
+            status: url.searchParams.get("status"),
+            protocolType: url.searchParams.get("protocolType"),
+          },
         });
         sendJson(res, 200, {
           generatedAt: Date.now(),
@@ -175,8 +183,11 @@ export function register(api, {
       if (!checkAuth(req, res)) return true;
       try {
         const url = new URL(req.url, "http://localhost");
-        const payload = await summarizeSystemActionDeliveryTickets({
-          status: url.searchParams.get("status"),
+        const payload = await inspectCliSystemSurface({
+          surfaceId: "inspect.delivery_tickets",
+          params: {
+            status: url.searchParams.get("status"),
+          },
         });
         sendJson(res, 200, {
           generatedAt: Date.now(),
@@ -200,7 +211,10 @@ export function register(api, {
         const enabled = url.searchParams.has("enabled")
           ? url.searchParams.get("enabled") === "true"
           : null;
-        const payload = await summarizeScheduleRegistry({ enabled });
+        const payload = await inspectCliSystemSurface({
+          surfaceId: "inspect.schedules",
+          params: { enabled },
+        });
         sendJson(res, 200, {
           generatedAt: Date.now(),
           ...payload,
@@ -224,7 +238,10 @@ export function register(api, {
           ? url.searchParams.get("enabled") === "true"
           : null;
         const status = normalizeAutomationStatusQuery(url.searchParams.get("status"));
-        const payload = await summarizeAutomationRuntimeRegistry({ enabled, status });
+        const payload = await inspectCliSystemSurface({
+          surfaceId: "inspect.automation_runtime_summary",
+          params: { enabled, status },
+        });
         sendJson(res, 200, {
           generatedAt: Date.now(),
           ...payload,
@@ -306,7 +323,8 @@ export function register(api, {
         return true;
       }
       try {
-        const registry = await loadCapabilityRegistry();
+        // capability registry 观测读经 CLI-system inspect surface（收口 route 直读旁路）。
+        const registry = await inspectCliSystemSurface({ surfaceId: "inspect.capability_registry" });
         sendJson(res, 200, {
           generatedAt: Date.now(),
           ...registry,

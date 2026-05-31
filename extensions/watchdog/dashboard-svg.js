@@ -1,7 +1,8 @@
 // dashboard-svg.js — Layout constants, SVG generation, node drawing, flow lines
 import { shortModel } from './dashboard-common.js';
 import { emit } from './dashboard-bus.js';
-import { activeFlows, shouldDisplayDashboardAgentRecord } from './dashboard.js';
+import { activeFlows } from './dashboard.js';
+import { shouldDisplayDashboardAgentRecord } from './dashboard-agent-visibility.js';
 import { baseViewBox, viewBox, zoomLevel, clampViewBox, applyViewBox, initDrag } from './dashboard-drag.js';
 import { resolveFlowVisualClasses } from './dashboard-flow-visuals.js';
 
@@ -14,7 +15,7 @@ export const SVG_W = 680;
 export const NODE_W = 160, NODE_H = 78;
 export const SLOT_GAP = 28, SLOT_H = NODE_H + SLOT_GAP;
 export const COL_LEFT = 20, COL_CENTER = 270;
-export const TOP_Y = 10;
+export const TOP_Y = 28;
 export const GRID_SNAP = 10;
 
 // ── SVG element state ──
@@ -43,7 +44,15 @@ export function svgEl(tag, attrs, parent) {
 // ── Element ID mapping — generic, no hardcoded aliases ──
 export function eid(agentId) {
   const safe = agentId.replace(/[^a-zA-Z0-9-]/g, '_');
-  return { nb:`nb-${safe}`, sd:`sd-${safe}`, nm:`nm-${safe}`, model:`model-${safe}`, st:`st-${safe}`, qg:`qg-${safe}` };
+  return {
+    nb:`nb-${safe}`,
+    sd:`sd-${safe}`,
+    nm:`nm-${safe}`,
+    model:`model-${safe}`,
+    st:`st-${safe}`,
+    qg:`qg-${safe}`,
+    lqg:`lqg-${safe}`,
+  };
 }
 
 export function snap(v) { return Math.round(v / GRID_SNAP) * GRID_SNAP; }
@@ -53,20 +62,21 @@ function placeNode(id, x, y, w = NODE_W, h = NODE_H) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// BUILD PIPELINE SVG
+// BUILD RUNTIME GRAPH SVG
 // ══════════════════════════════════════════════════════════════════════════════
 
-export function buildPipelineSVG(agents) {
-  const svg = document.getElementById('pipelineSvg');
+export function buildRuntimeGraphSVG(agents) {
+  const svg = document.getElementById('runtimeGraphSvg');
+  if (!svg) return false;
   while (svg.firstChild) svg.removeChild(svg.firstChild);
   nodePositions = {};
-  window._visiblePipelineAgentIds = [];
+  window._visibleRuntimeGraphAgentIds = [];
   const visibleAgents = (Array.isArray(agents) ? agents : []).filter((agent) => shouldDisplayDashboardAgentRecord(agent));
 
   // Role-based classification
   const bridgeNodes = [];
   const plannerNodes = [];
-  const pipelineNodes = [];
+  const runtimeGraphNodes = [];
   for (const a of visibleAgents) {
     const role = a.role || 'agent';
     if (role === 'bridge') {
@@ -77,11 +87,11 @@ export function buildPipelineSVG(agents) {
       plannerNodes.push(a);
       continue;
     }
-    pipelineNodes.push(a);
+    runtimeGraphNodes.push(a);
   }
   bridgeNodes.sort((left, right) => left.id.localeCompare(right.id));
   plannerNodes.sort((left, right) => left.id.localeCompare(right.id));
-  pipelineNodes.sort((left, right) => {
+  runtimeGraphNodes.sort((left, right) => {
     const order = (agent) => {
       if (agent.role === 'researcher') return 10;
       if (agent.role === 'executor' && agent.specialized) return 20;
@@ -94,9 +104,9 @@ export function buildPipelineSVG(agents) {
     if (leftOrder !== rightOrder) return leftOrder - rightOrder;
     return left.id.localeCompare(right.id);
   });
-  dynamicWorkers = pipelineNodes.filter((agent) => agent.role === 'executor' && !agent.specialized).map((agent) => agent.id);
-  for (let i = 0; i < pipelineNodes.length; i += 1) {
-    placeNode(pipelineNodes[i].id, COL_CENTER, TOP_Y + i * SLOT_H);
+  dynamicWorkers = runtimeGraphNodes.filter((agent) => agent.role === 'executor' && !agent.specialized).map((agent) => agent.id);
+  for (let i = 0; i < runtimeGraphNodes.length; i += 1) {
+    placeNode(runtimeGraphNodes[i].id, COL_CENTER, TOP_Y + i * SLOT_H);
   }
   let leftColumnY = TOP_Y;
   for (const agent of bridgeNodes) {
@@ -119,7 +129,7 @@ export function buildPipelineSVG(agents) {
   const laidOutNodeIds = [
     ...bridgeNodes.map((agent) => agent.id),
     ...plannerNodes.map((agent) => agent.id),
-    ...pipelineNodes.map((agent) => agent.id),
+    ...runtimeGraphNodes.map((agent) => agent.id),
   ];
   const bottomY = laidOutNodeIds.length > 0
     ? Math.max(
@@ -133,28 +143,30 @@ export function buildPipelineSVG(agents) {
   applyViewBox(svg);
 
   // Flow lines are now data-driven (dynamic), no static drawFlowLines() call
+  const contractLaneOverlay = svgEl('g', { id:'contractLaneOverlay', className:'contract-lane-overlay' }, svg);
 
   const laidOutAgents = [];
   for (const a of visibleAgents) {
     if (!nodePositions[a.id]) continue;
     laidOutAgents.push(a);
-    drawNode(svg, a, nodePositions[a.id]);
+    drawNode(svg, a, nodePositions[a.id], contractLaneOverlay);
   }
-  window._visiblePipelineAgentIds = laidOutAgents.map((agent) => agent.id);
+  window._visibleRuntimeGraphAgentIds = laidOutAgents.map((agent) => agent.id);
 
-  const wrap = document.querySelector('.pipeline-wrap');
+  const wrap = document.querySelector('.runtime-graph-wrap');
   if (wrap) wrap.style.minHeight = `${viewH+20}px`;
   initDrag(svg);
 
-  emit('pipeline:rebuilt');
+  emit('runtime-graph:rebuilt');
   rebuildActiveFlowElements();
+  return true;
 }
 
 // ── Draw node with hover/context listeners ──
-function drawNode(svg, agent, pos) {
+function drawNode(svg, agent, pos, contractLaneOverlay) {
   const ids = eid(agent.id);
   const isSpecialist = agent.role === 'researcher' || agent.role === 'reviewer';
-  const g = svgEl('g', { 'data-agent':agent.id, className:'pipeline-node' }, svg);
+  const g = svgEl('g', { 'data-agent':agent.id, className:'runtime-graph-node' }, svg);
 
   svgEl('rect', { x:pos.x, y:pos.y, width:pos.w, height:pos.h,
     className:'svg-node-box' + (isSpecialist ? ' node-specialist' : ''), id:ids.nb }, g);
@@ -167,7 +179,7 @@ function drawNode(svg, agent, pos) {
     textContent:shortModel(agent.model)||'-', className:'svg-node-model', id:ids.model }, g);
 
   svgEl('text', { x:pos.x+pos.w/2, y:pos.y+65, textContent:'IDLE', className:'svg-node-status', id:ids.st }, g);
-  svgEl('g', { id: ids.qg, className: 'svg-queue-badges' }, g);
+  svgEl('g', { id: ids.qg, className:'contract-lane-anchor' }, contractLaneOverlay);
 
   let hlTimer = null;
   g.addEventListener('mouseenter', () => { hlTimer = setTimeout(() => highlightConnections(agent.id, true), 400); });
@@ -271,7 +283,7 @@ export function calcEdgePath(pFrom, pTo) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 export function createFlowLine(from, to, label, type) {
-  const svg = document.getElementById('pipelineSvg');
+  const svg = document.getElementById('runtimeGraphSvg');
   if (!svg) return null;
   const pFrom = nodePositions[from], pTo = nodePositions[to];
   if (!pFrom || !pTo) return null;
@@ -309,16 +321,16 @@ export function rebuildActiveFlowElements() {
     if (el) {
       flow.element = el;
     } else {
-      activeFlows.delete(key);
+      flow.element = null;
     }
   }
 }
 
 // ── Hover highlight connections ──
 export function highlightConnections(agentId, on) {
-  const svg = document.getElementById('pipelineSvg');
+  const svg = document.getElementById('runtimeGraphSvg');
   if (!svg) return;
-  svg.querySelectorAll('.pipeline-node').forEach(g => {
+  svg.querySelectorAll('.runtime-graph-node').forEach(g => {
     const id = g.getAttribute('data-agent');
     if (id !== agentId) g.classList.toggle('dimmed', on);
   });

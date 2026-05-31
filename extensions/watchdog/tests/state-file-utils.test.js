@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import {
   atomicWriteFile,
@@ -220,6 +221,29 @@ test("withLock: serializes same-key critical sections across child processes", a
   } finally {
     await rm(controlDir, { recursive: true, force: true });
   }
+});
+
+test("withLock: releases same-process queue when cross-process acquisition times out", async () => {
+  const lockKey = `cross-process-timeout-${Date.now()}`;
+  const lockPath = join(
+    tmpdir(),
+    "openclaw-state-locks",
+    createHash("sha256").update(lockKey).digest("hex"),
+  );
+
+  try {
+    await mkdir(lockPath, { recursive: true });
+    await assert.rejects(
+      () => withLock(lockKey, () => "blocked", { timeoutMs: 30 }),
+      /timed out/u,
+    );
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
+
+  assert.equal(operationLocks.has(lockKey), false);
+  const result = await withLock(lockKey, () => "after-timeout", { timeoutMs: 500 });
+  assert.equal(result, "after-timeout");
 });
 
 // ── rememberRecentOperation ─────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import {
   bindPendingWorkerContract,
   bindInboxContractEnvelope,
   bindInboxArtifactContext,
+  refreshTrackingInputIoObservation,
 } from "../lib/session-bootstrap.js";
 import { runWorkerHardPathAutoExec } from "../lib/hard-path-autoexec.js";
 import {
@@ -33,6 +34,21 @@ import { resumeRuntimeFollowUpLease } from "../lib/runtime-follow-up-lease.js";
 import { initTrace } from "../lib/store/execution-trace-store.js";
 import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
 import { parseAgentContractSessionKey } from "../lib/session-keys.js";
+import { composeEffectiveProfile } from "../lib/effective-profile-composer.js";
+import { loadConfig } from "../lib/agent/agent-admin-store.js";
+
+async function resolveExecutionPolicySnapshot(agentId, logger) {
+  try {
+    const cfg = await loadConfig();
+    const agentConfig = cfg?.agents?.list?.find((entry) => entry?.id === agentId) || null;
+    if (!agentConfig) return null;
+    const profile = composeEffectiveProfile({ config: cfg, agentConfig });
+    return profile?.policies?.effectiveExecutionPolicy || null;
+  } catch (err) {
+    logger?.warn?.(`[watchdog] executionPolicy snapshot failed for ${agentId}: ${err?.message || err}`);
+    return null;
+  }
+}
 
 function ignorePassiveHeartbeatSession({
   agentId,
@@ -165,6 +181,7 @@ export function register(api, logger, { enqueue, wakePlanner }) {
       }
 
       await syncTrackingRuntimeStageProgress(existing);
+      refreshTrackingInputIoObservation(existing, agentId);
       await refreshTrackingProjection(existing);
       broadcast("track_start", buildProgressPayload(existing));
       return;
@@ -178,8 +195,8 @@ export function register(api, logger, { enqueue, wakePlanner }) {
       }
     }
 
-    // Create new tracker
-    const trackingState = createTrackingState({ sessionKey, agentId, parentSession });
+    const executionPolicy = await resolveExecutionPolicySnapshot(agentId, logger);
+    const trackingState = createTrackingState({ sessionKey, agentId, parentSession, executionPolicy });
     unignoreHeartbeatSession(sessionKey);
 
     // Bind any pending executor contract before the session starts running
@@ -223,6 +240,7 @@ export function register(api, logger, { enqueue, wakePlanner }) {
 
     rememberTrackingState(sessionKey, trackingState);
     initTrace(sessionKey, trackingState.contract);
+    refreshTrackingInputIoObservation(trackingState, agentId);
 
     await runWorkerHardPathAutoExec({ agentId, trackingState, logger });
 

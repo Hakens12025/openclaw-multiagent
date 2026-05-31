@@ -25,7 +25,8 @@ import {
   loadAgentCardProjection,
 } from "../effective-profile-composer.js";
 import { normalizeBoolean, normalizeString, uniqueStrings } from "../core/normalize.js";
-import { OC } from "../state-paths.js";
+import { defaultAgentWorkspace } from "../state-agent-helpers.js";
+import { assertRuntimeAgentIdIsNotReserved } from "./agent-plane-policy.js";
 
 import {
   compactHomePath,
@@ -58,7 +59,7 @@ async function ensureConfiguredAgentEnrollment({
   }
   const workspaceConfigured = compactHomePath(
     expandHomePath(payload.workspacePath || storedBinding.workspace?.configured || agent?.workspace)
-    || join(OC, "workspaces", agentId),
+    || defaultAgentWorkspace(agentId),
   );
   const modelRef = normalizeStoredAgentModelRef(storedBinding.model?.ref || agent?.model)
     || resolveDefaultModel(config);
@@ -116,6 +117,7 @@ async function registerWorkspaceOnlyAgent({
   if (!agentId) {
     throw new Error("unable to resolve local agent id");
   }
+  assertRuntimeAgentIdIsNotReserved(agentId);
   if (config.agents.list.some((entry) => entry?.id === agentId)) {
     throw new Error(`agent already exists: ${agentId}`);
   }
@@ -159,6 +161,7 @@ export async function joinLocalAgentDefinition({
     if (!agentId) {
       throw new Error("missing agentId");
     }
+    assertRuntimeAgentIdIsNotReserved(agentId);
     const existing = agentId
       ? config.agents.list.find((entry) => entry?.id === agentId) || null
       : null;

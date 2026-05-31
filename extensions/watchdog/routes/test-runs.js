@@ -1,18 +1,9 @@
-import { cfg } from "../lib/state.js";
-import { getTestRunDetails, listTestRuns, startTestRun } from "../lib/test-runs.js";
+import { getTestRunDetails } from "../lib/test-runs.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
+import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 export function register(api, logger, deps = {}) {
-  const { gatewayToken } = cfg;
-
-  function checkAuth(req, res) {
-    const url = new URL(req.url, "http://localhost");
-    if (gatewayToken && url.searchParams.get("token") !== gatewayToken) {
-      res.writeHead(401, { "Content-Type": "text/plain" });
-      res.end("Unauthorized");
-      return false;
-    }
-    return true;
-  }
+  const { checkAuth } = deps;
 
   api.registerHttpRoute({
     path: "/watchdog/test-runs",
@@ -20,7 +11,7 @@ export function register(api, logger, deps = {}) {
     match: "exact",
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
-      const payload = listTestRuns();
+      const payload = await inspectCliSystemSurface({ surfaceId: "inspect.test_runs" });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(payload));
       return true;
@@ -69,20 +60,21 @@ export function register(api, logger, deps = {}) {
 
       try {
         const payload = body ? JSON.parse(body) : {};
-        const run = startTestRun({
-          presetId: payload.presetId,
-          cleanMode: payload.cleanMode || "session-clean",
-          originDraftId: payload.originDraftId || null,
-          originExecutionId: payload.originExecutionId || null,
-          originSurfaceId: payload.originSurfaceId || null,
+        const result = await executeAdminSurfaceOperation({
+          surfaceId: "test_runs.start",
+          payload,
+          logger,
           runtimeContext: {
             api,
-            enqueue: typeof deps.enqueue === "function" ? deps.enqueue : deps.enqueueFn,
+            enqueue: deps.enqueueFn,
             wakePlanner: deps.wakePlanner,
+            originDraftId: payload.originDraftId || null,
+            originExecutionId: payload.originExecutionId || null,
+            originSurfaceId: payload.originSurfaceId || null,
           },
-        }, logger);
+        });
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, run }));
+        res.end(JSON.stringify(result));
       } catch (e) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));

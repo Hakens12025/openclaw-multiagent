@@ -1,5 +1,6 @@
 export const AGENT_IDS = Object.freeze({
   CONTROLLER: "controller",
+  OPERATOR: "operator",
   QQ_BRIDGE: "agent-for-kksl",
   PLANNER: "planner",
   RESEARCHER: "researcher",
@@ -28,6 +29,7 @@ export const SPECIALIZED_EXECUTOR_FALLBACK_IDS = Object.freeze([
 
 export const AGENT_WORKSPACE_OVERRIDES = Object.freeze({
   [AGENT_IDS.CONTROLLER]: "workspaces/controller",
+  [AGENT_IDS.OPERATOR]: "workspaces/operator",
   [AGENT_IDS.QQ_BRIDGE]: "workspaces/kksl",
 });
 
@@ -47,6 +49,7 @@ export const QQ_INGRESS_AGENT_IDS = new Set([
 
 export const PROTECTED_AGENT_IDS = new Set([
   AGENT_IDS.CONTROLLER,
+  AGENT_IDS.OPERATOR,
   AGENT_IDS.QQ_BRIDGE,
   AGENT_IDS.PLANNER,
 ]);
@@ -60,7 +63,12 @@ export const SUPPORTED_AGENT_ROLES = new Set([
   AGENT_ROLE.AGENT,
 ]);
 
+// Roles that can emit [ACTION] markers at all. The per-action allowlist lives
+// in lib/system-action/system-action-role-policy.js; this set is the coarser
+// "is this role wired for system-action?" predicate used by semantic-skill-
+// registry when injecting the skill. Order doesn't matter.
 export const SYSTEM_ACTION_ENABLED_ROLES = new Set([
+  AGENT_ROLE.BRIDGE,
   AGENT_ROLE.AGENT,
   AGENT_ROLE.PLANNER,
   AGENT_ROLE.EXECUTOR,

@@ -7,7 +7,7 @@
 | 协议族 | 方向 | 职责 | 主要模块 |
 |---|---|---|---|
 | `dispatch` | runtime -> agent | 外部入口建单、graph 授权、shared contract / direct request 投递 | `extensions/watchdog/lib/ingress/dispatch-entry.js`, `extensions/watchdog/lib/ingress/dispatch-execution-contract-entry.js`, `extensions/watchdog/lib/routing/dispatch-transport.js`, `extensions/watchdog/lib/routing/dispatch-graph-policy.js` |
-| `system_action` | agent -> runtime | agent 主动请求平台协作：create_task / assign_task / request_review / wake_agent / pipeline | `extensions/watchdog/lib/system-action/system-action-consumer.js`, `extensions/watchdog/lib/system-action/system-action-runtime.js` |
+| `system_action` | agent -> runtime | agent 主动请求平台协作：create_task / assign_task / request_review / wake_agent / loop | `extensions/watchdog/lib/system-action/system-action-consumer.js`, `extensions/watchdog/lib/system-action/system-action-runtime.js` |
 | `delivery` | result -> user/agent/session | terminal 回用户，或 system_action 子流程回发起 agent / session | `extensions/watchdog/lib/routing/delivery-*.js` |
 | `wake` | runtime -> session | 仅负责 heartbeat / wake transport，不承载业务语义 | `extensions/watchdog/lib/transport/runtime-wake-transport.js` |
 

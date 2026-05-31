@@ -5,28 +5,12 @@ import {
 import {
   startLoopRound,
 } from "../loop/loop-round-runtime.js";
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
 import { normalizeString } from "../core/normalize.js";
 import { normalizeOperatorContext } from "../operator/operator-context.js";
 
 export function resolveLoopTargetId(payload) {
   return normalizeString(payload.loopId)
     || null;
-}
-
-export function buildAdminWakeup(runtimeContext, logger) {
-  if (!runtimeContext?.api) {
-    return null;
-  }
-  return async (targetAgentId, wakeOptions = {}) => runtimeWakeAgentDetailed(
-    targetAgentId,
-    "loop 控制唤醒: 请读取 inbox/contract.json 并执行当前阶段",
-    runtimeContext.api,
-    logger,
-    {
-      sessionKey: wakeOptions?.sessionKey || null,
-    },
-  );
 }
 
 function resolveLoopStartTarget({
@@ -167,9 +151,13 @@ export async function startRuntimeLoop({
       startAgent: resolvedStartAgent,
       requestedTask,
       requestedSource: normalizeString(payload.requestedSource) || "runtime.loop.start",
+      budget: payload?.budget && typeof payload.budget === "object"
+        ? payload.budget
+        : null,
       operatorContext,
+      runtimeApi: runtimeContext.api,
     },
-    buildAdminWakeup(runtimeContext, logger),
+    null,
     runtimeContext.enqueue,
     null,
     logger,

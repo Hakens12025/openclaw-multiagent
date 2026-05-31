@@ -3,19 +3,28 @@ import assert from "node:assert/strict";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { loadGraph, saveGraph } from "../lib/agent/agent-graph.js";
+import { loadGraph } from "../lib/agent/agent-graph.js";
+import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
 import { dispatchCreateExecutionContractEntry } from "../lib/ingress/dispatch-execution-contract-entry.js";
 import { getContractPath, listLifecycleWorkItems, persistContractSnapshot } from "../lib/contracts.js";
 import { createTrackingState, bindInboxContractEnvelope } from "../lib/session-bootstrap.js";
 import { buildProgressPayload } from "../lib/transport/sse.js";
-import { agentWorkspace, CONTRACTS_DIR, runtimeAgentConfigs, taskHistory } from "../lib/state.js";
+import {
+  agentWorkspace,
+  CONTRACTS_DIR,
+  dispatchTargetStateMap,
+  runtimeAgentConfigs,
+  taskHistory,
+  apiRef,
+  setApiRef,
+} from "../lib/state.js";
 import { normalizeStageRunResult } from "../lib/stage-results.js";
 import { applyTrackingStageProjection } from "../lib/stage-projection.js";
-import { listAgentEndMainStages } from "../lib/lifecycle/agent-end-pipeline.js";
+import { listAgentEndMainStages } from "../lib/lifecycle/agent-end-lifecycle.js";
 import { clearTrackingStore, rememberTrackingState } from "../lib/store/tracker-store.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 import { dispatchAcceptIngressMessage } from "../lib/ingress/dispatch-entry.js";
-import { runGlobalTestEnvironmentSerial } from "./test-locks.js";
+import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {
   info() {},
@@ -34,6 +43,45 @@ async function cleanupContracts(prefix) {
   } catch {}
 }
 
+function uniqueTask(label) {
+  return `${label} [test:${process.pid}:${Date.now()}:${Math.random().toString(16).slice(2)}]`;
+}
+
+async function readPersistedContractForResult(result, message) {
+  assert.ok(result?.contractId, message);
+  const contractPath = getContractPath(result.contractId);
+  const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+  return { contractPath, persisted };
+}
+
+async function listPersistedContractsByTask(task) {
+  await mkdir(CONTRACTS_DIR, { recursive: true });
+  const files = await readdir(CONTRACTS_DIR);
+  const matches = [];
+  for (const fileName of files) {
+    if (!fileName.startsWith("TC-") || !fileName.endsWith(".json")) continue;
+    const contractPath = join(CONTRACTS_DIR, fileName);
+    try {
+      const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+      if (persisted?.task === task) {
+        matches.push({ fileName, contractPath, persisted });
+      }
+    } catch {}
+  }
+  return matches;
+}
+
+async function readOnlyPersistedContractByTask(task) {
+  const matches = await listPersistedContractsByTask(task);
+  assert.equal(matches.length, 1);
+  return matches[0];
+}
+
+async function assertNoPersistedContractWithTask(task) {
+  const matches = await listPersistedContractsByTask(task);
+  assert.deepEqual(matches.map((entry) => entry.fileName), []);
+}
+
 function restoreRuntimeAgentConfigs(snapshot) {
   runtimeAgentConfigs.clear();
   for (const [agentId, config] of snapshot.entries()) {
@@ -42,9 +90,6 @@ function restoreRuntimeAgentConfigs(snapshot) {
 }
 
 test("dispatchCreateExecutionContractEntry writes definition-only stagePlan and separate stageRuntime", async () => runGlobalTestEnvironmentSerial(async () => {
-  const prefix = "TC-";
-  await mkdir(CONTRACTS_DIR, { recursive: true });
-  const before = new Set(await readdir(CONTRACTS_DIR));
   const originalGraph = await loadGraph();
 
   try {
@@ -54,15 +99,15 @@ test("dispatchCreateExecutionContractEntry writes definition-only stagePlan and 
       ],
     });
 
+    const task = uniqueTask("runtime stage truth ingress");
     const result = await dispatchCreateExecutionContractEntry({
-      message: "runtime stage truth ingress",
+      message: task,
       source: "webui",
       effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:stage-runtime-${Date.now()}` },
       operatorContext: null,
       enqueue() {},
       wakeContractor: async () => null,
       logger,
-      simple: true,
       phases: [
         "  建立比较维度  ",
         { name: " 补充关键证据 " },
@@ -70,14 +115,13 @@ test("dispatchCreateExecutionContractEntry writes definition-only stagePlan and 
       ],
     });
 
-    const after = new Set(await readdir(CONTRACTS_DIR));
-    const created = [...after].find((name) => !before.has(name) && name.startsWith(prefix));
-    assert.ok(created, "expected ingress to create a contract snapshot");
-
-    const contractPath = join(CONTRACTS_DIR, created);
-    const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected ingress to create a contract snapshot",
+    );
 
     assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
     assert.ok(persisted.stagePlan && typeof persisted.stagePlan === "object");
     assert.ok(!("currentStageId" in persisted.stagePlan));
     assert.ok(!("completedStageIds" in persisted.stagePlan));
@@ -94,6 +138,15 @@ test("dispatchCreateExecutionContractEntry writes definition-only stagePlan and 
     });
     assert.deepEqual(persisted.phases, ["建立比较维度", "补充关键证据", "形成结论"]);
     assert.equal(persisted.total, 3);
+    assert.equal("fastTrack" in persisted, false);
+    assert.equal("route" in (persisted.protocol || {}), false);
+    assert.equal(persisted.runtimeContext?.version, 1);
+    assert.equal(persisted.runtimeContext?.currentTime?.unixMs, persisted.createdAt);
+    assert.equal(
+      persisted.runtimeContext?.currentTime?.iso,
+      new Date(persisted.createdAt).toISOString(),
+    );
+    assert.equal(typeof persisted.runtimeContext?.currentTime?.text, "string");
 
     await rm(contractPath, { force: true });
   } finally {
@@ -102,48 +155,231 @@ test("dispatchCreateExecutionContractEntry writes definition-only stagePlan and 
 }));
 
 test("dispatchCreateExecutionContractEntry does not persist a fake worker assignee when ingress has no graph first hop", async () => runGlobalTestEnvironmentSerial(async () => {
-  const prefix = "TC-";
-  await mkdir(CONTRACTS_DIR, { recursive: true });
-  const before = new Set(await readdir(CONTRACTS_DIR));
   const originalGraph = await loadGraph();
 
   try {
     await saveGraph({ edges: [] });
 
+    const task = uniqueTask("ingress assignee truth");
     const result = await dispatchCreateExecutionContractEntry({
-      message: "ingress assignee truth",
+      message: task,
       source: "webui",
       effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:assignee-${Date.now()}` },
       operatorContext: null,
       enqueue() {},
       wakeContractor: async () => null,
       logger,
-      simple: true,
       phases: ["分析", "执行"],
     });
 
     assert.equal(result.ok, false);
 
-    const after = new Set(await readdir(CONTRACTS_DIR));
-    const created = [...after].find((name) => !before.has(name) && name.startsWith(prefix));
-    assert.ok(created, "expected ingress to create a contract snapshot");
-
-    const persisted = JSON.parse(await readFile(join(CONTRACTS_DIR, created), "utf8"));
+    const { contractPath, persisted } = await readOnlyPersistedContractByTask(task);
     assert.equal(persisted.assignee ?? null, null);
 
-    await rm(join(CONTRACTS_DIR, created), { force: true });
+    await rm(contractPath, { force: true });
+  } finally {
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchCreateExecutionContractEntry rejects unauthorized explicit targets before persisting a contract", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+
+  try {
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("unauthorized target should not leave shared state");
+    const result = await dispatchCreateExecutionContractEntry({
+      message: task,
+      source: "webui",
+      effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:unauthorized-${Date.now()}` },
+      targetAgent: "worker",
+      operatorContext: null,
+      api: null,
+      logger,
+      phases: ["执行"],
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "unauthorized_explicit_target");
+    assert.equal(result.targetAgent, "worker");
+
+    await assertNoPersistedContractWithTask(task);
+  } finally {
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchCreateExecutionContractEntry rejects hidden control-plane targets before persisting a contract", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      plane: "runtime",
+      mainViewVisible: true,
+      formalTimelineVisible: true,
+      autoWakeEligible: true,
+    });
+    runtimeAgentConfigs.set("operator", {
+      id: "operator",
+      role: "agent",
+      plane: "control_plane",
+      mainViewVisible: false,
+      formalTimelineVisible: false,
+      autoWakeEligible: false,
+    });
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "operator", label: "invalid-control-target" },
+      ],
+    });
+
+    const task = uniqueTask("hidden operator should not receive an execution contract");
+    const result = await dispatchCreateExecutionContractEntry({
+      message: task,
+      source: "webui",
+      effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:hidden-target-${Date.now()}` },
+      targetAgent: "operator",
+      operatorContext: null,
+      api: null,
+      logger,
+      phases: ["执行"],
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "target_not_task_runtime");
+    assert.equal(result.targetAgent, "operator");
+
+    await assertNoPersistedContractWithTask(task);
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchCreateExecutionContractEntry rejects graph first hop into hidden control-plane target before persisting", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      plane: "runtime",
+      mainViewVisible: true,
+      formalTimelineVisible: true,
+      autoWakeEligible: true,
+    });
+    runtimeAgentConfigs.set("operator", {
+      id: "operator",
+      role: "agent",
+      plane: "control_plane",
+      mainViewVisible: false,
+      formalTimelineVisible: false,
+      autoWakeEligible: false,
+    });
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "operator", label: "invalid-control-target" },
+      ],
+    });
+
+    const task = uniqueTask("graph first hop should not be control plane");
+    const result = await dispatchCreateExecutionContractEntry({
+      message: task,
+      source: "webui",
+      effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:hidden-first-hop-${Date.now()}` },
+      operatorContext: null,
+      api: null,
+      logger,
+      phases: ["执行"],
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "target_not_task_runtime");
+    assert.equal(result.targetAgent, "operator");
+
+    await assertNoPersistedContractWithTask(task);
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchCreateExecutionContractEntry preserves direct user wording for greetings without injecting protocol hardening", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+
+  try {
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const result = await dispatchCreateExecutionContractEntry({
+      message: "你好",
+      source: "webui",
+      effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:greeting-${Date.now()}` },
+      operatorContext: null,
+      enqueue() {},
+      wakeContractor: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, "你好");
+    assert.doesNotMatch(persisted.task, /用户原话/u);
+    assert.doesNotMatch(persisted.task, /不要只重复原句/u);
+    assert.doesNotMatch(persisted.task, /不要只在聊天里回答/u);
+    assert.doesNotMatch(persisted.task, /contract\.output/u);
+
+    await rm(contractPath, { force: true });
   } finally {
     await saveGraph(originalGraph);
   }
 }));
 
 test("dispatchCreateExecutionContractEntry persists explicit dispatch owner and resolves first hop from it", async () => runGlobalTestEnvironmentSerial(async () => {
-  const prefix = "TC-";
-  await mkdir(CONTRACTS_DIR, { recursive: true });
-  const before = new Set(await readdir(CONTRACTS_DIR));
   const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
   try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("worker2", {
+      id: "worker2",
+      role: "executor",
+      plane: "runtime",
+      mainViewVisible: true,
+      formalTimelineVisible: true,
+      autoWakeEligible: true,
+    });
+    runtimeAgentConfigs.set("reviewer", {
+      id: "reviewer",
+      role: "reviewer",
+      plane: "runtime",
+      mainViewVisible: true,
+      formalTimelineVisible: true,
+      autoWakeEligible: true,
+    });
     await saveGraph({
       edges: [
         { from: "controller", to: "planner", label: "ingress" },
@@ -151,39 +387,36 @@ test("dispatchCreateExecutionContractEntry persists explicit dispatch owner and 
       ],
     });
 
+    const task = uniqueTask("system random should start from explicit owner");
     const result = await dispatchCreateExecutionContractEntry({
-      message: "system random should start from explicit owner",
+      message: task,
       source: "system",
       effectiveReplyTo: { agentId: "test-run", sessionKey: `test-run:${Date.now()}` },
       dispatchOwnerAgentId: "worker2",
       operatorContext: null,
       api: null,
       logger,
-      simple: true,
       phases: ["执行"],
     });
 
-    const after = new Set(await readdir(CONTRACTS_DIR));
-    const created = [...after].find((name) => !before.has(name) && name.startsWith(prefix));
-    assert.ok(created, "expected ingress to create a contract snapshot");
-
-    const persisted = JSON.parse(await readFile(join(CONTRACTS_DIR, created), "utf8"));
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected ingress to create a contract snapshot",
+    );
 
     assert.equal(result.contractId, persisted.id);
     assert.equal(result.targetAgent, "reviewer");
     assert.equal(persisted.dispatchOwnerAgentId, "worker2");
     assert.equal(persisted.assignee, "reviewer");
 
-    await rm(join(CONTRACTS_DIR, created), { force: true });
+    await rm(contractPath, { force: true });
   } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
     await saveGraph(originalGraph);
   }
 }));
 
-test("dispatchAcceptIngressMessage falls back to the default canonical stage plan when phases are omitted", async () => runGlobalTestEnvironmentSerial(async () => {
-  const prefix = "TC-";
-  await mkdir(CONTRACTS_DIR, { recursive: true });
-  const before = new Set(await readdir(CONTRACTS_DIR));
+test("dispatchAcceptIngressMessage does not inject a default stage plan when phases are omitted", async () => runGlobalTestEnvironmentSerial(async () => {
   const originalGraph = await loadGraph();
 
   try {
@@ -193,32 +426,807 @@ test("dispatchAcceptIngressMessage falls back to the default canonical stage pla
       ],
     });
 
-    const result = await dispatchAcceptIngressMessage("对比三个框架优缺点", {
+    const task = uniqueTask("对比三个框架优缺点");
+    const result = await dispatchAcceptIngressMessage(task, {
       source: "webui",
       replyTo: { agentId: "controller", sessionKey: `agent:controller:stage-planner-${Date.now()}` },
-      simple: true,
       api: null,
       enqueue() {},
       wakeContractor: async () => null,
       logger,
     });
 
-    const after = new Set(await readdir(CONTRACTS_DIR));
-    const created = [...after].find((name) => !before.has(name) && name.startsWith(prefix));
-    assert.ok(created, "expected incoming message to create a contract snapshot");
-
-    const contractPath = join(CONTRACTS_DIR, created);
-    const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected incoming message to create a contract snapshot",
+    );
 
     assert.equal(result.contractId, persisted.id);
-    assert.deepEqual(
-      persisted.stagePlan.stages.map((entry) => entry.label),
-      ["执行"],
-    );
-    assert.deepEqual(persisted.phases, ["执行"]);
+    assert.equal(persisted.task, task);
+    assert.equal("stagePlan" in persisted, false);
+    assert.equal("stageRuntime" in persisted, false);
+    assert.equal("phases" in persisted, false);
+    assert.equal("total" in persisted, false);
 
     await rm(contractPath, { force: true });
   } finally {
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage rejects QQ ingress without live reply target", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    await assert.rejects(
+      dispatchAcceptIngressMessage("给worker发个任务，研究一下react是啥", {
+        source: "qq",
+        replyTo: {
+          agentId: "agent-for-kksl",
+          sessionKey: "agent:agent-for-kksl:main",
+        },
+        api: null,
+        enqueue() {},
+        wakePlanner: async () => null,
+        logger,
+      }),
+      /live QQ reply target/u,
+    );
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage preserves QQ passive reply metadata on bridge ingress", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("给worker发个任务，研究一下react是啥");
+    const result = await dispatchAcceptIngressMessage(task, {
+      source: "qq",
+      replyTo: {
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:main",
+        channel: "qqbot",
+        target: "c2c:openid-1",
+        messageId: "qq-message-1",
+        replyToId: "qq-message-1",
+        accountId: "default",
+      },
+      api: null,
+      enqueue() {},
+      wakePlanner: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected qq ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(persisted.replyTo?.channel, "qqbot");
+    assert.equal(persisted.replyTo?.target, "c2c:openid-1");
+    assert.equal(persisted.replyTo?.messageId, "qq-message-1");
+    assert.equal(persisted.replyTo?.replyToId, "qq-message-1");
+    assert.equal(persisted.replyTo?.accountId, "default");
+
+    await rm(contractPath, { force: true });
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage rejects qqbot source without live reply target", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    await assert.rejects(
+      dispatchAcceptIngressMessage("qq ingress without explicit target", {
+        source: "qq",
+        replyTo: {
+          agentId: "agent-for-kksl",
+          sessionKey: "agent:agent-for-kksl:main",
+        },
+        api: null,
+        enqueue() {},
+        wakePlanner: async () => null,
+        logger,
+      }),
+      /live QQ reply target/u,
+    );
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage rejects qqbot alias without live reply target", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    await assert.rejects(
+      dispatchAcceptIngressMessage("qqbot alias ingress", {
+        source: "qqbot",
+        replyTo: null,
+        api: null,
+        enqueue() {},
+        wakePlanner: async () => null,
+        logger,
+      }),
+      /live QQ reply target/u,
+    );
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage rejects synthetic QQ reply targets before terminal delivery", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    await assert.rejects(
+      dispatchAcceptIngressMessage("qq visible synthetic target probe", {
+        source: "qq",
+        replyTo: {
+          agentId: "agent-for-kksl",
+          sessionKey: "agent:agent-for-kksl:main",
+          channel: "qqbot",
+          target: "c2c:kksl-test",
+          messageId: "synthetic-msg",
+          replyToId: "synthetic-msg",
+          accountId: "default",
+        },
+        api: null,
+        enqueue() {},
+        wakePlanner: async () => null,
+        logger,
+      }),
+      /synthetic QQ reply target/u,
+    );
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage preserves QQ group reply target prefix on bridge ingress", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("群聊里来的任务");
+    const result = await dispatchAcceptIngressMessage(task, {
+      source: "qq",
+      replyTo: {
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:main",
+        channel: "qqbot",
+        target: "group:group-openid-1",
+        messageId: "group-message-1",
+        replyToId: "group-message-1",
+        accountId: "default",
+      },
+      api: null,
+      enqueue() {},
+      wakePlanner: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected qq ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(persisted.replyTo?.channel, "qqbot");
+    assert.equal(persisted.replyTo?.target, "group:group-openid-1");
+    assert.equal(persisted.replyTo?.messageId, "group-message-1");
+    assert.equal(persisted.replyTo?.replyToId, "group-message-1");
+    assert.equal(persisted.replyTo?.accountId, "default");
+
+    await rm(contractPath, { force: true });
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchCreateExecutionContractEntry falls back to runtime apiRef to wake planner on first-hop ingress", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+  const originalApiRef = apiRef;
+  const heartbeatCalls = [];
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    setApiRef({
+      runtime: {
+        system: {
+          requestHeartbeatNow(payload) {
+            heartbeatCalls.push(payload);
+          },
+        },
+      },
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("hello planner wake fallback");
+    const result = await dispatchCreateExecutionContractEntry({
+      message: task,
+      source: "webui",
+      effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:wake-fallback-${Date.now()}` },
+      operatorContext: null,
+      api: null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.targetAgent, "planner");
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(heartbeatCalls.length, 1);
+    assert.equal(heartbeatCalls[0]?.agentId, "planner");
+    assert.equal(heartbeatCalls[0]?.sessionKey, `agent:planner:contract:${result.contractId}`);
+    assert.match(heartbeatCalls[0]?.reason || "", new RegExp(`current contract: ${result.contractId}`));
+    assert.doesNotMatch(heartbeatCalls[0]?.reason || "", /任务：|输出路径：|runtime_result/u);
+
+    await rm(contractPath, { force: true });
+  } finally {
+    setApiRef(originalApiRef);
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller graph owner while preserving bridge reply target", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("研究 React 是什么，输出一份简要说明");
+    const result = await dispatchAcceptIngressMessage(task, {
+      source: "a2a",
+      replyTo: {
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:main",
+      },
+      ingressDirective: {},
+      api: null,
+      enqueue() {},
+      wakePlanner: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected a2a ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(result.targetAgent, "planner");
+    assert.equal(persisted.replyTo?.agentId, "agent-for-kksl");
+    assert.equal(persisted.dispatchOwnerAgentId, "controller");
+    assert.equal(persisted.assignee, "planner");
+
+    await rm(contractPath, { force: true });
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage ignores external targetAgent on a2a bridge ingress and follows graph first hop", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("worker", {
+      id: "worker",
+      role: "executor",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("研究 React 是什么，输出一份简要说明");
+    const result = await dispatchAcceptIngressMessage(task, {
+      source: "a2a",
+      replyTo: {
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:main",
+      },
+      ingressDirective: {
+        targetAgent: "worker",
+      },
+      api: null,
+      enqueue() {},
+      wakePlanner: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected a2a ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(result.targetAgent, "planner");
+    assert.equal(persisted.replyTo?.agentId, "agent-for-kksl");
+    assert.equal(persisted.dispatchOwnerAgentId, "controller");
+    assert.equal(persisted.assignee, "planner");
+
+    await rm(contractPath, { force: true });
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage ignores external replyTo agent for a2a dispatch owner selection", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("worker", {
+      id: "worker",
+      role: "executor",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("reviewer", {
+      id: "reviewer",
+      role: "reviewer",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+        { from: "worker", to: "reviewer", label: "worker-next" },
+      ],
+    });
+
+    const task = uniqueTask("external reply target must not choose graph origin");
+    const result = await dispatchAcceptIngressMessage(task, {
+      source: "a2a",
+      replyTo: {
+        agentId: "worker",
+        sessionKey: "agent:worker:main",
+      },
+      ingressDirective: {
+        targetAgent: "reviewer",
+      },
+      api: null,
+      enqueue() {},
+      wakePlanner: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected a2a ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(result.targetAgent, "planner");
+    assert.equal(persisted.replyTo?.agentId, "worker");
+    assert.equal(persisted.dispatchOwnerAgentId, "controller");
+    assert.equal(persisted.assignee, "planner");
+
+    await rm(contractPath, { force: true });
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
+    await saveGraph(originalGraph);
+  }
+}));
+
+test("dispatchAcceptIngressMessage does not convert non-QQ bridge reply target into QQ transport", async () => runGlobalTestEnvironmentSerial(async () => {
+  const originalGraph = await loadGraph();
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("controller", {
+      id: "controller",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "webui",
+      specialized: false,
+      protected: true,
+      skills: ["system-action"],
+    });
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+      specialized: false,
+      protected: true,
+      skills: [],
+    });
+    runtimeAgentConfigs.set("planner", {
+      id: "planner",
+      role: "planner",
+      gateway: false,
+      ingressSource: null,
+      specialized: false,
+      protected: false,
+      skills: [],
+    });
+
+    await saveGraph({
+      edges: [
+        { from: "controller", to: "planner", label: "ingress" },
+      ],
+    });
+
+    const task = uniqueTask("a2a bridge reply remains internal");
+    const result = await dispatchAcceptIngressMessage(task, {
+      source: "a2a",
+      replyTo: {
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:main",
+      },
+      api: null,
+      enqueue() {},
+      wakePlanner: async () => null,
+      logger,
+    });
+
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected a2a ingress to create a contract snapshot",
+    );
+
+    assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
+    assert.equal(persisted.replyTo?.agentId, "agent-for-kksl");
+    assert.equal(persisted.replyTo?.channel, undefined);
+    assert.equal(persisted.replyTo?.target, undefined);
+
+    await rm(contractPath, { force: true });
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeConfigs);
     await saveGraph(originalGraph);
   }
 }));
@@ -243,7 +1251,6 @@ test("dispatchCreateExecutionContractEntry generates distinct contract ids even 
       operatorContext: null,
       api: null,
       logger,
-      simple: true,
       phases: ["执行"],
     });
 
@@ -254,7 +1261,6 @@ test("dispatchCreateExecutionContractEntry generates distinct contract ids even 
       operatorContext: null,
       api: null,
       logger,
-      simple: true,
       phases: ["执行"],
     });
 
@@ -267,9 +1273,6 @@ test("dispatchCreateExecutionContractEntry generates distinct contract ids even 
 }));
 
 test("dispatchAcceptIngressMessage routes webui create_task by ingress owner instead of system_action reply target", async () => runGlobalTestEnvironmentSerial(async () => {
-  const prefix = "TC-";
-  await mkdir(CONTRACTS_DIR, { recursive: true });
-  const before = new Set(await readdir(CONTRACTS_DIR));
   const originalGraph = await loadGraph();
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
@@ -306,7 +1309,8 @@ test("dispatchAcceptIngressMessage routes webui create_task by ingress owner ins
       ],
     });
 
-    const result = await dispatchAcceptIngressMessage("create_task child should still enter from controller", {
+    const task = uniqueTask("create_task child should still enter from controller");
+    const result = await dispatchAcceptIngressMessage(task, {
       source: "webui",
       replyTo: {
         agentId: "worker2",
@@ -322,22 +1326,21 @@ test("dispatchAcceptIngressMessage routes webui create_task by ingress owner ins
         sourceSessionKey: `agent:worker2:contract:parent-${Date.now()}`,
         intentType: "create_task",
       },
-      simple: true,
       api: null,
       logger,
     });
 
-    const after = new Set(await readdir(CONTRACTS_DIR));
-    const created = [...after].find((name) => !before.has(name) && name.startsWith(prefix));
-    assert.ok(created, "expected create_task ingress to create a contract snapshot");
-
-    const persisted = JSON.parse(await readFile(join(CONTRACTS_DIR, created), "utf8"));
+    const { contractPath, persisted } = await readPersistedContractForResult(
+      result,
+      "expected create_task ingress to create a contract snapshot",
+    );
 
     assert.equal(result.contractId, persisted.id);
+    assert.equal(persisted.task, task);
     assert.equal(persisted.replyTo?.agentId, "worker2");
     assert.equal(persisted.assignee, "planner");
 
-    await rm(join(CONTRACTS_DIR, created), { force: true });
+    await rm(contractPath, { force: true });
   } finally {
     restoreRuntimeAgentConfigs(originalRuntimeConfigs);
     await saveGraph(originalGraph);
@@ -382,6 +1385,14 @@ test("bindInboxContractEnvelope maps stageRuntime separately from definition-onl
     output: join(agentWorkspace("controller"), "output", `TC-STAGE-RUNTIME-BIND-${Date.now()}.md`),
   };
   await writeFile(contractPath, JSON.stringify(contract, null, 2), "utf8");
+  dispatchTargetStateMap.set(agentId, {
+    busy: true,
+    healthy: true,
+    dispatching: false,
+    lastSeen: Date.now(),
+    currentContract: contract.id,
+    queue: [],
+  });
 
   const trackingState = createTrackingState({
     sessionKey: `agent:${agentId}:stage-runtime:${Date.now()}`,
@@ -405,8 +1416,10 @@ test("bindInboxContractEnvelope maps stageRuntime separately from definition-onl
   assert.equal(trackingState.contract?.total, 2);
 
   if (original === null) {
+    dispatchTargetStateMap.delete(agentId);
     await rm(workspaceDir, { recursive: true, force: true });
   } else {
+    dispatchTargetStateMap.delete(agentId);
     await writeFile(contractPath, original);
   }
 });
@@ -1040,52 +2053,6 @@ test("buildProgressPayload and lifecycle snapshots carry system-owned activity c
   assert.deepEqual(snapshot?.activityCursor, trackingState.activityCursor);
 });
 
-test("lifecycle snapshots carry agent-local activity progress without dropping canonical contract stage truth", async () => {
-  const sessionKey = `agent:worker-activity:lifecycle-local-progress:${Date.now()}`;
-  const trackingState = createTrackingState({
-    sessionKey,
-    agentId: "worker-activity",
-    parentSession: null,
-  });
-  trackingState.contract = {
-    id: `TC-LIFECYCLE-LOCAL-${Date.now()}`,
-    task: "lifecycle view should show current-agent progress",
-    taskType: "research_analysis",
-    assignee: "worker-activity",
-    status: CONTRACT_STATUS.RUNNING,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    phases: ["分析", "写报告"],
-    stagePlan: {
-      contractId: "TC-LIFECYCLE-LOCAL",
-      stages: [
-        { id: "stage-1", label: "分析", semanticLabel: "分析", status: "completed" },
-        { id: "stage-2", label: "写报告", semanticLabel: "写报告", status: "active" },
-      ],
-      revisionPolicy: { maxRevisions: 2, maxStageDelta: 1 },
-    },
-    stageRuntime: {
-      version: 2,
-      currentStageId: "stage-2",
-      completedStageIds: ["stage-1"],
-      revisionCount: 0,
-      lastRevisionReason: null,
-    },
-  };
-
-  rememberTrackingState(sessionKey, trackingState);
-
-  const snapshots = await listLifecycleWorkItems();
-  const snapshot = snapshots.find((entry) => entry.id === trackingState.contract.id);
-  assert.ok(snapshot, "expected tracker-backed lifecycle snapshot");
-  assert.deepEqual(snapshot?.activityProgress?.phases, ["接手", "执行", "收口"]);
-  assert.equal(snapshot?.activityProgress?.currentPhase, "接手");
-  assert.equal(snapshot?.cursor, "0/3");
-  assert.equal(snapshot?.pct, 0);
-  assert.deepEqual(snapshot?.phases, ["分析", "写报告"]);
-  assert.equal(snapshot?.stageRuntime?.currentStageId, "stage-2");
-});
-
 test("normalizeStageRunResult keeps semantic stage id and revision data but drops semantic completion action residue", () => {
   const normalized = normalizeStageRunResult({
     stage: "contractor",
@@ -1334,7 +2301,7 @@ test("applyTrackingStageProjection does not let runtime-backed completion-time r
   assert.equal(projection.pct, 50);
 });
 
-test("applyTrackingStageProjection keeps canonical task-stage truth authoritative over live runtime topology", () => {
+test("applyTrackingStageProjection keeps canonical task-stage truth authoritative over contract route stage", () => {
   const trackingState = createTrackingState({
     sessionKey: `agent:worker-d:runtime-stage-precedence-${Date.now()}`,
     agentId: "worker-d",
@@ -1367,20 +2334,7 @@ test("applyTrackingStageProjection keeps canonical task-stage truth authoritativ
     },
   };
 
-  const projection = applyTrackingStageProjection(trackingState, {
-    pipeline: {
-      pipelineId: "pipe-stage-runtime-precedence",
-      currentStage: "交叉比较",
-      phaseOrder: ["收集证据", "交叉比较"],
-      round: 1,
-    },
-    loopSession: {
-      id: "LS-stage-runtime-precedence",
-      currentStage: "交叉比较",
-      phaseOrder: ["收集证据", "交叉比较"],
-      round: 1,
-    },
-  });
+  const projection = applyTrackingStageProjection(trackingState);
 
   assert.equal(projection.source, "task_stage_truth");
   assert.equal(projection.currentStage, "stage-1");
@@ -1390,7 +2344,7 @@ test("applyTrackingStageProjection keeps canonical task-stage truth authoritativ
   assert.equal(projection.pct, 0);
 });
 
-test("applyTrackingStageProjection lets runtime observation truth override live runtime topology", () => {
+test("applyTrackingStageProjection lets runtime observation truth override contract route stage", () => {
   const trackingState = createTrackingState({
     sessionKey: `agent:worker-d:runtime-stage-semantic-override-${Date.now()}`,
     agentId: "worker-d",
@@ -1428,20 +2382,7 @@ test("applyTrackingStageProjection lets runtime observation truth override live 
     },
   };
 
-  const projection = applyTrackingStageProjection(trackingState, {
-    pipeline: {
-      pipelineId: "pipe-stage-runtime-semantic-override",
-      currentStage: "收集证据",
-      phaseOrder: ["researcher", "worker-d"],
-      round: 1,
-    },
-    loopSession: {
-      id: "LS-stage-runtime-semantic-override",
-      currentStage: "收集证据",
-      phaseOrder: ["researcher", "worker-d"],
-      round: 1,
-    },
-  });
+  const projection = applyTrackingStageProjection(trackingState);
 
   assert.equal(projection.source, "task_stage_truth");
   assert.deepEqual(projection.stagePlan, ["收集证据", "交叉比较"]);

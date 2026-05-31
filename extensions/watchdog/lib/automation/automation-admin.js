@@ -10,48 +10,13 @@ import {
   deleteAutomationRuntimeState,
   ensureAutomationRuntimeState,
   setAutomationRuntimeStatus,
+  setAutomationGovernanceControl,
 } from "./automation-runtime.js";
 import { startAutomationRound } from "./automation-executor.js";
-
-function parseDeliveryTargetsText(value) {
-  const text = normalizeString(value);
-  if (!text) return [];
-
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && typeof parsed === "object") return [parsed];
-  } catch {}
-
-  return text
-    .split(/\n+/g)
-    .map((line) => normalizeString(line))
-    .filter(Boolean)
-    .map((line) => {
-      const [channel, target, mode] = line.includes("|")
-        ? line.split("|").map((item) => item.trim())
-        : line.split(/\s+/g);
-      return {
-        channel,
-        target,
-        ...(normalizeString(mode) ? { mode: normalizeString(mode) } : {}),
-      };
-    });
-}
-
-function resolveDeliveryTargets(payload) {
-  if (Array.isArray(payload.deliveryTargets)) {
-    return payload.deliveryTargets;
-  }
-  return parseDeliveryTargetsText(payload.deliveryTargetsText || payload.deliveryTargetsJson);
-}
-
-function mergeNestedRecord(existing, value) {
-  return {
-    ...(existing && typeof existing === "object" ? existing : {}),
-    ...(value && typeof value === "object" ? value : {}),
-  };
-}
+import {
+  mergeNestedRecord,
+  resolveDeliveryTargets,
+} from "./admin-helpers.js";
 
 function buildAutomationSpecPayload(payload, existing = null) {
   const normalized = normalizeRecord(payload, {});
@@ -239,6 +204,58 @@ export async function deleteAutomationDefinition({
     action: "delete",
     deleted: deleted.deleted === true,
     automation: existing,
+    runtime,
+  };
+}
+
+// P4 安全阀 operator 入口（admin-surface-operations，经 executor operator 守卫通道，非旁路）。
+//  payload.disableGovernanceSnapshot：全局熔断（异常 snapshot 一键回 spec 默认）。
+//  payload.reviveProfile：复活 retired profile（重置派生 streak）。
+export async function controlAutomationGovernance({
+  payload,
+  logger,
+  onAlert,
+}) {
+  const automationId = normalizeString(payload.automationId);
+  if (!automationId) {
+    throw new Error("missing automation id");
+  }
+
+  const existing = await getAutomationSpec(automationId);
+  if (!existing) {
+    throw new Error(`unknown automation id: ${automationId}`);
+  }
+  await ensureAutomationRuntimeState(existing);
+
+  const disableGovernanceSnapshot = payload.disableGovernanceSnapshot == null
+    ? undefined
+    : payload.disableGovernanceSnapshot === true;
+  const reviveProfile = payload.reviveProfile === true;
+
+  const runtime = await setAutomationGovernanceControl(automationId, {
+    disableGovernanceSnapshot,
+    reviveProfile,
+  });
+
+  onAlert?.({
+    type: EVENT_TYPE.AUTOMATION_UPDATED,
+    action: "governance_control",
+    automationId,
+    enabled: existing.enabled === true,
+    runtimeStatus: runtime?.status || null,
+    governanceSnapshotDisabled: runtime?.governanceSnapshotDisabled === true,
+    profileRevived: reviveProfile,
+    ts: Date.now(),
+  });
+  logger?.info?.(
+    `[watchdog] automation governance control: ${automationId}`
+    + ` disabled=${runtime?.governanceSnapshotDisabled === true} revive=${reviveProfile}`,
+  );
+
+  return {
+    ok: true,
+    action: "governance_control",
+    automationId,
     runtime,
   };
 }

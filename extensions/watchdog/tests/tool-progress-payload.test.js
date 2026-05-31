@@ -56,10 +56,23 @@ test("buildProgressPayload exposes recent structured tool events", () => {
   ]);
 });
 
-test("buildProgressPayload exposes agent-local activity progress while preserving canonical contract stage truth", () => {
+test("buildProgressPayload exposes unified ioObservation", () => {
+  const ioObservation = {
+    version: 1,
+    input: {
+      contractId: "TC-TOOL-PAYLOAD-IO",
+      task: "inspect agent input/output payload",
+      effectiveTools: ["read", "write", "edit"],
+    },
+    output: {
+      primaryOutputPath: "/tmp/tool-progress-io.md",
+      artifactPaths: ["/tmp/tool-progress-io.md"],
+      textPreview: "worker output preview",
+    },
+  };
   const trackingState = {
-    sessionKey: `agent:worker-tool-events:local-progress:${Date.now()}`,
-    agentId: "worker-tool-events",
+    sessionKey: `agent:worker-tool-io:${Date.now()}`,
+    agentId: "worker-tool-io",
     parentSession: null,
     startMs: Date.now() - 50,
     toolCalls: [],
@@ -68,32 +81,15 @@ test("buildProgressPayload exposes agent-local activity progress while preservin
     lastLabel: "启动中",
     status: CONTRACT_STATUS.RUNNING,
     contract: {
-      id: `TC-LOCAL-PAYLOAD-${Date.now()}`,
-      task: "handoff should reset visible progress",
-      assignee: "worker-tool-events",
-      status: CONTRACT_STATUS.RUNNING,
-      createdAt: Date.now() - 50,
-      updatedAt: Date.now(),
-      phases: ["分析", "写报告"],
-      stagePlan: {
-        contractId: "TC-LOCAL-PAYLOAD",
-        stages: [
-          { id: "stage-1", label: "分析", semanticLabel: "分析", status: "completed" },
-          { id: "stage-2", label: "写报告", semanticLabel: "写报告", status: "active" },
-        ],
-        revisionPolicy: { maxRevisions: 2, maxStageDelta: 1 },
-      },
-      stageRuntime: {
-        version: 2,
-        currentStageId: "stage-2",
-        completedStageIds: ["stage-1"],
-        revisionCount: 0,
-        lastRevisionReason: null,
-      },
+      id: "TC-TOOL-PAYLOAD-IO",
+      task: "inspect agent input/output payload",
+      assignee: "worker-tool-io",
+      status: "running",
     },
     artifactContext: null,
     activityCursor: null,
     runtimeObservation: null,
+    ioObservation,
     stageProjection: null,
     cursor: "0/0",
     pct: 0,
@@ -102,11 +98,5 @@ test("buildProgressPayload exposes agent-local activity progress while preservin
 
   const payload = buildProgressPayload(trackingState);
 
-  assert.deepEqual(payload.activityProgress?.phases, ["接手", "执行", "收口"]);
-  assert.equal(payload.activityProgress?.currentPhase, "接手");
-  assert.equal(payload.cursor, "0/3");
-  assert.equal(payload.pct, 0);
-  assert.equal(payload.estimatedPhase, "接手");
-  assert.equal(payload.stageRuntime?.currentStageId, "stage-2");
-  assert.deepEqual(payload.phases, ["分析", "写报告"]);
+  assert.deepEqual(payload.ioObservation, ioObservation);
 });

@@ -1,15 +1,30 @@
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { buildDispatchRuntimeSnapshot } from "../routing/dispatch-runtime-state.js";
-import { snapshotTrackingSessions } from "../store/tracker-store.js";
+import { inspectCliRuntimeState } from "../cli-system/cli-runtime-inspector.js";
 
-function mapTrackingSessions(limit) {
-  const sessions = Object.entries(snapshotTrackingSessions())
+export function summarizeRuntimeIncident(incident) {
+  if (!incident || typeof incident !== "object") return null;
+  return {
+    contractId: incident.contractId || null,
+    rootFault: incident.rootFault || null,
+    firstFaultCode: incident.firstFaultCode || null,
+    amplifiers: Array.isArray(incident.amplifiers) ? incident.amplifiers : [],
+    status: incident.status || null,
+    terminationReason: incident.terminationReason || null,
+    updatedAt: Number.isFinite(incident.updatedAt) ? incident.updatedAt : null,
+  };
+}
+
+function mapTrackingSessions(limit, trackingSnapshot = {}) {
+  const sessions = Object.entries(trackingSnapshot || {})
     .map(([sessionKey, entry]) => ({
       sessionKey,
       agentId: entry?.agentId || null,
+      plane: entry?.plane || null,
+      mainViewVisible: entry?.mainViewVisible !== false,
+      formalTimelineVisible: entry?.formalTimelineVisible !== false,
+      autoWakeEligible: entry?.autoWakeEligible !== false,
       status: entry?.status || null,
       pct: Number.isFinite(entry?.pct) ? entry.pct : null,
-      estimatedPhase: entry?.estimatedPhase || null,
       elapsedMs: Number.isFinite(entry?.elapsedMs) ? entry.elapsedMs : 0,
       toolCallCount: Number.isFinite(entry?.toolCallCount) ? entry.toolCallCount : 0,
       lastLabel: entry?.lastLabel || null,
@@ -20,19 +35,30 @@ function mapTrackingSessions(limit) {
       taskType: entry?.taskType || null,
       protocolEnvelope: entry?.protocolEnvelope || null,
       cursor: entry?.cursor || null,
-      activityProgress: entry?.activityProgress || null,
     }))
     .sort((left, right) => (right.elapsedMs || 0) - (left.elapsedMs || 0));
 
   return {
     total: sessions.length,
     running: sessions.filter((entry) => entry.status === CONTRACT_STATUS.RUNNING).length,
+    runningWithoutContract: sessions.filter((entry) => (
+      entry.status === CONTRACT_STATUS.RUNNING
+      && entry.hasContract !== true
+      && isRuntimeQueueTrackingSession(entry)
+    )).length,
     sessions: sessions.slice(0, limit),
   };
 }
 
+function isRuntimeQueueTrackingSession(entry) {
+  return (
+    entry?.plane === "runtime"
+    && entry?.formalTimelineVisible !== false
+  );
+}
+
 function mapDispatchTargets(runtimeSnapshot = null) {
-  const snapshot = runtimeSnapshot || buildDispatchRuntimeSnapshot();
+  const snapshot = runtimeSnapshot || {};
   const targets = Object.entries(snapshot.targets || {})
     .map(([agentId, state]) => ({
       agentId,
@@ -40,6 +66,9 @@ function mapDispatchTargets(runtimeSnapshot = null) {
       healthy: state?.healthy !== false,
       dispatching: state?.dispatching === true,
       currentContract: state?.currentContract || null,
+      queueDepth: Array.isArray(state?.queue) ? state.queue.length : 0,
+      queue: Array.isArray(state?.queue) ? [...state.queue] : [],
+      tools: Array.isArray(state?.tools) ? state.tools : [],
     }))
     .sort((left, right) => left.agentId.localeCompare(right.agentId));
 
@@ -49,11 +78,65 @@ function mapDispatchTargets(runtimeSnapshot = null) {
     idle: targets.filter((entry) => !entry.busy).length,
     unhealthy: targets.filter((entry) => entry.healthy === false).length,
     dispatching: targets.filter((entry) => entry.dispatching).length,
+    queued: targets.reduce((sum, entry) => sum + entry.queueDepth, 0),
     targets,
   };
 }
 
-export function summarizePipelineProgression(progression, contract = null) {
+function buildRuntimeQueueDiagnostics({
+  tracking,
+  targets,
+} = {}) {
+  const issues = [];
+  const runningWithoutContract = Array.isArray(tracking?.sessions)
+    ? tracking.sessions.filter((entry) => (
+        entry.status === CONTRACT_STATUS.RUNNING
+        && entry.hasContract !== true
+        && isRuntimeQueueTrackingSession(entry)
+      ))
+    : [];
+  for (const session of runningWithoutContract) {
+    issues.push({
+      severity: "error",
+      code: "running_tracking_without_contract",
+      agentId: session.agentId || null,
+      sessionKey: session.sessionKey || null,
+      elapsedMs: session.elapsedMs || 0,
+      summary: "运行中的 tracking session 没有绑定 contract，可能阻断 queue claim 或产生幽灵工具调用。",
+    });
+  }
+
+  const targetEntries = Array.isArray(targets?.targets) ? targets.targets : [];
+  for (const target of targetEntries) {
+    const firstQueuedContract = Array.isArray(target.queue) ? target.queue[0] : null;
+    const nextContractId = typeof firstQueuedContract === "string"
+      ? firstQueuedContract
+      : firstQueuedContract?.contractId || null;
+    if (
+      target.queueDepth > 0
+      && target.busy !== true
+      && target.dispatching !== true
+      && !target.currentContract
+    ) {
+      issues.push({
+        severity: "warning",
+        code: "idle_target_with_pending_queue",
+        agentId: target.agentId,
+        queueDepth: target.queueDepth,
+        nextContractId,
+        summary: "dispatch target 空闲但仍有 pending queue，可能需要 drain 或存在 claim/requeue 循环。",
+      });
+    }
+  }
+
+  return {
+    issueCount: issues.length,
+    hasSplitBrain: issues.some((issue) => issue.code === "running_tracking_without_contract"),
+    issues,
+  };
+}
+
+export function summarizeGraphRouteProgression(progression, contract = null) {
   if (!progression || typeof progression !== "object") return null;
 
   const reason = progression?.reason || null;
@@ -88,12 +171,12 @@ export function summarizePipelineProgression(progression, contract = null) {
   };
 }
 
-export function listRecentPipelineProgressions(workItems, {
+export function listRecentGraphRouteProgressions(workItems, {
   activeLoopSession = null,
   limit = 6,
 } = {}) {
   const items = (Array.isArray(workItems) ? workItems : [])
-    .map((workItem) => summarizePipelineProgression(workItem?.runtimeDiagnostics?.pipelineProgression, workItem))
+    .map((workItem) => summarizeGraphRouteProgression(workItem?.runtimeDiagnostics?.graphRouteProgression, workItem))
     .filter(Boolean)
     .sort((left, right) => (
       (right?.ts || right?.updatedAt || right?.createdAt || 0)
@@ -144,6 +227,7 @@ export function buildAttentionItems({
   workItemCounts,
   systemActionDeliveryCounts,
   runtimeSummary,
+  recentRuntimeIncidents = [],
   activeTestRun,
   automationCounts,
 }) {
@@ -191,6 +275,24 @@ export function buildAttentionItems({
       area: "runtime",
       count: runtimeSummary.targets.unhealthy,
       summary: "dispatch targets 中有 unhealthy agent。",
+      path: "/watchdog/runtime",
+    });
+  }
+  if ((runtimeSummary.queueDiagnostics?.issueCount || 0) > 0) {
+    items.push({
+      severity: runtimeSummary.queueDiagnostics.hasSplitBrain ? "error" : "warning",
+      area: "runtime_queue",
+      count: runtimeSummary.queueDiagnostics.issueCount,
+      summary: "dispatch queue / tracking 出现不一致，需要检查 claim、staging 与 target 状态。",
+      path: "/watchdog/runtime",
+    });
+  }
+  if ((recentRuntimeIncidents.length || 0) > 0) {
+    items.push({
+      severity: "error",
+      area: "runtime",
+      count: recentRuntimeIncidents.length,
+      summary: "存在 incident-backed runtime fault，需要优先查看 rootFault / firstFaultCode。",
       path: "/watchdog/runtime",
     });
   }
@@ -242,13 +344,28 @@ export function resolveSnapshotState(attentionItems, runtimeSummary, activeTestR
 }
 
 export function buildRuntimeSummary(limit) {
-  const tracking = mapTrackingSessions(limit);
-  const runtimeSnapshot = buildDispatchRuntimeSnapshot();
+  const runtimeState = inspectCliRuntimeState();
+  const runtimeSnapshot = runtimeState.dispatchRuntime || {};
+  const tracking = mapTrackingSessions(limit, runtimeState.trackingSessions);
   const targets = mapDispatchTargets(runtimeSnapshot);
 
   return {
     queueDepth: Array.isArray(runtimeSnapshot.queue) ? runtimeSnapshot.queue.length : 0,
     tracking,
     targets,
+    queueDiagnostics: buildRuntimeQueueDiagnostics({
+      tracking,
+      targets,
+    }),
   };
+}
+
+export function listRecentRuntimeIncidents(workItems, {
+  limit = 6,
+} = {}) {
+  return (Array.isArray(workItems) ? workItems : [])
+    .map((workItem) => summarizeRuntimeIncident(workItem?.runtimeDiagnostics?.executionIncident))
+    .filter(Boolean)
+    .sort((left, right) => (right?.updatedAt || 0) - (left?.updatedAt || 0))
+    .slice(0, limit);
 }

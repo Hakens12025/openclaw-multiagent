@@ -1,7 +1,7 @@
 /**
  * reviewer-result.js — Canonical ReviewerResult object
  *
- * Bridges HarnessRun → pipeline gate / automation decision / operator brain.
+ * Bridges HarnessRun → evaluation gate / automation decision / operator brain.
  * Every evaluation outcome (harness module, soft gate, review bridge, manual)
  * normalizes into this shape before downstream consumption.
  */

@@ -1,119 +1,31 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
+import { normalizeReturnContext } from "../coordination-primitives.js";
+import { normalizeString } from "../core/normalize.js";
 import {
-  normalizeReplyTarget,
-  normalizeReturnContext,
-} from "../coordination-primitives.js";
-import { normalizeRecord, normalizeString } from "../core/normalize.js";
-import {
-  normalizeServiceSession,
-  resolveResumableServiceSession,
-  resolveServiceSessionTargetSessionKey,
-} from "../service-session.js";
-import {
-  SYSTEM_ACTION_DELIVERY_TICKET_STORE,
   atomicWriteFile,
   withLock,
 } from "../state.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
+import {
+  PENDING_SIGNAL_KINDS,
+  registerPendingSignal,
+  clearPendingSignal,
+} from "../runtime/pending-signal-registry.js";
+import {
+  buildNormalizedRoute,
+  normalizeSystemActionDeliveryTicketEntry,
+  normalizeSystemActionDeliveryTicketRef,
+} from "./delivery-system-action-ticket-route.js";
 
+export {
+  normalizeSystemActionDeliveryTicketRef,
+} from "./delivery-system-action-ticket-route.js";
+
+const SYSTEM_ACTION_DELIVERY_TICKET_STORE = CONTROL_PLANE_PATHS.systemActionDeliveryTicketsFile;
 const systemActionDeliveryTickets = new Map();
 let systemActionDeliveryTicketsHydrated = false;
-
-function normalizeSystemActionDeliveryTicketRef(value) {
-  if (typeof value === "string" && value.trim()) {
-    return { id: value.trim() };
-  }
-
-  const record = normalizeRecord(value, null);
-  const id = normalizeString(record?.id);
-  if (!id) {
-    return null;
-  }
-
-  return {
-    id,
-    lane: normalizeString(record?.lane),
-    createdAt: Number.isFinite(record?.createdAt) ? record.createdAt : null,
-    intentType: normalizeString(record?.intentType),
-    sourceAgentId: normalizeString(record?.sourceAgentId),
-    sourceSessionKey: normalizeString(record?.sourceSessionKey),
-    sourceContractId: normalizeString(record?.sourceContractId),
-    status: normalizeString(record?.status),
-  };
-}
-
-function buildNormalizedRoute({
-  replyTo,
-  upstreamReplyTo = null,
-  serviceSession = null,
-  returnContext = null,
-  sourceSessionKey = null,
-} = {}) {
-  const normalizedReplyTo = normalizeReplyTarget(replyTo);
-  const normalizedUpstreamReplyTo = normalizeReplyTarget(upstreamReplyTo);
-  const normalizedServiceSession = normalizeServiceSession(serviceSession);
-  const targetAgent = normalizedReplyTo?.agentId || null;
-  const resumableServiceSession = resolveResumableServiceSession(normalizedServiceSession, {
-    agentId: targetAgent,
-  }) || normalizedServiceSession;
-  const normalizedReturnContext = normalizeReturnContext(returnContext);
-  const targetSessionKey = resolveServiceSessionTargetSessionKey(
-    resumableServiceSession,
-    sourceSessionKey
-      || normalizedReturnContext?.sourceSessionKey
-      || normalizedReplyTo?.sessionKey
-      || null,
-  );
-  const effectiveReturnContext = normalizeReturnContext({
-    ...(normalizedReturnContext || {}),
-    ...(targetSessionKey ? { sourceSessionKey: targetSessionKey } : {}),
-  });
-
-  return {
-    replyTo: normalizedReplyTo,
-    upstreamReplyTo: normalizedUpstreamReplyTo,
-    serviceSession: resumableServiceSession,
-    returnContext: effectiveReturnContext,
-    targetAgent,
-    targetSessionKey,
-  };
-}
-
-function normalizeSystemActionDeliveryTicketEntry(value) {
-  const entry = normalizeRecord(value, null);
-  const id = normalizeString(entry?.id);
-  if (!id) {
-    return null;
-  }
-
-  const source = normalizeRecord(entry.source, {});
-  const route = buildNormalizedRoute({
-    replyTo: entry.route?.replyTo,
-    upstreamReplyTo: entry.route?.upstreamReplyTo,
-    serviceSession: entry.route?.serviceSession,
-    returnContext: entry.route?.returnContext,
-    sourceSessionKey: source.sessionKey || null,
-  });
-
-  return {
-    id,
-    lane: normalizeString(entry.lane) || null,
-    intentType: normalizeString(entry.intentType) || null,
-    createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : Date.now(),
-    status: normalizeString(entry.status) || "active",
-    source: {
-      agentId: normalizeString(source.agentId) || null,
-      sessionKey: normalizeString(source.sessionKey) || route.targetSessionKey || null,
-      contractId: normalizeString(source.contractId) || null,
-    },
-    route,
-    metadata: normalizeRecord(entry.metadata, null),
-    resolvedAt: Number.isFinite(entry.resolvedAt) ? entry.resolvedAt : null,
-    resolvedByAgentId: normalizeString(entry.resolvedByAgentId) || null,
-    resolvedByContractId: normalizeString(entry.resolvedByContractId) || null,
-  };
-}
 
 async function ensureSystemActionDeliveryTicketStoreHydrated() {
   if (systemActionDeliveryTicketsHydrated) {
@@ -219,6 +131,17 @@ export async function registerSystemActionDeliveryTicket({
     await persistSystemActionDeliveryTicketStore();
   });
 
+  const targetAgentId = ticket?.route?.targetAgentId
+    || ticket?.route?.replyTo?.agentId
+    || null;
+  if (targetAgentId) {
+    registerPendingSignal({
+      agentId: targetAgentId,
+      sourceKind: PENDING_SIGNAL_KINDS.SYSTEM_ACTION_DELIVERY,
+      sourceRef: ticket.id,
+    });
+  }
+
   return ticket;
 }
 
@@ -263,18 +186,30 @@ export async function summarizeSystemActionDeliveryTickets(options = {}) {
 
 export async function resolveSystemActionDeliveryTicketRoute({
   systemActionDeliveryTicket = null,
-  replyTo = null,
-  upstreamReplyTo = null,
-  serviceSession = null,
-  returnContext = null,
-  sourceSessionKey = null,
 } = {}) {
   const normalizedTicket = normalizeSystemActionDeliveryTicketRef(systemActionDeliveryTicket);
+  if (!normalizedTicket) {
+    return {
+      ok: false,
+      ticket: null,
+      ticketId: null,
+      resolvedBy: "missing_ticket",
+      error: "missing_delivery_ticket",
+      replyTo: null,
+      upstreamReplyTo: null,
+      serviceSession: null,
+      returnContext: null,
+      targetAgent: null,
+      targetSessionKey: null,
+    };
+  }
+
   const resolvedTicket = normalizedTicket
     ? await getSystemActionDeliveryTicket(normalizedTicket)
     : null;
   if (resolvedTicket) {
     return {
+      ok: true,
       ticket: resolvedTicket,
       ticketId: resolvedTicket.id,
       resolvedBy: "ticket",
@@ -283,16 +218,17 @@ export async function resolveSystemActionDeliveryTicketRoute({
   }
 
   return {
+    ok: false,
     ticket: null,
     ticketId: normalizedTicket?.id || null,
-    resolvedBy: normalizedTicket?.id ? "fallback_ticket_missing" : "fallback_direct",
-    ...buildNormalizedRoute({
-      replyTo,
-      upstreamReplyTo,
-      serviceSession,
-      returnContext,
-      sourceSessionKey,
-    }),
+    resolvedBy: "ticket_missing",
+    error: "missing_delivery_ticket",
+    replyTo: null,
+    upstreamReplyTo: null,
+    serviceSession: null,
+    returnContext: null,
+    targetAgent: null,
+    targetSessionKey: null,
   };
 }
 
@@ -321,13 +257,58 @@ export async function markSystemActionDeliveryTicketResolved(systemActionDeliver
       resolvedByContractId: normalizeString(resolvedByContractId) || existing.resolvedByContractId || null,
     });
     await persistSystemActionDeliveryTicketStore();
+
+    const targetAgentId = existing?.route?.targetAgentId
+      || existing?.route?.replyTo?.agentId
+      || null;
+    if (targetAgentId) {
+      clearPendingSignal({
+        agentId: targetAgentId,
+        sourceKind: PENDING_SIGNAL_KINDS.SYSTEM_ACTION_DELIVERY,
+        sourceRef: existing.id,
+      });
+    }
+
     return true;
   });
+}
+
+export async function rehydrateSystemActionDeliveryPendingSignals({ logger = null } = {}) {
+  await ensureSystemActionDeliveryTicketStoreHydrated();
+  let registered = 0;
+  for (const ticket of systemActionDeliveryTickets.values()) {
+    if (ticket?.status === "resolved") continue;
+    const targetAgentId = ticket?.route?.targetAgentId
+      || ticket?.route?.replyTo?.agentId
+      || null;
+    if (!targetAgentId) continue;
+    registerPendingSignal({
+      agentId: targetAgentId,
+      sourceKind: PENDING_SIGNAL_KINDS.SYSTEM_ACTION_DELIVERY,
+      sourceRef: ticket.id,
+    });
+    registered += 1;
+  }
+  if (registered > 0) {
+    logger?.info?.(`[system_action_delivery] rehydrated ${registered} pending signals`);
+  }
+  return { registered };
 }
 
 export async function clearSystemActionDeliveryTicketStore() {
   return withLock("system-action-delivery-tickets", async () => {
     await ensureSystemActionDeliveryTicketStoreHydrated();
+    for (const ticket of systemActionDeliveryTickets.values()) {
+      const targetAgentId = ticket?.route?.targetAgentId
+        || ticket?.route?.replyTo?.agentId
+        || null;
+      if (!targetAgentId) continue;
+      clearPendingSignal({
+        agentId: targetAgentId,
+        sourceKind: PENDING_SIGNAL_KINDS.SYSTEM_ACTION_DELIVERY,
+        sourceRef: ticket.id,
+      });
+    }
     const count = systemActionDeliveryTickets.size;
     systemActionDeliveryTickets.clear();
     await persistSystemActionDeliveryTicketStore();

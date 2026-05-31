@@ -10,7 +10,7 @@ function normalizeStageIdentifier(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function normalizePipelineStageDescriptor(stage) {
+export function normalizeContractStageDescriptor(stage) {
   if (!stage || typeof stage !== "object") return null;
   const normalizedStage = normalizeStageIdentifier(stage.stage);
   if (!normalizedStage) return null;
@@ -140,10 +140,10 @@ function resolveLoopTerminalStatus(terminalStatus) {
 }
 
 export async function maybeFinalizeLoopSession(context, terminalStatus, outcome) {
-  const pipelineStage = normalizePipelineStageDescriptor(
+  const contractStage = normalizeContractStageDescriptor(
     context.effectiveContractData?.pipelineStage || context.trackingState?.contract?.pipelineStage,
   );
-  if (!pipelineStage?.loopSessionId) {
+  if (!contractStage?.loopSessionId) {
     return null;
   }
 
@@ -157,15 +157,15 @@ export async function maybeFinalizeLoopSession(context, terminalStatus, outcome)
     : [
         "loop_terminal",
         terminalStatus,
-        pipelineStage.stage,
+        contractStage.stage,
         outcome?.reason || "unknown",
       ].filter(Boolean).join(": ");
 
   const concluded = await concludeLoopSession({
-    sessionId: pipelineStage.loopSessionId,
+    sessionId: contractStage.loopSessionId,
     reason: concludeReason,
-    currentStage: pipelineStage.stage,
-    round: pipelineStage.round || 1,
+    currentStage: contractStage.stage,
+    round: contractStage.round || 1,
     status: resolveLoopTerminalStatus(terminalStatus),
     taskStagePlan: context.trackingState?.contract?.stagePlan
       || context.effectiveContractData?.stagePlan
@@ -180,10 +180,10 @@ export async function maybeFinalizeLoopSession(context, terminalStatus, outcome)
     action: concluded ? "concluded" : "missing_loop_session",
     terminalStatus,
     reason: concludeReason,
-    stage: pipelineStage.stage,
-    pipelineId: pipelineStage.pipelineId || null,
-    loopId: pipelineStage.loopId || null,
-    loopSessionId: pipelineStage.loopSessionId || null,
+    stage: contractStage.stage,
+    pipelineId: contractStage.pipelineId || null,
+    loopId: contractStage.loopId || null,
+    loopSessionId: contractStage.loopSessionId || null,
     ts: Date.now(),
   };
 }

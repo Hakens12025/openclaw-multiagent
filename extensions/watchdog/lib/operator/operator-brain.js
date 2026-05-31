@@ -11,7 +11,7 @@ import { callOpenAICompatiblePlanner } from "../llm-planner.js";
 import { normalizeRecord, normalizeString, uniqueStrings, compactText } from "../core/normalize.js";
 import { buildOperatorKnowledgeContext } from "./operator-knowledge.js";
 import { loadSnapshotCoreData } from "./operator-snapshot.js";
-import { listOperatorExecutableAdminSurfaces } from "./operator-surface-policy.js";
+import { listOperatorExecutableCliSystemSurfaces } from "./operator-surface-policy.js";
 
 const OPERATOR_BRAIN_MAX_SKILLS = 32;
 const OPERATOR_BRAIN_MAX_MODELS = 24;
@@ -145,13 +145,17 @@ function buildLoopPlanningHints({ loops, loopSessions }) {
 
 export function buildOperatorPlanningFocus({ agents = [], loops = [], loopSessions = [], conversation = [], currentPlan = null } = {}) {
   const agentList = Array.isArray(agents) ? agents : [];
-  const controllerAgent = agentList.find((a) => normalizeString(a?.id) === "controller") || null;
+  const webuiGatewayAgent = agentList.find((agent) => {
+    if (agent?.gateway !== true) return false;
+    const ingressSource = normalizeString(agent?.ingressSource)?.toLowerCase();
+    return !ingressSource || ingressSource === "webui";
+  }) || null;
   const knownAgentIds = agentList.map((a) => normalizeString(a?.id)).filter(Boolean);
 
   return {
     defaults: {
-      controllerAgentId: normalizeString(controllerAgent?.id) || null,
-      preferControllerLinksForReporting: controllerAgent != null,
+      webuiGatewayAgentId: normalizeString(webuiGatewayAgent?.id) || null,
+      preferWebuiGatewayLinksForReporting: webuiGatewayAgent != null,
       generatedAgentIdStyle: "kebab-case",
       supportedRoles: Object.values(AGENT_ROLE),
     },
@@ -201,21 +205,15 @@ function buildBrainContext({ requestText, modelRef, agentDefaults, agents, skill
 function buildOperatorBrainSystemPrompt() {
   return [
     "You are Runtime Operator Brain for OpenClaw.",
-    "You are a declarative platform steward for admin surfaces.",
-    "Produce a structured plan from executableSurfaces, or answer in advice_only mode with zero steps.",
-    "Rules:",
-    "1. Step surfaceId values come from executableSurfaces.",
-    "2. Admin surfaces, file paths, schema keys, and agent ids come from the provided context.",
-    "3. Directed graph edges are directional.",
-    "4. Existing-agent edits should use available name / description / skills / policy surfaces when they satisfy the request.",
-    "5. Protocol, runtime kernel, and code-file changes require a matching executable surface; otherwise use advice_only.",
-    "6. Reply concisely and concretely.",
-    "7. Treat knowledge.selectedFragments, knowledge.retrievedNotes, and knowledge.notableSkills as platform-grounded rules and local evidence.",
-    "8. Use conversation.recentTurns, conversation.currentPlan, and planningFocus.recentReferents to resolve follow-up references like '\u8fd9\u4e2a agent' or '\u5f53\u524d loop' when the target is unambiguous.",
-    "9. When planningFocus.loopHints exposes a single clear repair/resume candidate and the user asks to fix, repair, continue, or optimize the current loop/chain, prefer executable structural steps.",
-    "10. When creating a new agent without an explicit id, derive a concise kebab-case id from the requested duty, choose a supportedRoles value, and add name/description steps when helpful.",
-    "11. When the request asks to make an agent more front-desk-like and policy surfaces are available, consider gateway / ingressSource / skills / description adjustments.",
-    "Return pure JSON only, no markdown fences.",
+    "You are the control-plane steward for inspect, apply, and verify.",
+    "Understand the user's request, then return a structured plan using provided cli-system surfaces or answer in advice_only mode with zero steps.",
+    "Use context.agent/surface/schema ids exactly as provided.",
+    "Plan only with executableSurfaces. For unsupported requests, use intent=advice_only with steps=[].",
+    "executableSurfaces include apply (write) and verify (test_runs.start / test.inject) surfaces. When you mutate the platform, you may append a verify step to confirm the change (inspect -> apply -> verify governance loop).",
+    "Graph edges are directional. Proposed graph changes must appear as graph surface steps.",
+    "Use conversation and planningFocus to resolve clear follow-up references.",
+    "Use knowledge fragments as platform-grounded local evidence.",
+    "Return only the concise JSON object matching this schema.",
     "JSON schema:",
     JSON.stringify({
       intent: "create_agent | connect_agents | disconnect_agents | agent_mutation | graph_mutation | platform_mutation | advice_only",
@@ -247,7 +245,7 @@ export async function planWithOperatorBrain({ message, history = [], currentPlan
   if (!modelRef.providerId || !modelRef.modelId) throw new Error("operator brain could not resolve a planner model");
   if (!modelRef.baseUrl || !modelRef.apiKey) throw new Error(`operator brain provider is not ready: ${modelRef.providerId}`);
 
-  const surfaces = listOperatorExecutableAdminSurfaces({ includeTemplates: true });
+  const surfaces = listOperatorExecutableCliSystemSurfaces({ includeTemplates: true });
   const [knowledge, planningFocus] = await Promise.all([
     buildOperatorKnowledgeContext({ requestText, graph, loops, loopSessions, skills, surfaces }),
     Promise.resolve(buildOperatorPlanningFocus({ agents, loops, loopSessions, conversation: history, currentPlan })),
@@ -261,7 +259,7 @@ export async function planWithOperatorBrain({ message, history = [], currentPlan
     baseUrl: modelRef.baseUrl,
     apiKey: modelRef.apiKey,
     systemPrompt: buildOperatorBrainSystemPrompt(),
-    userPrompt: ["Plan or answer based on this live platform context.", "Use advice_only for requests outside executableSurfaces.", JSON.stringify(context, null, 2)].join("\n\n"),
+    userPrompt: ["Plan or answer based on this live platform context.", "Use advice_only for low-confidence execution.", JSON.stringify(context, null, 2)].join("\n\n"),
   });
 
   return { ok: true, source: "operator_brain_llm", plannerModel: modelRef.fullRef, context, plan: normalizeRecord(rawPlan) };

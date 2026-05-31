@@ -5,55 +5,55 @@ function compactRuntimeBits(fields) {
     .join(" ");
 }
 
-function describeCompletionEgressHint(egress) {
-  if (!egress || typeof egress !== "object") return null;
-  if (egress.ok === true && !egress.fallback) return null;
+function describeTerminalDeliveryHint(terminalDelivery) {
+  if (!terminalDelivery || typeof terminalDelivery !== "object") return null;
+  if (terminalDelivery.ok === true && !terminalDelivery.fallback) return null;
 
-  const lane = egress.lane || "completion_egress";
-  if (egress.error === "missing_reply_target" || egress.stage === "resolve_reply_target") {
+  const lane = terminalDelivery.lane || "terminal_delivery";
+  if (terminalDelivery.error === "missing_reply_target" || terminalDelivery.stage === "resolve_reply_target") {
     return {
       lane,
       summary: "delivery skipped before persistence: missing_reply_target",
       detail: compactRuntimeBits({
-        channel: egress.channel || "delivery",
-        stage: egress.stage || "resolve_reply_target",
-        persisted: egress.persisted,
-        notified: egress.notified,
+        channel: terminalDelivery.channel || "delivery",
+        stage: terminalDelivery.stage || "resolve_reply_target",
+        persisted: terminalDelivery.persisted,
+        notified: terminalDelivery.notified,
       }),
     };
   }
 
-  if (egress.stage === "write") {
+  if (terminalDelivery.stage === "write") {
     return {
       lane,
-      summary: `delivery write failed${egress.error ? `: ${egress.error}` : ""}`,
+      summary: `delivery write failed${terminalDelivery.error ? `: ${terminalDelivery.error}` : ""}`,
       detail: compactRuntimeBits({
-        channel: egress.channel || "delivery",
-        persisted: egress.persisted,
-        notified: egress.notified,
+        channel: terminalDelivery.channel || "delivery",
+        persisted: terminalDelivery.persisted,
+        notified: terminalDelivery.notified,
       }),
     };
   }
 
-  if (egress.stage === "notify" && egress.persisted === true && egress.notified === false) {
+  if (terminalDelivery.stage === "notify" && terminalDelivery.persisted === true && terminalDelivery.notified === false) {
     return {
       lane,
-      summary: `delivery persisted but notify failed${egress.error ? `: ${egress.error}` : ""}`,
+      summary: `delivery persisted but notify failed${terminalDelivery.error ? `: ${terminalDelivery.error}` : ""}`,
       detail: compactRuntimeBits({
-        channel: egress.channel || "delivery",
-        deliveryId: egress.deliveryId || null,
-        targetAgent: egress.targetAgent || null,
+        channel: terminalDelivery.channel || "delivery",
+        deliveryId: terminalDelivery.deliveryId || null,
+        targetAgent: terminalDelivery.targetAgent || null,
       }),
     };
   }
 
-  if (egress.fallback) {
-    const fallback = egress.fallback;
+  if (terminalDelivery.fallback) {
+    const fallback = terminalDelivery.fallback;
     return {
       lane,
-      summary: `primary completion egress failed${egress.primaryError ? `: ${egress.primaryError}` : ""}; fallback ${fallback.ok ? "succeeded" : "failed"}`,
+      summary: `primary terminal delivery failed${terminalDelivery.primaryError ? `: ${terminalDelivery.primaryError}` : ""}; fallback ${fallback.ok ? "succeeded" : "failed"}`,
       detail: compactRuntimeBits({
-        primaryChannel: egress.primaryChannel || null,
+        primaryChannel: terminalDelivery.primaryChannel || null,
         fallbackChannel: fallback.channel || null,
         fallbackStage: fallback.stage || null,
         fallbackError: fallback.error || null,
@@ -61,15 +61,15 @@ function describeCompletionEgressHint(egress) {
     };
   }
 
-  if (egress.ok === false) {
+  if (terminalDelivery.ok === false) {
     return {
       lane,
-      summary: `completion egress failed${egress.error ? `: ${egress.error}` : ""}`,
+      summary: `terminal delivery failed${terminalDelivery.error ? `: ${terminalDelivery.error}` : ""}`,
       detail: compactRuntimeBits({
-        channel: egress.channel || null,
-        stage: egress.stage || null,
-        persisted: egress.persisted,
-        notified: egress.notified,
+        channel: terminalDelivery.channel || null,
+        stage: terminalDelivery.stage || null,
+        persisted: terminalDelivery.persisted,
+        notified: terminalDelivery.notified,
       }),
     };
   }
@@ -95,7 +95,7 @@ function findSystemActionDeliveryRuntimeHint(deliveryId, delivery) {
   if (delivery.wake && delivery.wake.ok === false) {
     return {
       lane: delivery.wake.lane || `${delivery.lane || deliveryId}.wake`,
-      summary: `system_action delivery wake failed${delivery.wake.error ? `: ${delivery.wake.error}` : ""}`,
+      summary: `system_action delivery resume failed${delivery.wake.error ? `: ${delivery.wake.error}` : ""}`,
       detail: compactRuntimeBits({
         deliveryId,
         targetAgent: delivery.wake.targetAgent || delivery.targetAgent || null,
@@ -117,7 +117,7 @@ export function describeRuntimeHint(result, issue) {
   if (!runtime || typeof runtime !== "object") return null;
 
   const diagnostics = runtime.runtimeDiagnostics || {};
-  const completionHint = describeCompletionEgressHint(diagnostics.completionEgress);
+  const completionHint = describeTerminalDeliveryHint(diagnostics.terminalDelivery);
   const systemWake = runtime.systemAction?.wake;
   const systemWakeHint = systemWake && systemWake.ok === false
     ? {

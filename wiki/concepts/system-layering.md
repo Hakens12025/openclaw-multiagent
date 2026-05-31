@@ -8,9 +8,9 @@
 
 | Layer | 名称 | 核心对象 / 职责 |
 |-------|------|-----------------|
-| L0 | Kernel | AgentBinding, Contract, MessageEnvelope, EdgeSpec, LoopSpec, LoopSession, PipelineState, AutomationRuntimeState, ticket/ledger/lock/store — 系统原语，不含业务逻辑 |
+| L0 | Kernel | AgentBinding, Contract, MessageEnvelope, EdgeSpec, LoopSpec, LoopSession, AutomationRuntimeState, ticket/ledger/lock/store — 系统原语，不含业务逻辑 |
 | L1 | Communication | ingress.normalize（入口归一化）, conveyor.dispatch（传送带分发）, return routing（回程路由） |
-| L2 | Control Plane | graph collaboration（图协作授权）, loop advancement（循环推进）, pipeline progression（流水线推进） |
+| L2 | Control Plane | graph collaboration（图协作授权）, loop advancement（循环推进）, runtime graph progression（运行时图推进） |
 | L3 | Execution Shaping | harness run, modules, profiles, evidence, failure classification — 塑造单次执行的质量 |
 | L4 | Evaluation | EvaluationResult, judgment semantics — 对执行结果做判定 |
 | L5 | Governance | AutomationDecision, ProfileLifecycle, capability evolution — 自动化治理与能力演化 |
@@ -20,7 +20,7 @@
 
 ## 深水区四层联动（交叉视图）
 
-7 层模型继续有效。  
+7 层模型继续有效。
 `Harness / CLI system / Operator / Automation` 不是对 7 层的替代，而是一条跨层交叉视图：
 
 | 对象 | 在 7 层里的主要位置 |
@@ -34,7 +34,7 @@
 
 ## 为什么存在
 
-- 防止职责混淆（历史上 pipeline-engine 同时做 L2 控制 + L3 执行 + L4 评估，导致 god object）
+- 防止职责混淆（历史编排引擎曾同时做 L2 控制 + L3 执行 + L4 评估，导致 god object）
 - 为渐进式重构提供方向：每次只清理一层的边界
 - 让新 agent / 新功能知道自己该落在哪一层
 
@@ -49,7 +49,7 @@
 ## 演化
 
 1. 备忘录77 首次提出 7 层模型
-2. 备忘录92 审查确认分层合理性，指出 pipeline dissolution 应按层推进
+2. 备忘录92 审查确认分层合理性，指出历史编排引擎收口应按层推进
 3. 备忘录98 重申分层原则，确认 L6 只读约束
 
 ## 当前状态

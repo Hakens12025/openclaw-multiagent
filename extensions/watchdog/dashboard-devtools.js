@@ -59,6 +59,31 @@
     return div.innerHTML;
   }
 
+  function getSurfaceDisplayApi() {
+    return globalThis.OpenClawSurfaceDisplay || null;
+  }
+
+  function resolveSurfaceDisplayId(surfaceOrId, fallbackSurface = null) {
+    const api = getSurfaceDisplayApi();
+    if (api?.resolveSurfaceDisplayId) {
+      return api.resolveSurfaceDisplayId(surfaceOrId, fallbackSurface);
+    }
+    return surfaceOrId?.displayId || fallbackSurface?.displayId || null;
+  }
+
+  function formatSurfaceDisplayId(surfaceOrId, fallback = "--", fallbackSurface = null) {
+    const api = getSurfaceDisplayApi();
+    if (api?.formatSurfaceDisplayId) {
+      return api.formatSurfaceDisplayId(surfaceOrId, fallback, fallbackSurface);
+    }
+    return resolveSurfaceDisplayId(surfaceOrId, fallbackSurface) || fallback;
+  }
+
+  function formatKnownSurfaceDisplayId(surfaceId, fallback = "--") {
+    const surface = getAdminSurfaceEntry(surfaceId) || findAuthoringSurface(surfaceId);
+    return formatSurfaceDisplayId(surface || surfaceId, fallback, surface);
+  }
+
   function tokenParam() {
     return encodeURIComponent(new URLSearchParams(window.location.search).get("token") || "");
   }
@@ -339,15 +364,15 @@
       case "admin_change_set":
         return state.changeSets.map((draft) => ({
           id: draft.id,
-          label: draft.title || draft.surfaceId || draft.id,
-          meta: `${draft.surfaceId || "--"} // ${draft.status || "draft"}`,
+          label: draft.title || formatKnownSurfaceDisplayId(draft.surfaceId, draft.id || "--"),
+          meta: `${formatKnownSurfaceDisplayId(draft.surfaceId)} // ${draft.status || "draft"}`,
           detail: `${draft.executionCount || 0} exec // ${draft.verificationCount || 0} evidence`,
           snapshot: draft,
         }));
       case "admin_surface":
         return (state.adminSurfaceSummary?.surfaces || []).map((surface) => ({
           id: surface.id,
-          label: surface.id,
+          label: formatSurfaceDisplayId(surface, surface.id || "--"),
           meta: `${surface.stage || "--"} // ${surface.risk || "--"}`,
           detail: surface.summary || null,
           snapshot: surface,
@@ -439,7 +464,8 @@
     return {
       draftId: draft.id || null,
       surfaceId: draft.surfaceId || null,
-      title: draft.title || draft.surfaceId || draft.id || null,
+      surfaceDisplayId: formatKnownSurfaceDisplayId(draft.surfaceId, draft.surfaceId || null),
+      title: draft.title || formatKnownSurfaceDisplayId(draft.surfaceId, draft.id || null) || draft.id || null,
       supported: verificationRun.supported !== false,
       enabled: verificationRun.enabled !== false,
       presetId: presetId || null,
@@ -550,6 +576,7 @@
       targetMeta: target?.meta || target?.detail || null,
       targetComposeAgentId: target?.composeAgentId || null,
       surfaceId: surface?.id || surfaceId || null,
+      surfaceDisplayId: formatSurfaceDisplayId(surface || surfaceId, surface?.id || surfaceId || "--", surface),
       surfaceSummary: surface?.summary || surface?.id || null,
       selectorKey: subject?.selectorKey || surface?.subject?.selectorKey || null,
     };
@@ -575,6 +602,7 @@
       targetMeta: target?.meta || target?.detail || null,
       targetComposeAgentId: target?.composeAgentId || selectorValue || null,
       surfaceId: String(context.surfaceId || "").trim() || null,
+      surfaceDisplayId: formatKnownSurfaceDisplayId(context.surfaceId, context.surfaceId || null),
       surfaceSummary: getAdminSurfaceEntry(context.surfaceId)?.summary || null,
       selectorKey: String(context.selectorKey || context.targetRef?.key || "").trim() || null,
     };
@@ -922,7 +950,7 @@
   }
 
   function buildDefaultComposeTitle(surface) {
-    return surface?.summary || surface?.id || "";
+    return surface?.summary || formatSurfaceDisplayId(surface, surface?.id || "");
   }
 
   function getAgentRegistryEntry(agentId) {
@@ -1052,7 +1080,7 @@
           payload.description = agent.description || "";
         }
         return payload;
-      case "agents.card.tools":
+      case "agents.tools":
         if (agent) {
           payload.agentId = agent.id;
           payload.toolsText = formatStringList(agent.capabilities?.tools);
@@ -1412,7 +1440,7 @@
     let explicitConfirm = false;
     if (state.selectedDraft.confirmation === "explicit") {
       const confirmed = window.confirm(
-        `EXPLICIT CONFIRM\n\n${state.selectedDraft.surfaceId}\n\nThis draft is marked destructive/explicit. Continue?`,
+        `EXPLICIT CONFIRM\n\n${formatKnownSurfaceDisplayId(state.selectedDraft.surfaceId, state.selectedDraft.surfaceId || "--")}\n\nThis draft is marked destructive/explicit. Continue?`,
       );
       if (!confirmed) return;
       explicitConfirm = true;
@@ -1605,7 +1633,7 @@
       agentIdHint: subject?.kind === "agent" ? target?.composeAgentId || null : null,
     });
     const titleParts = [
-      surface.summary || surface.id,
+      surface.summary || formatSurfaceDisplayId(surface, surface.id || "--"),
       target?.label || null,
     ].filter(Boolean);
     const summaryParts = [
@@ -1653,7 +1681,7 @@
         </div>
         <div class="devtool-detail-line"><span>SUBJECT</span><strong>${esc(context.subjectLabel || context.subjectKind || "--")}</strong></div>
         <div class="devtool-detail-line"><span>TARGET</span><strong>${esc(context.targetLabel || context.targetId || "--")}</strong></div>
-        <div class="devtool-detail-line"><span>SURFACE</span><strong>${esc(context.surfaceId || "--")}</strong></div>
+        <div class="devtool-detail-line"><span>SURFACE</span><strong>${esc(context.surfaceDisplayId || formatKnownSurfaceDisplayId(context.surfaceId, context.surfaceId || "--"))}</strong></div>
         <div class="devtool-detail-line"><span>SELECTOR</span><strong>${esc(context.selectorKey || "--")}</strong></div>
         ${context.targetMeta ? `<div class="devtool-detail-text">${esc(context.targetMeta)}</div>` : ""}
         ${context.surfaceSummary ? `<div class="devtool-detail-text">${esc(context.surfaceSummary)}</div>` : ""}
@@ -1678,6 +1706,9 @@
     normalizeRecord,
     renderDetailCard,
     renderManagementContextCard,
+    formatSurfaceDisplayId,
+    formatKnownSurfaceDisplayId,
+    resolveSurfaceDisplayId,
     getManagementSubjects,
     getSelectedManagementSubject,
     getSelectedManagementTarget,
@@ -1766,7 +1797,6 @@
     renderHistory: () => {},
     readComposeFieldValue: (field) => normalizeFieldValueForState(field, undefined),
   });
-
   function getActiveView() {
     if (state.viewMode === VIEW_MODES.TEST_RUNS) return testRunsView;
     if (state.viewMode === VIEW_MODES.MANAGEMENT) return managementView;
@@ -1842,9 +1872,9 @@
           : state.selectedDraft;
         const verification = getDraftVerificationRunConfig(selectedDraft);
         status.textContent = selected
-          ? `${selectedDraft?.surfaceId || selected.originDraftId || selected.label} // ${selected.label || selected.id} // ${String(selected.status || "running").toUpperCase()}`
+          ? `${formatKnownSurfaceDisplayId(selectedDraft?.surfaceId, selected.originDraftId || selected.label || "--")} // ${selected.label || selected.id} // ${String(selected.status || "running").toUpperCase()}`
           : verification?.draftId
-            ? `${selectedDraft?.surfaceId || verification.draftId} // ${verification.presetId || "NO PRESET"} // READY TO VERIFY`
+            ? `${verification.surfaceDisplayId || formatKnownSurfaceDisplayId(selectedDraft?.surfaceId, verification.draftId || "--")} // ${verification.presetId || "NO PRESET"} // READY TO VERIFY`
             : "TEST RUNS // IDLE // ISOLATED";
       } else if (state.viewMode === VIEW_MODES.MANAGEMENT) {
         const subject = getSelectedManagementSubject();
@@ -1864,7 +1894,7 @@
         const selectedStatus = state.selectedDraft?.lastVerificationStatus || state.selectedDraft?.status || "draft";
         const selectedDraftContext = getSelectedDraftManagementContext();
         status.textContent = state.selectedDraft
-          ? `${state.selectedDraft.surfaceId} // ${selectedDraftContext?.targetLabel || selectedDraftContext?.targetId || "GLOBAL"} // ${String(selectedStatus).toUpperCase()}`
+          ? `${formatKnownSurfaceDisplayId(state.selectedDraft.surfaceId, state.selectedDraft.id || "--")} // ${selectedDraftContext?.targetLabel || selectedDraftContext?.targetId || "GLOBAL"} // ${String(selectedStatus).toUpperCase()}`
           : `OPERATOR // ${String(snapshotSummary?.state || "idle").toUpperCase()} // ${state.changeSets.length} DRAFTS // ${verifiedCount} VERIFIED`;
       }
     }

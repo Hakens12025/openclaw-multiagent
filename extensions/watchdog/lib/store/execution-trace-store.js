@@ -55,7 +55,7 @@ export function initTrace(sessionKey, contract) {
  * Record a tool call step into the hash chain.
  * Returns matched expectation labels (e.g. ["output"]) or null.
  */
-export function recordStep(sessionKey, { tool, targetPath }) {
+export function recordStep(sessionKey, { tool, targetPath, writeSucceeded = true }) {
   const key = normalizeSessionKey(sessionKey);
   if (!key) return null;
 
@@ -74,7 +74,7 @@ export function recordStep(sessionKey, { tool, targetPath }) {
 
   // Check commitments on write operations
   const isWrite = /^(write|Write|create|Create|edit|Edit|apply_patch)$/i.test(tool);
-  if (!isWrite || !targetPath) return null;
+  if (!isWrite || !targetPath || writeSucceeded !== true) return null;
 
   const matches = [];
   for (const exp of trace.expectations) {

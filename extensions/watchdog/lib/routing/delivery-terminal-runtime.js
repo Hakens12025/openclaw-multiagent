@@ -5,19 +5,18 @@ import { deliveryRunTerminal } from "./delivery-terminal.js";
 import { buildConversationId, recordRound } from "../conversations.js";
 import { normalizeReplyTarget } from "../coordination-primitives.js";
 import { deliverDeliveryTargets, excludeDeliveryTargets, listContractDeliveryTargets } from "./delivery-targets.js";
-import { qqNotify, getQQTarget } from "../qq.js";
+import { qqNotify, getQQTarget, getQQTargetAddress } from "../channel-notify.js";
 import { normalizeDeliveryDiagnostic } from "../lifecycle/runtime-diagnostics.js";
 import { applyTerminalDeliverySemantics } from "./delivery-protocols.js";
 import {
   buildRuntimeDeliveryResultSource,
-  readRuntimeResultContent,
+  isInternalDeliveryReason,
+  resolveTerminalUserFacingResultContent,
   resolveRuntimeResultOutputPath,
 } from "../routing/delivery-result.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { normalizeExecutionObservation } from "../execution-observation.js";
 import {
   listStageArtifactPaths,
-  normalizeStageRunResult,
 } from "../stage-results.js";
 
 async function buildFallbackDeliveryDiagnostic({
@@ -38,7 +37,7 @@ async function buildFallbackDeliveryDiagnostic({
       primaryError,
       fallback,
       ...(conversation !== undefined ? { conversation } : {}),
-    }), { lane: "completion_egress" });
+    }), { lane: "terminal_delivery" });
   } catch (fallbackError) {
     const fallbackMessage = getErrorMessage(fallbackError);
     logger.warn(`[watchdog] completion fallback deliver error: ${fallbackMessage}`);
@@ -54,7 +53,7 @@ async function buildFallbackDeliveryDiagnostic({
         error: fallbackMessage,
       },
       ...(conversation !== undefined ? { conversation } : {}),
-    }), { lane: "completion_egress" });
+    }), { lane: "terminal_delivery" });
   }
 }
 
@@ -62,7 +61,18 @@ function buildSuccessMessage(trackingState, resultContent, elapsedMinutes) {
   if (resultContent) {
     return `✅ 任务完成\n\n${resultContent}\n\n⏱ 耗时: ${elapsedMinutes}分钟`;
   }
-  return `✅ 任务完成\n${trackingState.contract.task.slice(0, 60)}\n工具调用: ${trackingState.toolCallTotal} 次 | 耗时: ${elapsedMinutes}分钟`;
+  return "✅ 任务完成";
+}
+
+function buildNonSuccessMessage(terminalStatus, outcome) {
+  if (terminalStatus === CONTRACT_STATUS.AWAITING_INPUT) {
+    const clarification = outcome?.clarification || outcome?.reason || "";
+    const safeClarification = clarification && !isInternalDeliveryReason(clarification)
+      ? clarification
+      : "请补充必要输入。";
+    return `⚠️ 任务需要补充信息\n${safeClarification}`;
+  }
+  return "❌ 任务失败\n任务未完成。";
 }
 
 async function recordConversationRoundIfNeeded(contractData, trackingState, resultContent, elapsedMinutes, resultSource = null) {
@@ -86,11 +96,12 @@ async function recordConversationRoundIfNeeded(contractData, trackingState, resu
 }
 
 async function notifyQQMessage(target, trackingState, message) {
+  const targetAddress = getQQTargetAddress(target);
   const qqNotifyResult = await qqNotify(target, message);
   broadcast("alert", {
     type: EVENT_TYPE.QQ_NOTIFY,
     contractId: trackingState.contract.id,
-    target,
+    target: targetAddress,
     ok: qqNotifyResult?.ok === true,
     reason: qqNotifyResult?.reason || null,
     detail: qqNotifyResult?.detail || null,
@@ -103,7 +114,7 @@ async function notifyQQMessage(target, trackingState, message) {
   return applyTerminalDeliverySemantics({
     ...qqNotifyResult,
     channel: "qq",
-    target,
+    target: targetAddress,
     notified: qqNotifyResult?.ok === true,
     error: qqNotifyResult?.ok === true
       ? null
@@ -145,10 +156,10 @@ async function runConfiguredDeliveryFanout({
   });
 }
 
-async function handleCompletedEgress({ trackingState, contractData, api, logger }) {
+async function handleCompletedTerminalDelivery({ trackingState, contractData, api, logger }) {
   const elapsedMinutes = Math.round((Date.now() - trackingState.startMs) / 60000);
   const resultSource = buildRuntimeDeliveryResultSource({ trackingState, contractData });
-  const resultContent = await readRuntimeResultContent(resultSource);
+  const resultContent = await resolveTerminalUserFacingResultContent(resultSource);
   const message = buildSuccessMessage(trackingState, resultContent, elapsedMinutes);
   let conversation = { recorded: false, skipped: true };
 
@@ -172,13 +183,13 @@ async function handleCompletedEgress({ trackingState, contractData, api, logger 
       primaryDelivery = normalizeDeliveryDiagnostic({
         conversation,
         ...(await notifyQQMessage(qqTarget, trackingState, message)),
-      }, { lane: "completion_egress.primary" });
+      }, { lane: "terminal_delivery.primary" });
     } else if (primaryReplyTarget?.agentId) {
       const deliveryResult = await deliveryRunTerminal(trackingState, api, logger, contractData);
       primaryDelivery = normalizeDeliveryDiagnostic({
         ...deliveryResult,
         conversation,
-      }, { lane: "completion_egress.primary" });
+      }, { lane: "terminal_delivery.primary" });
     } else {
       primaryDelivery = normalizeDeliveryDiagnostic(applyTerminalDeliverySemantics({
         ok: false,
@@ -188,7 +199,7 @@ async function handleCompletedEgress({ trackingState, contractData, api, logger 
         notified: false,
         skipped: true,
         conversation,
-      }), { lane: "completion_egress.primary" });
+      }), { lane: "terminal_delivery.primary" });
     }
   } catch (error) {
     const primaryError = getErrorMessage(error);
@@ -209,7 +220,7 @@ async function handleCompletedEgress({ trackingState, contractData, api, logger 
     trackingState,
     message,
     logger,
-    excludedTargets: qqTarget ? [{ channel: "qqbot", target: qqTarget }] : [],
+    excludedTargets: qqTarget ? [{ channel: "qqbot", target: getQQTargetAddress(qqTarget) }] : [],
   });
 
   return normalizeDeliveryDiagnostic({
@@ -218,10 +229,10 @@ async function handleCompletedEgress({ trackingState, contractData, api, logger 
     conversation,
     fanout,
     fanoutSummary: summarizeFanout(fanout),
-  }, { lane: "completion_egress" });
+  }, { lane: "terminal_delivery" });
 }
 
-async function handleNonSuccessEgress({ trackingState, contractData, terminalStatus, outcome, api, logger }) {
+async function handleNonSuccessTerminalDelivery({ trackingState, contractData, terminalStatus, outcome, api, logger }) {
   broadcast("alert", {
     type: EVENT_TYPE.CONTRACT_SEMANTIC_FAILURE,
     contractId: trackingState.contract.id,
@@ -237,18 +248,16 @@ async function handleNonSuccessEgress({ trackingState, contractData, terminalSta
   let failMsg = null;
   let primaryDelivery = null;
   try {
-    failMsg = terminalStatus === CONTRACT_STATUS.AWAITING_INPUT
-      ? `⚠️ 任务需要补充信息\n${outcome.clarification || outcome.reason || "请补充必要输入"}`
-      : `❌ 任务失败\n${outcome.reason || "未满足 contract 完成条件"}`;
+    failMsg = buildNonSuccessMessage(terminalStatus, outcome);
     if (qqTarget) {
       primaryDelivery = normalizeDeliveryDiagnostic(
         await notifyQQMessage(qqTarget, trackingState, failMsg.slice(0, 1500)),
-        { lane: "completion_egress.primary" },
+        { lane: "terminal_delivery.primary" },
       );
     } else if (primaryReplyTarget?.agentId) {
       primaryDelivery = normalizeDeliveryDiagnostic(
         await deliveryRunTerminal(trackingState, api, logger, contractData),
-        { lane: "completion_egress.primary" },
+        { lane: "terminal_delivery.primary" },
       );
     } else {
       primaryDelivery = normalizeDeliveryDiagnostic(applyTerminalDeliverySemantics({
@@ -258,7 +267,7 @@ async function handleNonSuccessEgress({ trackingState, contractData, terminalSta
         persisted: false,
         notified: false,
         skipped: true,
-      }), { lane: "completion_egress.primary" });
+      }), { lane: "terminal_delivery.primary" });
     }
   } catch (error) {
     const primaryError = getErrorMessage(error);
@@ -278,7 +287,7 @@ async function handleNonSuccessEgress({ trackingState, contractData, terminalSta
     trackingState,
     message: (failMsg || "").slice(0, 1500),
     logger,
-    excludedTargets: qqTarget ? [{ channel: "qqbot", target: qqTarget }] : [],
+    excludedTargets: qqTarget ? [{ channel: "qqbot", target: getQQTargetAddress(qqTarget) }] : [],
   });
 
   return normalizeDeliveryDiagnostic({
@@ -286,7 +295,7 @@ async function handleNonSuccessEgress({ trackingState, contractData, terminalSta
     ok: primaryDelivery?.ok === true || fanout.some((entry) => entry?.ok === true),
     fanout,
     fanoutSummary: summarizeFanout(fanout),
-  }, { lane: "completion_egress" });
+  }, { lane: "terminal_delivery" });
 }
 
 export async function deliveryRunTerminalRuntime({
@@ -300,15 +309,15 @@ export async function deliveryRunTerminalRuntime({
   if (!trackingState?.contract) {
     return normalizeDeliveryDiagnostic(
       { ok: false, channel: "none", error: "missing contract" },
-      { lane: "completion_egress" },
+      { lane: "terminal_delivery" },
     );
   }
 
   if (terminalStatus === CONTRACT_STATUS.COMPLETED) {
-    return handleCompletedEgress({ trackingState, contractData, api, logger });
+    return handleCompletedTerminalDelivery({ trackingState, contractData, api, logger });
   }
 
-  return handleNonSuccessEgress({
+  return handleNonSuccessTerminalDelivery({
     trackingState,
     contractData,
     terminalStatus,

@@ -1,8 +1,9 @@
 import { runtimeAgentConfigs } from "../state.js";
 import { getAgentCard, listAgentCards } from "../store/agent-card-store.js";
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
-import { composeAgentBinding } from "../effective-profile-composer.js";
+import { composeAgentBinding, composeEffectiveProfile } from "../effective-profile-composer.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
+import { resolveActorPlanePolicy } from "./agent-plane-policy.js";
 import {
   AGENT_IDS,
   AGENT_ROLE,
@@ -64,6 +65,8 @@ export function getAgentIdentitySnapshot(agentId) {
   if (!normalizedAgentId) {
     return {
       agentId: null,
+      registered: false,
+      registeredSource: "none",
       role: AGENT_ROLE.AGENT,
       roleSource: "default",
       gateway: false,
@@ -77,8 +80,12 @@ export function getAgentIdentitySnapshot(agentId) {
     };
   }
 
+  const configured = getRuntimeAgentConfig(normalizedAgentId);
+  const card = getAgentCard(normalizedAgentId);
+  const registered = Boolean(configured || card);
+  const registeredSource = configured ? "config" : (card ? "card" : "none");
   const configuredRole = getConfiguredRole(normalizedAgentId);
-  const cardRole = getCardRole(normalizedAgentId);
+  const cardRole = normalizeString(card?.role)?.toLowerCase() || null;
   let role = AGENT_ROLE.AGENT;
   let roleSource = "default";
   if (configuredRole) {
@@ -104,6 +111,16 @@ export function getAgentIdentitySnapshot(agentId) {
     ingressSource = configuredSource;
     ingressSourceSource = "config";
   }
+  const configuredPlane = normalizeString(configured?.plane)?.toLowerCase() || null;
+  const configuredMainViewVisible = typeof configured?.mainViewVisible === "boolean"
+    ? configured.mainViewVisible
+    : null;
+  const configuredFormalTimelineVisible = typeof configured?.formalTimelineVisible === "boolean"
+    ? configured.formalTimelineVisible
+    : null;
+  const configuredAutoWakeEligible = typeof configured?.autoWakeEligible === "boolean"
+    ? configured.autoWakeEligible
+    : null;
 
   const configuredSpecialized = getConfiguredBooleanFlag(normalizedAgentId, "specialized");
   let specialized = false;
@@ -123,8 +140,21 @@ export function getAgentIdentitySnapshot(agentId) {
     protectedSource = "config";
   }
 
+  const actorPolicy = resolveActorPlanePolicy({
+    agentId: normalizedAgentId,
+    configuredPlane,
+    configuredMainViewVisible,
+    configuredFormalTimelineVisible,
+    configuredAutoWakeEligible,
+    role,
+    gateway,
+    ingressSource,
+  });
+
   return {
     agentId: normalizedAgentId,
+    registered,
+    registeredSource,
     role,
     roleSource,
     gateway,
@@ -135,11 +165,24 @@ export function getAgentIdentitySnapshot(agentId) {
     specializedSource,
     protected: protectedAgent,
     protectedSource,
+    plane: actorPolicy.plane,
+    mainViewVisible: actorPolicy.mainViewVisible,
+    formalTimelineVisible: actorPolicy.formalTimelineVisible,
+    autoWakeEligible: actorPolicy.autoWakeEligible,
   };
 }
 
 export function getAgentRole(agentId) {
   return getAgentIdentitySnapshot(agentId).role;
+}
+
+// Returns the configured skill list for an agent from runtimeAgentConfigs.
+// Returns an empty array when the agent is not registered or has no skills.
+export function getAgentConfiguredSkills(agentId) {
+  const normalizedAgentId = normalizeString(agentId);
+  if (!normalizedAgentId) return [];
+  const skills = runtimeAgentConfigs.get(normalizedAgentId)?.skills;
+  return Array.isArray(skills) ? [...skills] : [];
 }
 
 export function isGatewayAgent(agentId) {
@@ -148,10 +191,6 @@ export function isGatewayAgent(agentId) {
 
 export function isResearcherAgent(agentId) {
   return getAgentRole(agentId) === AGENT_ROLE.RESEARCHER;
-}
-
-export function isExecutorAgent(agentId) {
-  return getAgentRole(agentId) === AGENT_ROLE.EXECUTOR;
 }
 
 function pushUniqueAgentId(list, agentId) {
@@ -251,26 +290,27 @@ export function registerRuntimeAgents(config) {
   runtimeAgentConfigVersion += 1;
   const agents = Array.isArray(config?.agents?.list) ? config.agents.list : [];
   for (const agent of agents) {
+    const agentId = normalizeString(agent?.id);
+    const card = agentId ? getAgentCard(agentId) : null;
     const composedBinding = composeAgentBinding({
       config,
       agentConfig: agent,
-      card: null,
+      card,
       role: null,
     });
-    const agentId = normalizeString(composedBinding.agentId) || normalizeString(agent?.id);
-    if (!agentId) continue;
-    const configuredCapabilities = {};
-    const routerHandlerId = normalizeString(composedBinding.capabilities?.configured?.routerHandlerId);
-    const outboxCommitKinds = uniqueStrings(composedBinding.capabilities?.configured?.outboxCommitKinds || []);
-    if (routerHandlerId) {
-      configuredCapabilities.routerHandlerId = routerHandlerId;
-    }
-    if (outboxCommitKinds.length > 0) {
-      configuredCapabilities.outboxCommitKinds = outboxCommitKinds;
-    }
+    const normalizedAgentId = normalizeString(composedBinding.agentId) || agentId;
+    if (!normalizedAgentId) continue;
+    const effectiveProfile = composeEffectiveProfile({
+      config,
+      agentConfig: agent,
+      card,
+    });
+    const effectiveCapabilities = effectiveProfile?.capabilities && typeof effectiveProfile.capabilities === "object"
+      ? { ...effectiveProfile.capabilities }
+      : null;
     const role = normalizeString(composedBinding.roleRef)?.toLowerCase() || null;
-    runtimeAgentConfigs.set(agentId, {
-      id: agentId,
+    runtimeAgentConfigs.set(normalizedAgentId, {
+      id: normalizedAgentId,
       role,
       workspace: normalizeString(composedBinding.workspace?.configured) || null,
       specialized: typeof composedBinding.policies?.specialized === "boolean"
@@ -283,9 +323,16 @@ export function registerRuntimeAgents(config) {
         ? composedBinding.policies.protected
         : null,
       ingressSource: normalizeString(composedBinding.policies?.ingressSource)?.toLowerCase() || null,
-      capabilities: Object.keys(configuredCapabilities).length > 0 ? configuredCapabilities : null,
+      plane: effectiveProfile?.plane || null,
+      mainViewVisible: effectiveProfile?.mainViewVisible !== false,
+      formalTimelineVisible: effectiveProfile?.formalTimelineVisible !== false,
+      autoWakeEligible: effectiveProfile?.autoWakeEligible !== false,
+      capabilities: effectiveCapabilities,
       skills: uniqueStrings(composedBinding.skills?.configured || []),
       effectiveExecutionPolicy: composedBinding.policies?.effectiveExecutionPolicy || null,
+      // P6-Phase0: 通用 binding policy 运行时快照（无消费者也保留，供 Phase1 接入）。
+      outputPolicy: composedBinding.policies?.outputPolicy || null,
+      inboxPolicy: composedBinding.policies?.inboxPolicy || null,
     });
   }
 }
@@ -299,6 +346,59 @@ export function getExecutionPolicy(agentId) {
 
 export function hasExecutionPolicy(agentId, key) {
   const policy = getExecutionPolicy(agentId);
+  return policy != null && policy[key] === true;
+}
+
+// P6-Phase0: 通用 binding policy 读取 helper（与 getExecutionPolicy 对称）。
+// Phase1 用它替代 contractor 硬编码（collectContractorOutbox / routeContractorInbox）。
+export function getOutputPolicy(agentId) {
+  const normalizedAgentId = normalizeString(agentId);
+  return normalizedAgentId
+    ? runtimeAgentConfigs.get(normalizedAgentId)?.outputPolicy || null
+    : null;
+}
+
+export function getInboxPolicy(agentId) {
+  const normalizedAgentId = normalizeString(agentId);
+  return normalizedAgentId
+    ? runtimeAgentConfigs.get(normalizedAgentId)?.inboxPolicy || null
+    : null;
+}
+
+// P6-Phase1: 把"该 agent 能否当 reviewer rework 目标"从 role 特化迁到 policy。
+// outputPolicy.canReceiveRework 缺省时由 role 默认推导：specialized-executor 或
+// researcher 默认可接 rework（与迁移前 isSpecializedExecutor||isResearcherAgent 等价）。
+export function canAgentReceiveRework(agentId) {
+  const policy = getOutputPolicy(agentId);
+  if (policy != null && typeof policy.canReceiveRework === "boolean") {
+    return policy.canReceiveRework;
+  }
+  return isSpecializedExecutor(agentId) || isResearcherAgent(agentId);
+}
+
+// P6-Phase1: heartbeat actionable-work 判定从 role 特化迁到 policy。
+// requiresContract 缺省：executor / researcher 默认 true（迁移前两个 role 分支都要 contract）。
+// dedupeConcurrentTracker 缺省：executor 默认 true（迁移前只有 executor 分支去重并发 tracker）。
+// 其它 role 缺省 false（保持迁移前的 permissive 落到通用分支）。
+export function agentRequiresContractForHeartbeat(agentId) {
+  const policy = getInboxPolicy(agentId);
+  if (policy != null && typeof policy.requiresContract === "boolean") {
+    return policy.requiresContract;
+  }
+  const role = getAgentRole(agentId);
+  return role === AGENT_ROLE.EXECUTOR || role === AGENT_ROLE.RESEARCHER;
+}
+
+export function agentDedupesConcurrentTrackerForHeartbeat(agentId) {
+  const policy = getInboxPolicy(agentId);
+  if (policy != null && typeof policy.dedupeConcurrentTracker === "boolean") {
+    return policy.dedupeConcurrentTracker;
+  }
+  return getAgentRole(agentId) === AGENT_ROLE.EXECUTOR;
+}
+
+export function hasInboxPolicy(agentId, key) {
+  const policy = getInboxPolicy(agentId);
   return policy != null && policy[key] === true;
 }
 

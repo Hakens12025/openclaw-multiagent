@@ -352,3 +352,51 @@ test("reviewer artifactContext projects protocol-defined stage truth and progres
   assert.equal(payload.artifactSource?.contractId, "TC-REVIEW-OBS");
   assert.equal(payload.artifactRequest?.instruction, "请审查当前实现并给出 verdict");
 });
+
+test("hasActionableHeartbeatWork treats a reviewer with a bound contract as actionable (loop reviewer stage)", async () => {
+  // Regression: a loop dispatches a CONTRACT (not a flat code_review.json) to the reviewer
+  // stage. Before the fix, the reviewer's artifact-lane branch only checked artifactContext /
+  // code_review.json inbox file and ignored the bound contract → the reviewer wake was
+  // misclassified as an idle heartbeat → its agent_end was skipped → the loop never advanced
+  // past the reviewer stage (researcher→worker→reviewer→[stuck]).
+  const reviewerId = `reviewer-loop-contract-${Date.now()}`;
+  const reviewerWorkspace = agentWorkspace(reviewerId);
+  const previousRuntimeConfigs = new Map(runtimeAgentConfigs);
+
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set(reviewerId, {
+      id: reviewerId,
+      role: "reviewer",
+      workspace: reviewerWorkspace,
+      specialized: false,
+      gateway: false,
+      protected: false,
+      ingressSource: null,
+      capabilities: {},
+      skills: [],
+      effectiveExecutionPolicy: null,
+    });
+    await mkdir(join(reviewerWorkspace, "inbox"), { recursive: true });
+
+    const trackingState = createTrackingState({
+      sessionKey: `agent:${reviewerId}:contract:tc-loop-review`,
+      agentId: reviewerId,
+      parentSession: null,
+    });
+    // The loop bound the contract for this stage (no code_review.json file, artifact arrived
+    // via inbox/upstream/<producer>/).
+    trackingState.contract = { id: "TC-LOOP-REVIEW", assignee: reviewerId, status: "running" };
+
+    const actionable = await hasActionableHeartbeatWork(
+      reviewerId,
+      trackingState,
+      `agent:${reviewerId}:contract:tc-loop-review`,
+    );
+
+    assert.equal(actionable, true, "reviewer with a bound contract must be actionable, not idle");
+  } finally {
+    restoreRuntimeConfigs(previousRuntimeConfigs);
+    await rm(reviewerWorkspace, { recursive: true, force: true });
+  }
+});

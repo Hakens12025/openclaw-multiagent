@@ -9,6 +9,7 @@ import {
   UNSUPPORTED_VERIFICATION_SURFACES,
 } from "./admin-surface-plan-hints.js";
 import { buildAdminSurfaceSubject } from "./admin-surface-subject.js";
+import { buildCliSystemDisplayId } from "../cli-system/cli-surface-display.js";
 import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
 
 function cloneJsonValue(value) {
@@ -197,6 +198,7 @@ function normalizeSurface(surface) {
   const executable = hasAdminSurfaceOperationHandler(surface.id);
   return {
     id: surface.id,
+    displayId: buildCliSystemDisplayId(surface.id),
     stage: surface.stage,
     risk: surface.risk,
     method: surface.method,

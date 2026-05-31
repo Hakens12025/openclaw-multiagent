@@ -8,14 +8,15 @@ import { loadConfig } from "./agent-admin-store.js";
 import {
   normalizeStoredAgentModelRef,
 } from "./agent-binding-store.js";
-import { AGENT_ROLE } from "./agent-metadata.js";
 import { normalizeAgentRole } from "./agent-identity.js";
+import { AGENT_ROLE } from "./agent-metadata.js";
 import {
-  expandHomePath,
+  composeEffectiveProfile,
   composeAgentBinding,
   loadAgentCardProjection,
 } from "../effective-profile-composer.js";
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
+import { defaultAgentWorkspace } from "../state-agent-helpers.js";
 import { HOME, OC } from "../state-paths.js";
 import { MANAGED_BOOTSTRAP_MARKER } from "../soul-template-builder.js";
 
@@ -184,11 +185,17 @@ export async function buildConfiguredCandidate(agentConfig, config = null) {
     card,
     role: null,
   });
+  const profile = composeEffectiveProfile({
+    config,
+    agentConfig,
+    card,
+    role: null,
+  });
   const role = binding.roleRef;
   const expectedGuidanceFiles = getManagedGuidanceFilesForRole(role);
 
   const workspaceDir = resolve(
-    binding.workspace?.effective || join(OC, "workspaces", agentId),
+    binding.workspace?.effective || defaultAgentWorkspace(agentId),
   );
   const guidanceFiles = await Promise.all(expectedGuidanceFiles.map(async (name) => ({
     name,
@@ -224,6 +231,10 @@ export async function buildConfiguredCandidate(agentConfig, config = null) {
     protected: binding.policies?.protected === true,
     specialized: binding.policies?.specialized === true,
     ingressSource: normalizeString(binding.policies?.ingressSource)?.toLowerCase() || null,
+    plane: profile?.plane || null,
+    mainViewVisible: profile?.mainViewVisible !== false,
+    formalTimelineVisible: profile?.formalTimelineVisible !== false,
+    autoWakeEligible: profile?.autoWakeEligible !== false,
     configuredExecutionPolicy: binding.policies?.configuredExecutionPolicy || null,
     effectiveExecutionPolicy: binding.policies?.effectiveExecutionPolicy || null,
     hasAgentCard: Boolean(card),
@@ -239,6 +250,16 @@ export async function buildWorkspaceOnlyCandidate(workspaceDir, dirName) {
   const identity = await readWorkspaceCandidateIdentity(workspaceDir, dirName);
   if (!identity?.agentId) return null;
   const role = normalizeAgentRole(identity.card?.role, identity.agentId);
+  const profile = composeEffectiveProfile({
+    config: { agents: { list: [] } },
+    agentConfig: {
+      id: identity.agentId,
+      role,
+      workspace: workspaceDir,
+    },
+    card: identity.card,
+    role,
+  });
   const expectedGuidanceFiles = getManagedGuidanceFilesForRole(role);
   const guidanceFiles = await Promise.all(expectedGuidanceFiles.map(async (name) => ({
     name,
@@ -267,6 +288,10 @@ export async function buildWorkspaceOnlyCandidate(workspaceDir, dirName) {
     protected: false,
     specialized: false,
     ingressSource: null,
+    plane: profile?.plane || null,
+    mainViewVisible: profile?.mainViewVisible !== false,
+    formalTimelineVisible: profile?.formalTimelineVisible !== false,
+    autoWakeEligible: profile?.autoWakeEligible !== false,
     configuredExecutionPolicy: null,
     effectiveExecutionPolicy: null,
     hasAgentCard: Boolean(identity.card),

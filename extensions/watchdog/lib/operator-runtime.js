@@ -52,6 +52,7 @@ export async function executeOperatorPlan({
   onAlert = null,
   runtimeContext = null,
   dryRun = false,
+  forceVerify = true,
 } = {}) {
   return executeOperatorExecutablePlan({
     plan,
@@ -59,5 +60,7 @@ export async function executeOperatorPlan({
     onAlert,
     runtimeContext,
     dryRun,
+    // ② 强制 verify 门默认开（评审要的「强制」）；可经调用方/config 显式关。
+    forceVerify,
   });
 }

@@ -10,12 +10,13 @@ import { CONTRACT_STATUS } from "./core/runtime-status.js";
 import { normalizeServiceSession } from "./service-session.js";
 import {
   buildInitialTaskStageRuntime,
-  deriveCompatibilityPhases,
-  deriveCompatibilityTotal,
+  deriveDisplayPhases,
+  deriveDisplayTotal,
 } from "./task-stage-plan.js";
 import { buildTaskStagePlanFromTask } from "./task-stage-planner.js";
 
 export const PROTOCOL_VERSION = 1;
+export const RUNTIME_RESULT_FILE = "runtime_result.json";
 
 const ENVELOPE_TYPES = Object.freeze({
   DIRECT_REQUEST: "direct_request",
@@ -34,9 +35,8 @@ export const INTENT_TYPES = Object.freeze({
 });
 
 export const ARTIFACT_TYPES = Object.freeze({
-  CONTRACT_RESULT: "contract_result",
+  RUNTIME_RESULT: "runtime_result",
   CONTRACT_UPDATE: "contract_update",
-  STAGE_RESULT: "stage_result",
   RESEARCH_DIRECTION: "research_direction",
   RESEARCH_CONCLUSION: "research_conclusion",
   SEARCH_SPACE: "search_space",
@@ -52,6 +52,71 @@ export const ARTIFACT_TYPES = Object.freeze({
 export const OUTBOX_COMMIT_KINDS = Object.freeze({
   EXECUTION_RESULT: "execution_result",
 });
+
+const DEFAULT_RUNTIME_TIME_ZONE = "Asia/Shanghai";
+
+function resolveRuntimeTimeZone(explicitTimeZone = null) {
+  return normalizeString(explicitTimeZone)
+    || normalizeString(process.env.OPENCLAW_RUNTIME_TIME_ZONE)
+    || normalizeString(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    || DEFAULT_RUNTIME_TIME_ZONE;
+}
+
+function formatRuntimeCurrentTime(unixMs, timeZone) {
+  const instant = new Date(unixMs);
+  const dateParts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(instant)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+  }).format(instant);
+  const weekdayZh = new Intl.DateTimeFormat("zh-CN", {
+    timeZone,
+    weekday: "long",
+  }).format(instant);
+  const date = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  const time = `${dateParts.hour}:${dateParts.minute}:${dateParts.second}`;
+
+  return {
+    unixMs,
+    iso: instant.toISOString(),
+    timeZone,
+    date,
+    time,
+    weekday,
+    weekdayZh,
+    text: `Current time: ${date} ${time} ${timeZone} (${weekday} / ${weekdayZh}).`,
+  };
+}
+
+export function buildRuntimeContext({ now = Date.now(), timeZone = null } = {}) {
+  const unixMs = Number.isFinite(now) ? Number(now) : Date.now();
+  const resolvedTimeZone = resolveRuntimeTimeZone(timeZone);
+  let currentTime;
+  try {
+    currentTime = formatRuntimeCurrentTime(unixMs, resolvedTimeZone);
+  } catch {
+    currentTime = formatRuntimeCurrentTime(unixMs, DEFAULT_RUNTIME_TIME_ZONE);
+  }
+
+  return {
+    version: PROTOCOL_VERSION,
+    currentTime,
+  };
+}
 
 function normalizeIngressPhaseEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
@@ -79,6 +144,7 @@ export function normalizeIngressDirective(rawDirective) {
   const directive = normalizeRecord(rawDirective, null);
   if (!directive) {
     return {
+      targetAgent: null,
       intentType: null,
       phases: null,
     };
@@ -86,6 +152,14 @@ export function normalizeIngressDirective(rawDirective) {
 
   const intent = normalizeRecord(directive.intent);
   const params = normalizeRecord(directive.params);
+
+  const targetAgent = normalizeString(directive.targetAgent)
+    || normalizeString(directive.target)
+    || normalizeString(params.targetAgent)
+    || normalizeString(params.target)
+    || normalizeString(intent.params?.targetAgent)
+    || normalizeString(intent.params?.target)
+    || null;
 
   const intentType = normalizeString(directive.intentType)
     || normalizeString(intent.type)
@@ -99,39 +173,9 @@ export function normalizeIngressDirective(rawDirective) {
     || null;
 
   return {
+    targetAgent,
     intentType,
     phases,
-  };
-}
-
-function normalizeOutboxArtifactEntry(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const path = normalizeString(entry.path);
-  const type = normalizeString(entry.type);
-  if (!path || !type) return null;
-  return {
-    path,
-    type,
-    label: normalizeString(entry.label) || type,
-    required: entry.required !== false,
-  };
-}
-
-export function normalizeOutboxCommitManifest(rawManifest) {
-  const manifest = normalizeRecord(rawManifest);
-  const kind = normalizeString(manifest.kind);
-  if (!kind) return null;
-
-  const handlerId = normalizeString(manifest.handlerId) || null;
-  const artifacts = Array.isArray(manifest.artifacts)
-    ? manifest.artifacts.map(normalizeOutboxArtifactEntry).filter(Boolean)
-    : [];
-
-  return {
-    version: Number(manifest.version) || PROTOCOL_VERSION,
-    kind,
-    handlerId,
-    artifacts,
   };
 }
 
@@ -139,7 +183,6 @@ function annotateEnvelope(payload, {
   envelopeType,
   transport,
   source,
-  route,
 } = {}) {
   const currentProtocol = normalizeRecord(payload?.protocol);
   return {
@@ -150,9 +193,6 @@ function annotateEnvelope(payload, {
       transport: normalizeString(currentProtocol.transport) || transport || null,
       ...(normalizeString(currentProtocol.source) || source
         ? { source: normalizeString(currentProtocol.source) || source }
-        : {}),
-      ...(normalizeString(currentProtocol.route) || route
-        ? { route: normalizeString(currentProtocol.route) || route }
         : {}),
     },
   };
@@ -173,6 +213,7 @@ export function createDirectRequestEnvelope({
   outputDir,
   source = "direct_intake",
   now = Date.now(),
+  timeZone = null,
   nonce = randomBytes(3).toString("hex"),
 }) {
   const normalizedAgentId = normalizeString(agentId);
@@ -207,9 +248,11 @@ export function createDirectRequestEnvelope({
     phases,
     revisionPolicy,
   });
-  const stageRuntime = buildInitialTaskStageRuntime({ stagePlan: canonicalStagePlan });
-  const compatibilityPhases = deriveCompatibilityPhases(canonicalStagePlan);
-  const compatibilityTotal = deriveCompatibilityTotal(canonicalStagePlan);
+  const stageRuntime = canonicalStagePlan
+    ? buildInitialTaskStageRuntime({ stagePlan: canonicalStagePlan })
+    : null;
+  const displayPhases = canonicalStagePlan ? deriveDisplayPhases(canonicalStagePlan) : null;
+  const displayTotal = canonicalStagePlan ? deriveDisplayTotal(canonicalStagePlan) : null;
   const envelope = annotateEnvelope({
     id: directId,
     taskType: ENVELOPE_TYPES.DIRECT_REQUEST,
@@ -219,10 +262,11 @@ export function createDirectRequestEnvelope({
     ...(normalizedUpstreamReplyTo ? { upstreamReplyTo: normalizedUpstreamReplyTo } : {}),
     ...(normalizedReturn ? { returnContext: normalizedReturn } : {}),
     ...(normalizedServiceSession ? { serviceSession: normalizedServiceSession } : {}),
-    stagePlan: canonicalStagePlan,
-    stageRuntime,
-    phases: compatibilityPhases,
-    total: compatibilityTotal,
+    ...(canonicalStagePlan ? { stagePlan: canonicalStagePlan } : {}),
+    ...(stageRuntime ? { stageRuntime } : {}),
+    ...(displayPhases ? { phases: displayPhases } : {}),
+    ...(displayTotal != null ? { total: displayTotal } : {}),
+    runtimeContext: buildRuntimeContext({ now, timeZone }),
     output: join(normalizedOutputDir, `${directId}.md`),
     projectDir: join(normalizedOutputDir, directId),
     status: CONTRACT_STATUS.RUNNING,
@@ -238,12 +282,11 @@ export function createDirectRequestEnvelope({
   });
 }
 
-export function annotateExecutionContract(contract, { source, route } = {}) {
+export function annotateExecutionContract(contract, { source } = {}) {
   const envelope = annotateEnvelope(contract, {
     envelopeType: ENVELOPE_TYPES.EXECUTION_CONTRACT,
     transport: "contracts/*.json",
     source,
-    route,
   });
   return annotateCoordinationSnapshot(envelope, {
     ownerAgentId: contract?.assignee || null,

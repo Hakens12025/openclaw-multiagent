@@ -1,5 +1,10 @@
 import { normalizeRecord, normalizeString, normalizePositiveInteger, normalizeFiniteNumber } from "../core/normalize.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
+// failure_class → rework 策略归一到 harness-evidence-vocab（单一权威清单），此处复用不重建。
+import { FAILURE_CLASS_STRATEGIES } from "../harness/harness-evidence-vocab.js";
+// governance 唯一合流点（修死链 c）：所有 governance 读点经 resolveGovernance，
+// 让 runtime.governanceSnapshot 真正被消费（非死对象）。
+import { resolveGovernance } from "./resolve-governance.js";
 
 // Re-export for consumers that import from this module
 export { normalizePositiveInteger, normalizeFiniteNumber };
@@ -14,24 +19,16 @@ const ACTION_FROM_DECISION = {
   idle: "continue",
 };
 
-const FAILURE_CLASS_STRATEGIES = {
-  timeout: "increase_timeout_or_simplify_task",
-  awaiting_input: "provide_missing_input_then_resume",
-  cancelled: "review_cancellation_cause_before_retry",
-  abandoned: "reassess_feasibility_before_retry",
-  failed: "analyze_failure_and_retry_with_fixes",
-  review_rejected: "address_review_feedback_and_resubmit",
-};
-
 export function buildNextWakeAt(spec, now = Date.now()) {
   const cooldownSeconds = normalizePositiveInteger(spec?.wakePolicy?.cooldownSeconds, 300);
   return now + (cooldownSeconds * 1000);
 }
 
 export function computeImprovementState(spec, runtime, score, artifact, round) {
-  const governance = normalizeRecord(spec?.governance, {});
+  // governance 经合流点读：runtime.governanceSnapshot 有则覆盖 spec.minImprovement。
+  const governance = resolveGovernance(spec, runtime);
   const currentBestScore = normalizeFiniteNumber(runtime?.bestScore, null);
-  const minImprovement = normalizeFiniteNumber(governance.minImprovement, 0) || 0;
+  const minImprovement = governance.minImprovement;
   const normalizedScore = normalizeFiniteNumber(score, null);
   const improved = normalizedScore != null
     && (currentBestScore == null || normalizedScore > (currentBestScore + minImprovement));
@@ -105,18 +102,22 @@ export function deriveDecision(spec, runtime, {
   score,
   noImprovementStreak,
   reviewerResult = null,
+  evaluationResult = null,
   improvementState = null,
 }, now = Date.now()) {
   const wakePolicy = normalizeRecord(spec?.wakePolicy, {});
-  const governance = normalizeRecord(spec?.governance, {});
-  const mode = normalizeString(governance.mode)?.toLowerCase() || "continuous";
-  const maxRounds = normalizePositiveInteger(governance.maxRounds, 0);
-  const earlyStopPatience = normalizePositiveInteger(governance.earlyStopPatience, 0);
+  // governance 经合流点读：runtime.governanceSnapshot 覆盖 spec 后，决策真受 snapshot 影响。
+  const governance = resolveGovernance(spec, runtime);
+  const mode = governance.mode;
+  const maxRounds = governance.maxRounds;
+  const earlyStopPatience = governance.earlyStopPatience;
   const wakeOnResult = wakePolicy.onResult === true;
   const wakeOnFailure = wakePolicy.onFailure === true;
 
   const base = { round, score: normalizeFiniteNumber(score, null), ts: now };
-  const verdict = reviewerResult?.verdict || null;
+  // evaluationResult is the canonical derived object; reviewerResult is the legacy fallback
+  const effectiveEval = evaluationResult || reviewerResult;
+  const verdict = effectiveEval?.verdict || null;
   const reworkGuidance = buildReworkGuidance(reviewerResult);
 
   function emit(decision, status, nextWakeAt, reason, action) {
@@ -154,8 +155,8 @@ export function deriveDecision(spec, runtime, {
     return emit("completed", "completed", null, "early_stop_patience", "conclude");
   }
 
-  if (reviewerResult && reviewerResult.verdict !== "inconclusive") {
-    const hint = reviewerResult.continueHint;
+  if (effectiveEval && effectiveEval.verdict !== "inconclusive") {
+    const hint = effectiveEval.continueHint;
     if (hint === "rework") {
       return emit("continue", "idle", buildNextWakeAt(spec, now), "reviewer_rework", "rework");
     }
@@ -165,7 +166,7 @@ export function deriveDecision(spec, runtime, {
     if (hint === "conclude") {
       return emit("completed", "completed", null, "reviewer_conclude", "conclude");
     }
-    if (reviewerResult.verdict === "fail" || reviewerResult.verdict === "regressed") {
+    if (effectiveEval.verdict === "fail" || effectiveEval.verdict === "regressed") {
       if (wakeOnFailure) {
         return emit("continue", "idle", buildNextWakeAt(spec, now), "reviewer_fail_retry", "rework");
       }

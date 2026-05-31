@@ -1,15 +1,17 @@
-import { AGENT_ROLE } from "./agent/agent-metadata.js";
 import { normalizeString } from "./core/normalize.js";
+import { getCapabilityPreset } from "./capability/capability-preset-registry.js";
 
 function normalizeLaneKey(value) {
   return normalizeString(value)?.toLowerCase() || null;
 }
 
+// Lanes are bound by skill rather than role, so any agent with the skill can
+// receive the artifact regardless of its formal role name.
 const ARTIFACT_LANE_DEFINITIONS = Object.freeze({
   code_review: Object.freeze({
     kind: "code_review",
     fileName: "code_review.json",
-    roles: Object.freeze([AGENT_ROLE.REVIEWER]),
+    skills: Object.freeze(["review-findings"]),
     stageId: "code_review",
     stageLabel: "代码审查",
   }),
@@ -19,7 +21,7 @@ function cloneLaneDefinition(definition) {
   if (!definition) return null;
   return {
     ...definition,
-    roles: [...(definition.roles || [])],
+    skills: [...(definition.skills || [])],
   };
 }
 
@@ -38,11 +40,25 @@ export function resolveArtifactLaneByFileName(fileName) {
   return null;
 }
 
+// Returns lanes whose skill requirements overlap with the given skill.
+export function listArtifactLaneBindingsForSkill(skill) {
+  const normalizedSkill = normalizeLaneKey(skill);
+  if (!normalizedSkill) return [];
+  return Object.values(ARTIFACT_LANE_DEFINITIONS)
+    .filter((definition) => definition.skills.includes(normalizedSkill))
+    .map((definition) => cloneLaneDefinition(definition));
+}
+
+// Role-based lookup: resolves via the role's capability preset skill list so
+// that heartbeat-gate and session-bootstrap work without knowing the agent's
+// concrete role name.
 export function listArtifactLaneBindingsForRole(role) {
   const normalizedRole = normalizeLaneKey(role);
   if (!normalizedRole) return [];
+  const preset = getCapabilityPreset(normalizedRole);
+  const roleSkills = Array.isArray(preset?.skills) ? preset.skills : [];
   return Object.values(ARTIFACT_LANE_DEFINITIONS)
-    .filter((definition) => definition.roles.includes(normalizedRole))
+    .filter((definition) => definition.skills.some((skill) => roleSkills.includes(skill)))
     .map((definition) => cloneLaneDefinition(definition));
 }
 

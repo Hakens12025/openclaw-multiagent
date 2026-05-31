@@ -1,7 +1,7 @@
 // lib/stage-projection.js — Contract stage projection
 //
 // Builds a stage projection from contract.stagePlan (planner-extracted).
-// No pipeline/loop dependency — projection is driven entirely by
+// No loop runtime dependency — projection is driven entirely by
 // the contract's own stagePlan + stageRunResult.
 
 import { CONTRACT_STATUS } from "./core/runtime-status.js";

@@ -1,15 +1,13 @@
 import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
 import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
-import {
-  CONTROL_PLANE_DIR,
-  SCHEDULE_STORE,
-  atomicWriteFile,
-  withLock,
-} from "../state.js";
+import { atomicWriteFile, withLock } from "../state.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 
+export const SCHEDULE_STORE = CONTROL_PLANE_PATHS.scheduleRegistryFile;
 const SCHEDULE_STORE_LOCK = "store:schedules";
 
 function normalizeScheduleTrigger(value) {
@@ -126,7 +124,7 @@ async function writeScheduleStore(schedules) {
       .filter(Boolean),
   );
   const now = Date.now();
-  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
+  await mkdir(dirname(SCHEDULE_STORE), { recursive: true });
   await atomicWriteFile(SCHEDULE_STORE, JSON.stringify({
     updatedAt: now,
     schedules: normalized,

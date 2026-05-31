@@ -13,6 +13,27 @@ import { startGateway } from "./gateway.js";
 import { qqbotOnboardingAdapter } from "./onboarding.js";
 import { getQQBotRuntime } from "./runtime.js";
 
+export function applyQQBotConnectedStatus(
+  ctx: {
+    getStatus: () => Record<string, unknown>;
+    setStatus: (status: Record<string, unknown>) => void;
+  },
+  options: {
+    eventType?: string;
+    now?: number;
+  } = {},
+): void {
+  const now = typeof options.now === "number" ? options.now : Date.now();
+  ctx.setStatus({
+    ...ctx.getStatus(),
+    running: true,
+    connected: true,
+    lastConnectedAt: now,
+    lastError: null,
+    lastConnectionEvent: options.eventType || "READY",
+  });
+}
+
 /**
  * 简单的文本分块函数
  * 用于预先分块长文本
@@ -198,6 +219,7 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     },
   },
   gateway: {
+    applyConnectedStatus: applyQQBotConnectedStatus,
     startAccount: async (ctx) => {
       const { account, abortSignal, log, cfg } = ctx;
 
@@ -208,19 +230,20 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
         abortSignal,
         cfg,
         log,
-        onReady: () => {
-          log?.info(`[qqbot:${account.accountId}] Gateway ready`);
-          ctx.setStatus({
-            ...ctx.getStatus(),
-            running: true,
-            connected: true,
-            lastConnectedAt: Date.now(),
+        onReady: (event) => {
+          const eventType = typeof event === "object" && event && "eventType" in event
+            ? String((event as { eventType?: unknown }).eventType || "READY")
+            : "READY";
+          log?.info(`[qqbot:${account.accountId}] Gateway ready (${eventType})`);
+          applyQQBotConnectedStatus(ctx, {
+            eventType,
           });
         },
         onError: (error) => {
           log?.error(`[qqbot:${account.accountId}] Gateway error: ${error.message}`);
           ctx.setStatus({
             ...ctx.getStatus(),
+            connected: false,
             lastError: error.message,
           });
         },

@@ -1,4 +1,4 @@
-import { dispatchTargetStateMap, withLock } from "../state.js";
+import { dispatchOutgoingStateMap, dispatchTargetStateMap, withLock } from "../state.js";
 import {
   CONTRACT_STATUS,
   isActiveContractStatus,
@@ -15,37 +15,26 @@ import {
   emitDispatchRuntimeSnapshot,
   getDispatchTargetCurrentContract,
   hasDispatchTarget,
+  listRuntimeDispatchTargetIds,
+  normalizeIncomingDispatchEntry,
   persistDispatchRuntimeState,
 } from "./dispatch-runtime-state.js";
-
-function normalizeDispatchQueueEntry(entry) {
-  if (typeof entry === "string") {
-    const contractId = typeof entry === "string" && entry.trim() ? entry.trim() : null;
-    return contractId ? { contractId, fromAgent: null } : null;
-  }
-
-  const contractId = typeof entry?.contractId === "string" && entry.contractId.trim()
-    ? entry.contractId.trim()
-    : null;
-  if (!contractId) {
-    return null;
-  }
-
-  return {
-    contractId,
-    fromAgent: typeof entry?.fromAgent === "string" && entry.fromAgent.trim()
-      ? entry.fromAgent.trim()
-      : null,
-  };
-}
+import { hasDirectedEdge, loadGraph } from "../agent/agent-graph.js";
 
 function queueHasContract(state, contractId) {
   const normalizedContractId = normalizeContractIdentity(contractId);
-  if (!normalizedContractId || !Array.isArray(state?.queue)) {
+  if (!normalizedContractId) {
+    return false;
+  }
+  const lease = normalizeIncomingDispatchEntry(null, state?.dispatchingQueueEntry);
+  if (lease?.contractId === normalizedContractId) {
+    return true;
+  }
+  if (!Array.isArray(state?.queue)) {
     return false;
   }
   return state.queue.some((entry) => {
-    const normalizedEntry = normalizeDispatchQueueEntry(entry);
+    const normalizedEntry = normalizeIncomingDispatchEntry(null, entry);
     return normalizedEntry?.contractId === normalizedContractId;
   });
 }
@@ -57,8 +46,140 @@ function deriveRecoveredQueueOrigin(contract) {
     || null;
 }
 
+function hasGraphQueueEdge(graph, fromAgent, targetAgent) {
+  if (!fromAgent || !targetAgent) {
+    return false;
+  }
+  return hasDirectedEdge(graph, fromAgent, targetAgent);
+}
+
+async function canRecoverPendingQueueEntry(contract, targetAgent, logger) {
+  const fromAgent = deriveRecoveredQueueOrigin(contract);
+  if (!fromAgent || !targetAgent) {
+    logger?.info?.(
+      `[dispatch-state] skipped orphan pending contract ${contract?.id || "unknown"}: missing graph origin`,
+    );
+    return { ok: false, fromAgent: null };
+  }
+  const graph = await loadGraph();
+  if (!hasDirectedEdge(graph, fromAgent, targetAgent)) {
+    logger?.info?.(
+      `[dispatch-state] skipped orphan pending contract ${contract?.id || "unknown"}: no graph edge ${fromAgent} -> ${targetAgent}`,
+    );
+    return { ok: false, fromAgent };
+  }
+  return { ok: true, fromAgent };
+}
+
+async function shouldKeepQueuedEntry({
+  graph,
+  targetAgent,
+  entry,
+  contract,
+  logger,
+}) {
+  if (!contract || !isActiveContractStatus(contract.status) || contract.assignee !== targetAgent) {
+    logger?.info?.(
+      `[dispatch-state] pruned stale queue entry ${entry.contractId} for ${targetAgent}`,
+    );
+    return false;
+  }
+
+  if (!hasGraphQueueEdge(graph, entry.fromAgent, targetAgent)) {
+    logger?.info?.(
+      `[dispatch-state] pruned unauthorized queue entry ${entry.contractId}: no graph edge ${entry.fromAgent || "(unknown)"} -> ${targetAgent}`,
+    );
+    return false;
+  }
+
+  return true;
+}
+
+async function shouldKeepOutgoingEntry({
+  graph,
+  sourceAgent,
+  entry,
+  logger,
+}) {
+  const contractId = normalizeContractIdentity(entry?.contractId);
+  const targetAgent = typeof entry?.targetAgent === "string" && entry.targetAgent.trim()
+    ? entry.targetAgent.trim()
+    : null;
+  if (!contractId || !targetAgent) {
+    return false;
+  }
+
+  const contract = await readCachedContractSnapshotById(contractId, {
+    preferCache: false,
+  });
+  if (!contract || !isActiveContractStatus(contract.status)) {
+    logger?.info?.(
+      `[dispatch-state] pruned stale outgoing entry ${contractId} from ${sourceAgent}`,
+    );
+    return false;
+  }
+
+  if (!hasDispatchTarget(targetAgent)) {
+    logger?.info?.(
+      `[dispatch-state] pruned outgoing entry ${contractId}: unknown target ${targetAgent}`,
+    );
+    return false;
+  }
+
+  const edgeFrom = typeof entry?.routeEdge?.from === "string" && entry.routeEdge.from.trim()
+    ? entry.routeEdge.from.trim()
+    : sourceAgent;
+  const edgeTo = typeof entry?.routeEdge?.to === "string" && entry.routeEdge.to.trim()
+    ? entry.routeEdge.to.trim()
+    : targetAgent;
+  if (!hasGraphQueueEdge(graph, edgeFrom, edgeTo)) {
+    logger?.info?.(
+      `[dispatch-state] pruned unauthorized outgoing entry ${contractId}: no graph edge ${edgeFrom || "(unknown)"} -> ${edgeTo || "(unknown)"}`,
+    );
+    return false;
+  }
+
+  return true;
+}
+
+async function pruneOutgoingQueueState({
+  graph,
+  sourceAgent,
+  state,
+  logger,
+}) {
+  const preservedOutgoingQueue = [];
+  const seenOutgoingContracts = new Set();
+  let changed = false;
+  for (const entry of Array.isArray(state?.outgoingQueue) ? state.outgoingQueue : []) {
+    const contractId = normalizeContractIdentity(entry?.contractId);
+    if (!contractId || seenOutgoingContracts.has(contractId)) {
+      changed = true;
+      continue;
+    }
+    const keepOutgoing = await shouldKeepOutgoingEntry({
+      graph,
+      sourceAgent,
+      entry,
+      logger,
+    });
+    if (!keepOutgoing) {
+      changed = true;
+      continue;
+    }
+    seenOutgoingContracts.add(contractId);
+    preservedOutgoingQueue.push(entry);
+  }
+  if (JSON.stringify(preservedOutgoingQueue) !== JSON.stringify(Array.isArray(state?.outgoingQueue) ? state.outgoingQueue : [])) {
+    state.outgoingQueue = preservedOutgoingQueue;
+    changed = true;
+  }
+  return changed;
+}
+
 export async function reconcileDispatchRuntimeTruth(logger) {
   return withLock("dispatch-runtime:reconcile-truth", async () => {
+    const graph = await loadGraph();
     const trackedCurrentContracts = new Map();
     for (const trackingState of listTrackingStates()) {
       const agentId = typeof trackingState?.agentId === "string" && trackingState.agentId.trim()
@@ -79,11 +200,46 @@ export async function reconcileDispatchRuntimeTruth(logger) {
     }
 
     let changed = false;
+    const activeRuntimeTargetIds = new Set(listRuntimeDispatchTargetIds());
+    for (const agentId of [...dispatchTargetStateMap.keys()]) {
+      if (!activeRuntimeTargetIds.has(agentId)) {
+        dispatchTargetStateMap.delete(agentId);
+        logger?.info?.(`[dispatch-state] pruned non-roster dispatch target ${agentId}`);
+        changed = true;
+      }
+    }
+
     for (const [agentId, state] of dispatchTargetStateMap.entries()) {
+      const normalizedLease = normalizeIncomingDispatchEntry(agentId, state.dispatchingQueueEntry);
+      if (normalizedLease) {
+        const leaseContract = await readCachedContractSnapshotById(normalizedLease.contractId, {
+          preferCache: false,
+        });
+        const keepLease = await shouldKeepQueuedEntry({
+          graph,
+          targetAgent: agentId,
+          entry: normalizedLease,
+          contract: leaseContract,
+          logger,
+        });
+        if (!keepLease) {
+          state.dispatchingQueueEntry = null;
+          changed = true;
+        } else {
+          state.dispatchingQueueEntry = normalizedLease;
+        }
+      } else if (state.dispatchingQueueEntry) {
+        state.dispatchingQueueEntry = null;
+        changed = true;
+      }
+
       const preservedQueue = [];
       const seenQueuedContracts = new Set();
+      if (state.dispatchingQueueEntry) {
+        seenQueuedContracts.add(normalizeContractIdentity(state.dispatchingQueueEntry.contractId));
+      }
       for (const entry of Array.isArray(state.queue) ? state.queue : []) {
-        const normalizedEntry = normalizeDispatchQueueEntry(entry);
+        const normalizedEntry = normalizeIncomingDispatchEntry(agentId, entry);
         if (!normalizedEntry) {
           changed = true;
           continue;
@@ -97,10 +253,14 @@ export async function reconcileDispatchRuntimeTruth(logger) {
         const contract = await readCachedContractSnapshotById(normalizedEntry.contractId, {
           preferCache: false,
         });
-        if (!contract || !isActiveContractStatus(contract.status) || contract.assignee !== agentId) {
-          logger?.info?.(
-            `[dispatch-state] pruned stale queue entry ${normalizedEntry.contractId} for ${agentId}`,
-          );
+        const keepQueued = await shouldKeepQueuedEntry({
+          graph,
+          targetAgent: agentId,
+          entry: normalizedEntry,
+          contract,
+          logger,
+        });
+        if (!keepQueued) {
           changed = true;
           continue;
         }
@@ -112,6 +272,13 @@ export async function reconcileDispatchRuntimeTruth(logger) {
       if (JSON.stringify(preservedQueue) !== JSON.stringify(Array.isArray(state.queue) ? state.queue : [])) {
         state.queue = preservedQueue;
         changed = true;
+      }
+
+      if (Array.isArray(state.outgoingQueue) && state.outgoingQueue.length > 0) {
+        delete state.outgoingQueue;
+        changed = true;
+      } else if ("outgoingQueue" in state) {
+        delete state.outgoingQueue;
       }
 
       const trackedContractId = trackedCurrentContracts.get(agentId) || null;
@@ -156,6 +323,15 @@ export async function reconcileDispatchRuntimeTruth(logger) {
       }
     }
 
+    for (const [sourceAgent, state] of [...dispatchOutgoingStateMap.entries()]) {
+      if (await pruneOutgoingQueueState({ graph, sourceAgent, state, logger })) {
+        changed = true;
+      }
+      if (!Array.isArray(state?.outgoingQueue) || state.outgoingQueue.length === 0) {
+        dispatchOutgoingStateMap.delete(sourceAgent);
+      }
+    }
+
     const sharedEntries = await listSharedContractEntries();
     const pendingEntries = [...sharedEntries]
       .filter((entry) => entry?.contract?.status === CONTRACT_STATUS.PENDING)
@@ -185,19 +361,28 @@ export async function reconcileDispatchRuntimeTruth(logger) {
         continue;
       }
 
+      const recovery = await canRecoverPendingQueueEntry(contract, agentId, logger);
+      if (!recovery.ok) {
+        continue;
+      }
+
       state.queue.push({
         contractId,
-        fromAgent: deriveRecoveredQueueOrigin(contract),
+        fromAgent: recovery.fromAgent,
       });
       logger?.info?.(`[dispatch-state] recovered orphan pending contract ${contractId} for ${agentId}`);
       changed = true;
     }
 
-    for (const [, state] of dispatchTargetStateMap.entries()) {
+    for (const [agentId2, state] of dispatchTargetStateMap.entries()) {
       const dedupedQueue = [];
       const seenQueuedContracts = new Set();
+      const normalizedLease = normalizeIncomingDispatchEntry(agentId2, state.dispatchingQueueEntry);
+      if (normalizedLease) {
+        seenQueuedContracts.add(normalizeContractIdentity(normalizedLease.contractId));
+      }
       for (const entry of Array.isArray(state.queue) ? state.queue : []) {
-        const normalizedEntry = normalizeDispatchQueueEntry(entry);
+        const normalizedEntry = normalizeIncomingDispatchEntry(agentId2, entry);
         if (!normalizedEntry) {
           changed = true;
           continue;

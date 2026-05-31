@@ -69,31 +69,33 @@
 .agents-command-hero {
   position: relative;
   border: 1px solid var(--border-secondary);
-  border-top: 3px solid var(--accent-orange);
-  background: rgba(255, 249, 236, 0.84);
+  border-left: 3px solid var(--border-secondary);
+  background: var(--bg-primary);
   padding: 16px 18px;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
+/* 橙色=选中(有意义),不是每张都橙;attention/joinable 用各自色,默认中性 */
+.agents-card.selected { border-left-color: var(--accent-orange); background: var(--bg-secondary); }
+.agents-card.attention { border-left-color: var(--accent-amber); }
+.agents-card.joinable { border-left-color: var(--accent-blue); }
 
+/* 装饰角标只保留在 hero 上；每张卡都加角标 = 满屏橙噪声，去掉 */
 .agents-command-hero::before,
-.agents-command-hero::after,
-.agents-card::before,
-.agents-card::after {
+.agents-command-hero::after {
   content: "";
   position: absolute;
   width: 10px;
   height: 10px;
 }
 
-.agents-command-hero::before,
-.agents-card::before {
+.agents-command-hero::before {
   top: -1px;
   left: -1px;
   border-top: 2px solid var(--accent-orange);
   border-left: 2px solid var(--accent-orange);
 }
 
-.agents-command-hero::after,
-.agents-card::after {
+.agents-command-hero::after {
   bottom: -1px;
   right: -1px;
   border-bottom: 2px solid var(--accent-orange);
@@ -318,93 +320,6 @@
   font-size: 30px;
   line-height: 1;
   color: var(--accent-orange);
-}
-
-.agents-migration-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px 16px;
-  border-bottom: 1px solid rgba(139, 115, 85, 0.14);
-}
-
-.agents-migration-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
-  padding: 14px 16px 16px;
-}
-
-.agents-migration-card {
-  border: 1px solid rgba(139, 115, 85, 0.16);
-  background: rgba(255, 255, 255, 0.56);
-  padding: 12px;
-  display: grid;
-  gap: 10px;
-}
-
-.agents-migration-card.status-safe_to_replace {
-  border-top: 3px solid var(--accent-green);
-}
-
-.agents-migration-card.status-manual_review {
-  border-top: 3px solid var(--accent-red);
-}
-
-.agents-migration-card.status-broken_alias {
-  border-top: 3px solid var(--accent-orange);
-}
-
-.agents-migration-card.status-already_aliased,
-.agents-migration-card.status-missing_legacy {
-  border-top: 3px solid rgba(139, 115, 85, 0.32);
-}
-
-.agents-migration-head,
-.agents-migration-footer,
-.agents-migration-runtime {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.agents-migration-title {
-  font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.agents-migration-meta,
-.agents-migration-reason,
-.agents-migration-recommendation,
-.agents-migration-status,
-.agents-migration-runtime span {
-  font-family: "Courier New", monospace;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-
-.agents-migration-meta,
-.agents-migration-reason {
-  color: var(--text-secondary);
-  line-height: 1.6;
-  word-break: break-word;
-}
-
-.agents-migration-status {
-  color: var(--accent-orange);
-  white-space: nowrap;
-}
-
-.agents-migration-runtime {
-  flex-wrap: wrap;
-}
-
-.agents-migration-runtime span,
-.agents-migration-recommendation {
-  color: var(--text-muted);
 }
 
 .agents-roster-intro {
@@ -1255,14 +1170,12 @@
   }
 
   .agents-summary-grid,
-  .agents-modal-summary,
-  .agents-migration-summary {
+  .agents-modal-summary {
     grid-template-columns: 1fr;
   }
 
   .agents-card-grid-list,
-  .agents-roster-intro,
-  .agents-migration-list {
+  .agents-roster-intro {
     grid-template-columns: 1fr;
   }
 
@@ -1289,8 +1202,7 @@
 
   .agents-summary-grid,
   .agents-card-grid-list,
-  .agents-roster-intro-grid,
-  .agents-migration-summary {
+  .agents-roster-intro-grid {
     grid-template-columns: 1fr;
   }
 

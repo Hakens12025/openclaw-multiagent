@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { normalizeString } from "./core/normalize.js";
 
 function resolveModelRef(model) {
@@ -25,6 +27,27 @@ function splitModelRef(modelRef) {
 
 export { resolveModelRef };
 
+export function resolveProviderApiKey(provider, env = process.env) {
+  const inlineKey = normalizeString(provider?.apiKey);
+  if (inlineKey) {
+    if (inlineKey.startsWith("env:")) {
+      const envName = normalizeString(inlineKey.slice("env:".length));
+      return envName ? normalizeString(env[envName]) || null : null;
+    }
+    if (inlineKey.startsWith("file:")) {
+      const keyFile = normalizeString(inlineKey.slice("file:".length));
+      if (!keyFile) return null;
+      try {
+        return normalizeString(readFileSync(keyFile, "utf8"));
+      } catch {
+        return null;
+      }
+    }
+    return inlineKey;
+  }
+  return null;
+}
+
 export function resolveOperatorBrainModel(config) {
   const defaultModelRef = resolveModelRef(config?.agents?.defaults?.model);
   const defaultParsed = splitModelRef(defaultModelRef);
@@ -36,7 +59,7 @@ export function resolveOperatorBrainModel(config) {
         modelId: defaultParsed.modelId,
         fullRef: defaultParsed.fullRef,
         baseUrl: normalizeString(provider.baseUrl),
-        apiKey: normalizeString(provider.apiKey),
+        apiKey: resolveProviderApiKey(provider),
       };
     }
   }
@@ -54,7 +77,7 @@ export function resolveOperatorBrainModel(config) {
       modelId: firstModelId,
       fullRef: `${providerId}/${firstModelId}`,
       baseUrl: normalizeString(provider.baseUrl),
-      apiKey: normalizeString(provider.apiKey),
+      apiKey: resolveProviderApiKey(provider),
     };
   }
 

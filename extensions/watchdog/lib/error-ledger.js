@@ -33,7 +33,7 @@ const ERROR_LABELS = {
   timeout: "执行超时",
   rate_limit: "API 限流",
   permission: "权限错误",
-  file_not_found: "路径不存在",
+  file_not_found: "路径缺失",
   disk_full: "磁盘空间不足",
   connection: "网络连接失败",
   unknown: "其他错误",
@@ -41,12 +41,12 @@ const ERROR_LABELS = {
 
 const ERROR_GUIDANCE = {
   context_overflow: [
-    "避免 read 大文件，用 grep/glob 精确搜索替代全文阅读",
+    "用 grep/glob 精确搜索替代全文阅读",
     "分步执行，先完成最关键的输出",
-    "单次操作最多读取 3 个大文件",
+    "单次操作读取少量关键文件",
   ],
   timeout: [
-    "先输出最关键的结果，避免长时间搜索",
+    "先输出最关键的结果，控制搜索范围",
     "复杂任务拆成小步骤分别完成",
   ],
   rate_limit: [
@@ -55,10 +55,10 @@ const ERROR_GUIDANCE = {
   ],
   permission: [
     "只访问自己 workspace 内的文件（inbox/、outbox/）",
-    "平台配置和其他 agent workspace 交给 operator/runtime surface",
+    "配置和跨 workspace 操作交给 runtime/operator",
   ],
   file_not_found: [
-    "先用 glob 确认目标路径存在，再使用该路径",
+    "先用 glob 确认目标路径存在，再按发现路径操作",
     "检查 contract 中指定的 output 路径是否正确",
   ],
   disk_full: [
@@ -66,7 +66,7 @@ const ERROR_GUIDANCE = {
   ],
   connection: [
     "如果 web_search 失败，改用本地文件和已有数据完成任务",
-    "同一网络请求失败后改用本地资料或换查询入口",
+    "同类网络失败合并处理，保留一次失败说明",
   ],
   unknown: [
     "检查上次方法是否可行，考虑简化或换一种方式",
@@ -157,10 +157,15 @@ async function regenerateSkillFile(ledger, logger) {
   if (patterns.length === 0) return;
 
   const lines = [
+    "---",
+    "name: error-avoidance",
+    "description: 全局错误回避知识库，基于系统历史执行经验提供已验证做法。",
+    "---",
+    "",
     "# 错误回避知识库",
     "",
     "以下是全系统历史执行中积累的经验教训。所有 agent 共享此知识。",
-    "执行任务时优先采用这些稳定做法。",
+    "执行任务时优先采用这些已验证做法。",
     "",
   ];
 

@@ -7,7 +7,7 @@
 `runtime-bridge` 的功能已经并入 `delivery`。当前运行时使用：
 
 - **delivery:terminal** — 终端投递，面向 QQ / Feishu / controller 等外部入口
-- **delivery:system_action_contract_result** — 普通子流程结果回上游
+- **delivery:system_action_runtime_result** — 普通子流程结果回上游
 - **delivery:system_action_assign_task_result** — 委派子任务结果回委派者
 - **delivery:system_action_review_verdict** — 审查 verdict 回发起者
 

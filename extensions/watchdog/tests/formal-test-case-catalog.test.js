@@ -21,6 +21,12 @@ test("formal complex cases use extended timeout windows for heavier tasks", () =
   assert.equal(getFormalSingleCaseById("complex-03")?.timeoutMs, 300000);
 });
 
+test("formal cases do not encode answer length classes", () => {
+  for (const testCase of FORMAL_SINGLE_CASES) {
+    assert.equal(testCase.validate?.minBytes, undefined, `${testCase.id} should not use minBytes as answer quality`);
+  }
+});
+
 test("formal concurrent case catalog keeps canonical group ids in order", () => {
   assert.deepEqual(
     FORMAL_CONCURRENT_CASES.map((entry) => entry.id),

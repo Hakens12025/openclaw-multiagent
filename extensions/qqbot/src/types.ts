@@ -121,3 +121,19 @@ export interface WSPayload {
   s?: number;
   t?: string;
 }
+
+/**
+ * Gateway 启动上下文
+ */
+export interface GatewayContext {
+  account: ResolvedQQBotAccount;
+  abortSignal: AbortSignal;
+  cfg: unknown;
+  onReady?: (event: { eventType: "READY" | "RESUMED"; payload: unknown }) => void;
+  onError?: (error: Error) => void;
+  log?: {
+    info: (msg: string) => void;
+    error: (msg: string) => void;
+    debug?: (msg: string) => void;
+  };
+}

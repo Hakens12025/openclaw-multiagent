@@ -1,10 +1,10 @@
 // lib/sse.js — SSE broadcast and progress payload builders
 
 import { sseClients } from "../state.js";
+import { getAgentIdentitySnapshot } from "../agent/agent-identity.js";
 import { getEnvelopeType } from "../protocol-primitives.js";
 import { buildLifecycleStageTruth } from "../lifecycle-stage-truth.js";
 import { resolveTrackingWorkItem } from "../tracking-work-item.js";
-import { deriveTrackingActivityProgress } from "../activity-progress.js";
 
 export function addSseClient(response) {
   if (!response) return;
@@ -33,8 +33,8 @@ export function broadcast(event, data) {
 export function buildProgressPayload(t) {
   const workItem = resolveTrackingWorkItem(t);
   const contract = t.contract || null;
+  const actorIdentity = getAgentIdentitySnapshot(t?.agentId);
   const stageProjection = t.stageProjection || null;
-  const activityProgress = deriveTrackingActivityProgress(t);
   const stageTruth = buildLifecycleStageTruth(contract);
   const stagePlan = stageTruth.stagePlan || null;
   const stageRuntime = stageTruth.stageRuntime || null;
@@ -49,6 +49,10 @@ export function buildProgressPayload(t) {
     workItemId: workItem.id || null,
     workItemKind: workItem.kind || null,
     agentId: t.agentId,
+    plane: actorIdentity.plane || null,
+    mainViewVisible: actorIdentity.mainViewVisible !== false,
+    formalTimelineVisible: actorIdentity.formalTimelineVisible !== false,
+    autoWakeEligible: actorIdentity.autoWakeEligible !== false,
     parentSession: t.parentSession,
     status: t.status,
     lastLabel: t.lastLabel,
@@ -81,14 +85,14 @@ export function buildProgressPayload(t) {
     executionObservation: workItem.executionObservation || null,
     systemAction: workItem.systemAction || null,
     runtimeDiagnostics: workItem.runtimeDiagnostics || null,
+    ioObservation: t.ioObservation || workItem.ioObservation || null,
     artifactKind: workItem.artifactKind || null,
     artifactDomain: workItem.artifactDomain || null,
     artifactSource: workItem.artifactSource || null,
     artifactRequest: workItem.artifactRequest || null,
-    cursor: activityProgress?.cursor || (t.cursor ?? null),
-    pct: Number.isFinite(activityProgress?.pct) ? activityProgress.pct : (Number.isFinite(t.pct) ? t.pct : null),
-    estimatedPhase: activityProgress?.currentPhase || t.estimatedPhase || null,
-    activityProgress,
+    cursor: t.cursor ?? null,
+    pct: Number.isFinite(t.pct) ? t.pct : null,
+    estimatedPhase: t.estimatedPhase || null,
     stageProjection,
     stagePlan,
     stageRuntime,

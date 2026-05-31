@@ -10,7 +10,6 @@ import {
   NETWORK_CAPABLE_TOOLS,
   normalizePositiveInteger,
   expandConfiguredPath,
-  isPathInsideRoot,
   normalizeModuleResult,
   getModuleDefinition,
   resolveHarnessModuleConfig,
@@ -18,254 +17,7 @@ import {
   buildBaseEvidence,
 } from "./harness-module-evidence.js";
 
-// ---------------------------------------------------------------------------
-// Shared guard helpers
-// ---------------------------------------------------------------------------
-
-function evaluateToolWhitelist(ctx) {
-  const { moduleConfig, targetTools, allowedTools, configuredAllowedTools, executionContext } = ctx;
-  const mode = normalizeString(moduleConfig.mode)?.toLowerCase() === "exact" ? "exact" : "subset";
-  const extraTools = targetTools.filter((tool) => !allowedTools.includes(tool));
-  const missingAllowedTools = allowedTools.filter((tool) => !targetTools.includes(tool));
-  const matched = mode === "exact"
-    ? extraTools.length === 0 && missingAllowedTools.length === 0
-    : extraTools.length === 0;
-  return {
-    status: matched ? "passed" : "failed",
-    summary: configuredAllowedTools.length > 0
-      ? (matched ? "tool whitelist satisfied" : "tool whitelist drift detected")
-      : "declared tool surface captured as whitelist",
-    reason: configuredAllowedTools.length > 0
-      ? (matched ? "tool_whitelist_matched" : "tool_whitelist_drift")
-      : "tool_surface_declared",
-    evidence: {
-      targetAgent: executionContext?.targetAgent || null,
-      mode,
-      targetTools,
-      allowedTools,
-      extraTools,
-      missingAllowedTools,
-    },
-  };
-}
-
-function evaluateSandboxPolicy(ctx) {
-  const { moduleConfig, workspaceDir, effectiveWorkspaceRoots, executionContext } = ctx;
-  const policy = normalizeString(moduleConfig.policy)?.toLowerCase() || null;
-  if (!policy && effectiveWorkspaceRoots.length === 0) {
-    return {
-      status: "skipped",
-      summary: "no explicit sandbox policy configured",
-      reason: "sandbox_policy_missing",
-      evidence: {
-        targetAgent: executionContext?.targetAgent || null,
-        workspaceDir,
-      },
-    };
-  }
-  const workspaceAllowed = workspaceDir
-    ? (effectiveWorkspaceRoots.length === 0 || effectiveWorkspaceRoots.some((root) => isPathInsideRoot(workspaceDir, root)))
-    : false;
-  return {
-    status: workspaceAllowed ? "passed" : "failed",
-    summary: workspaceAllowed ? "sandbox policy anchored to workspace scope" : "sandbox workspace scope mismatch",
-    reason: workspaceAllowed ? "sandbox_policy_declared" : "sandbox_scope_mismatch",
-    evidence: {
-      targetAgent: executionContext?.targetAgent || null,
-      policy,
-      workspaceDir,
-      allowedWorkspaceRoots: effectiveWorkspaceRoots,
-    },
-  };
-}
-
-function evaluateNetworkPolicy(ctx) {
-  const { moduleConfig, networkTools, executionContext } = ctx;
-  if (networkTools.length === 0) {
-    return {
-      status: "passed",
-      summary: "network closed by declared tool surface",
-      reason: "network_closed",
-      evidence: {
-        targetAgent: executionContext?.targetAgent || null,
-        networkTools,
-        allowNetwork: false,
-      },
-    };
-  }
-  if (moduleConfig.allowNetwork === true) {
-    return {
-      status: "passed",
-      summary: "network-capable tools allowed by explicit policy",
-      reason: "network_policy_open",
-      evidence: {
-        targetAgent: executionContext?.targetAgent || null,
-        networkTools,
-        allowNetwork: true,
-        allowedDomains: uniqueStrings(moduleConfig.allowedDomains || []),
-      },
-    };
-  }
-  if (moduleConfig.allowNetwork === false) {
-    return {
-      status: "failed",
-      summary: "network-capable tools violate closed network policy",
-      reason: "network_policy_violation",
-      evidence: {
-        targetAgent: executionContext?.targetAgent || null,
-        networkTools,
-        allowNetwork: false,
-      },
-    };
-  }
-  return {
-    status: "skipped",
-    summary: "network-capable tools present but policy missing",
-    reason: "network_policy_missing",
-    evidence: {
-      targetAgent: executionContext?.targetAgent || null,
-      networkTools,
-      allowNetwork: null,
-    },
-  };
-}
-
-function evaluateWorkspaceScope(ctx) {
-  const { workspaceDir, effectiveWorkspaceRoots, executionContext } = ctx;
-  if (!workspaceDir || effectiveWorkspaceRoots.length === 0) {
-    return {
-      status: "failed",
-      summary: "workspace scope could not be resolved",
-      reason: "workspace_scope_missing",
-      evidence: {
-        targetAgent: executionContext?.targetAgent || null,
-        workspaceDir,
-        allowedWorkspaceRoots: effectiveWorkspaceRoots,
-      },
-    };
-  }
-  const withinScope = effectiveWorkspaceRoots.some((root) => isPathInsideRoot(workspaceDir, root));
-  return {
-    status: withinScope ? "passed" : "failed",
-    summary: withinScope ? "workspace scope resolved" : "workspace outside allowed roots",
-    reason: withinScope ? "workspace_scope_ok" : "workspace_scope_violation",
-    evidence: {
-      targetAgent: executionContext?.targetAgent || null,
-      workspaceDir,
-      allowedWorkspaceRoots: effectiveWorkspaceRoots,
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Merged guard wrappers — combine sub-checks, worst status wins
-// ---------------------------------------------------------------------------
-
-function combineStatuses(a, b) {
-  if (a === "failed" || b === "failed") return "failed";
-  if (a === "passed" && b === "passed") return "passed";
-  if (a === "skipped" && b === "skipped") return "skipped";
-  return a;
-}
-
-function evaluateToolAccessGuard(ctx) {
-  const whitelistResult = evaluateToolWhitelist(ctx);
-  const networkResult = evaluateNetworkPolicy(ctx);
-  const worstStatus = combineStatuses(whitelistResult.status, networkResult.status);
-  return {
-    status: worstStatus,
-    summary: `tool_access: ${whitelistResult.summary}; network: ${networkResult.summary}`,
-    reason: worstStatus === "failed" ? (whitelistResult.status === "failed" ? whitelistResult.reason : networkResult.reason) : whitelistResult.reason,
-    evidence: { toolWhitelist: whitelistResult.evidence, networkPolicy: networkResult.evidence },
-  };
-}
-
-function evaluateScopeGuard(ctx) {
-  const sandboxResult = evaluateSandboxPolicy(ctx);
-  const workspaceResult = evaluateWorkspaceScope(ctx);
-  const worstStatus = combineStatuses(sandboxResult.status, workspaceResult.status);
-  return {
-    status: worstStatus,
-    summary: `sandbox: ${sandboxResult.summary}; workspace: ${workspaceResult.summary}`,
-    reason: worstStatus === "failed" ? (sandboxResult.status === "failed" ? sandboxResult.reason : workspaceResult.reason) : sandboxResult.reason,
-    evidence: { sandboxPolicy: sandboxResult.evidence, workspaceScope: workspaceResult.evidence },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Guard registry — each guard defined once.
-//
-// Guards with identical start/final decision logic use `evaluate()`.
-// Guards with divergent start/final logic use `start()` and `final()`.
-// ---------------------------------------------------------------------------
-
-const GUARD_REGISTRY = {
-  "harness:guard.tool_access": { evaluate: evaluateToolAccessGuard },
-  "harness:guard.scope": { evaluate: evaluateScopeGuard },
-
-  "harness:guard.budget": {
-    start(ctx) {
-      const { timeoutBudgetSeconds, retryBudget } = ctx;
-      const hasTimeout = !!timeoutBudgetSeconds;
-      const hasRetry = Number.isFinite(retryBudget);
-      if (!hasTimeout && !hasRetry) {
-        return { status: "skipped", summary: "no budget constraints configured", reason: "budget_missing", evidence: { timeoutBudgetSeconds: null, maxRetry: null } };
-      }
-      return {
-        status: hasTimeout ? "pending" : "passed",
-        summary: [hasTimeout ? `timeout ${timeoutBudgetSeconds}s armed` : null, hasRetry ? `retry budget ${retryBudget}` : null].filter(Boolean).join("; "),
-        reason: hasTimeout ? "budget_armed" : "retry_budget_declared",
-        evidence: { timeoutBudgetSeconds: timeoutBudgetSeconds || null, maxRetry: retryBudget },
-      };
-    },
-    final(ctx) {
-      const { automationSpec, run, base } = ctx;
-      const timeoutBudgetSeconds = resolveTimeoutBudgetSeconds(automationSpec, run);
-      const retryBudget = ctx.retryBudget;
-
-      let timeoutStatus = "skipped";
-      let timeoutSummary = "no timeout configured";
-      if (timeoutBudgetSeconds) {
-        const exceeded = Number.isFinite(base.durationMs) && base.durationMs > (timeoutBudgetSeconds * 1000);
-        timeoutStatus = exceeded ? "failed" : "passed";
-        timeoutSummary = exceeded ? `exceeded ${timeoutBudgetSeconds}s` : `within ${timeoutBudgetSeconds}s`;
-      }
-
-      const retryStatus = Number.isFinite(retryBudget) ? "passed" : "skipped";
-      const worstStatus = timeoutStatus === "failed" ? "failed" : (timeoutStatus === "passed" || retryStatus === "passed") ? "passed" : "skipped";
-
-      return {
-        status: worstStatus,
-        summary: `timeout: ${timeoutSummary}` + (Number.isFinite(retryBudget) ? `; retry budget: ${retryBudget}` : ""),
-        reason: worstStatus === "failed" ? "timeout_budget_exceeded" : worstStatus === "passed" ? "budget_ok" : "budget_missing",
-        evidence: { timeoutBudgetSeconds, durationMs: base.durationMs, maxRetry: retryBudget },
-      };
-    },
-  },
-
-  "harness:collector.trace": {
-    start(ctx) {
-      const { ids } = ctx;
-      const hasIdentity = ids.contractId || ids.pipelineId || ids.loopId;
-      return {
-        status: hasIdentity ? "passed" : "pending",
-        summary: hasIdentity ? "trace identity captured" : "waiting for identity",
-        reason: hasIdentity ? "trace_bound" : "trace_pending",
-        evidence: ids,
-      };
-    },
-    final(ctx) {
-      const { run } = ctx;
-      const hasIdentity = run?.contractId || run?.pipelineId || run?.loopId;
-      return {
-        status: hasIdentity ? "passed" : "failed",
-        summary: hasIdentity ? "trace identity captured" : "trace identity missing",
-        reason: hasIdentity ? "trace_bound" : "trace_missing",
-        evidence: { contractId: run?.contractId || null, pipelineId: run?.pipelineId || null, loopId: run?.loopId || null },
-      };
-    },
-  },
-};
+import { GUARD_REGISTRY } from "./harness-guard-registry.js";
 
 // ---------------------------------------------------------------------------
 // Shared context builder — computes all derived values used by guards
@@ -444,7 +196,6 @@ export function buildFinalModuleRun(moduleId, harnessRun, automationSpec, termin
       });
     }
     case "harness:gate.artifact": {
-      // Aggregate required artifact, stage artifact set, and experiment linkage checks.
       const artifactPresent = normalizedBase.artifact.present;
       const missing = normalizedBase.missingArtifacts || [];
       const experimentConnected = normalizedBase.terminalStatus === CONTRACT_STATUS.COMPLETED
@@ -485,9 +236,8 @@ export function buildFinalModuleRun(moduleId, harnessRun, automationSpec, termin
       });
     }
     case "harness:gate.schema": {
-      // Schema gate uses stage metadata; missing or invalid schema fails.
       const schemaValid = normalizedBase.stageResult?.metadata?.schemaValid === true;
-      const stageSchemaValid = normalizedBase.stageResult?.metadata?.schemaValid === true;
+      const stageSchemaValid = normalizedBase.stageResult?.metadata?.stageSchemaValid === true;
       const allValid = schemaValid && stageSchemaValid;
       return normalizeModuleResult({
         ...common,
@@ -521,7 +271,6 @@ export function buildFinalModuleRun(moduleId, harnessRun, automationSpec, termin
         evidence: normalizedBase.testSignal,
       });
     case "harness:normalizer.eval_input": {
-      // Pass when terminal evidence or staged evaluation input can seed evaluator input.
       const primaryReady = normalizedBase.artifact.present || normalizedBase.summary || normalizedBase.score != null;
       const evaluationInput = normalizedBase.stageResult?.evaluationInput;
       const stageReady = evaluationInput && typeof evaluationInput === "object" && Object.keys(evaluationInput).length > 0;

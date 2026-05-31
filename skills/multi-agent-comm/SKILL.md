@@ -21,7 +21,7 @@ metadata: {"clawdbot":{"emoji":"🔗","requires":{"tools":["agentToAgent","sessi
 ```
 使用 sessions_send 向 agent "{target_agent_id}" 发送消息：
 - 只发送任务摘要或结果摘要
-- 不要转发完整对话历史
+- 只转发必要摘要
 - 控制轮数（通常 1-2 轮足够）
 ```
 
@@ -128,7 +128,7 @@ api.registerHook(['session', 'agent'], handler);
   ├─ agent → 子任务（需要干净上下文）
   │   └─ spawn subagent（用完即毁）
   │
-  ├─ 监控/日志（不能污染 LLM 上下文）
+  ├─ 监控/日志（走旁路，保持 LLM 上下文干净）
   │   └─ Plugin Hook（旁路运行）
   │
   ├─ 外部事件 → 唤醒 agent
@@ -142,7 +142,7 @@ api.registerHook(['session', 'agent'], handler);
 
 ## 关键原则
 
-1. **Workers 之间不直接通信** — 所有跨 Worker 协调经过 Controller
+1. **Workers 通过 Controller 协调** — 所有跨 Worker 协调经过 Controller
 2. **只传摘要，不传历史** — sessions_send 发结果，不发对话记录
 3. **监控不污染** — 用 Plugin Hook，不用消息注入
 4. **反馈单一入口** — 通过 Controller 注入（可控、可追踪）

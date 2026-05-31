@@ -1,16 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import {
   OUTBOX_COMMIT_KINDS,
-  normalizeOutboxCommitManifest,
 } from "../protocol-primitives.js";
 import {
   getRuntimeAgentConfig,
-  hasExecutionPolicy,
-  isExecutorAgent,
-  isResearcherAgent,
-  listRuntimeAgentIds,
 } from "../agent/agent-identity.js";
 import {
   routeWorkerInbox,
@@ -22,19 +14,19 @@ import { composeRuntimeCapabilityProfile } from "../effective-profile-composer.j
 import { normalizeString } from "../core/normalize.js";
 import { getAgentCard } from "../store/agent-card-store.js";
 
-const ROUTER_HANDLER_REGISTRY = Object.freeze([
+const MAILBOX_HANDLER_REGISTRY = Object.freeze([
   // All execution-layer agents use the unified executor_contract handler.
   {
     id: "executor_contract",
     kinds: [OUTBOX_COMMIT_KINDS.EXECUTION_RESULT, "worker_output", "executor_contract"],
-    matchAgent: isExecutorAgent,
+    // P6-Phase1: 删除死字段 matchAgent（全仓从未被调用）；handler 解析实际走
+    // routerHandlerId / outboxCommitKinds（capability profile），见 resolveCapabilityMailboxHandler。
     routeInbox: (params) => routeWorkerInbox(params),
-    collectOutbox: ({ agentId, outboxDir, files, logger, manifest }) => collectWorkerOutbox({
+    collectOutbox: ({ agentId, outboxDir, files, logger }) => collectWorkerOutbox({
       agentId,
       outboxDir,
       files,
       logger,
-      manifest,
     }),
     preserveInbox: () => false,
   },
@@ -42,24 +34,13 @@ const ROUTER_HANDLER_REGISTRY = Object.freeze([
   // All execution-layer agents now use executor_contract handler.
 ]);
 
-function normalizeManifestSelector(manifest) {
-  if (!manifest || typeof manifest !== "object") return null;
-  if (typeof manifest.handlerId === "string" && manifest.handlerId.trim()) {
-    return { type: "handlerId", value: manifest.handlerId.trim() };
-  }
-  if (typeof manifest.kind === "string" && manifest.kind.trim()) {
-    return { type: "kind", value: manifest.kind.trim() };
-  }
-  return null;
-}
-
-function resolveRouterHandlerByKind(kind) {
+function resolveMailboxHandlerByKind(kind) {
   const normalizedKind = normalizeString(kind);
   if (!normalizedKind) return null;
-  return ROUTER_HANDLER_REGISTRY.find((handler) => Array.isArray(handler.kinds) && handler.kinds.includes(normalizedKind)) || null;
+  return MAILBOX_HANDLER_REGISTRY.find((handler) => Array.isArray(handler.kinds) && handler.kinds.includes(normalizedKind)) || null;
 }
 
-function readAgentRouterCapabilities(agentId) {
+function readAgentMailboxCapabilities(agentId) {
   const normalizedAgentId = normalizeString(agentId);
   if (!normalizedAgentId) {
     return { routerHandlerId: null, outboxCommitKinds: [] };
@@ -72,17 +53,17 @@ function readAgentRouterCapabilities(agentId) {
   });
 }
 
-function resolveCapabilityRouterHandler(agentId) {
-  const capabilities = readAgentRouterCapabilities(agentId);
+function resolveCapabilityMailboxHandler(agentId) {
+  const capabilities = readAgentMailboxCapabilities(agentId);
   if (capabilities.routerHandlerId) {
-    const handlerById = resolveRouterHandlerById(capabilities.routerHandlerId);
+    const handlerById = resolveMailboxHandlerById(capabilities.routerHandlerId);
     if (handlerById) {
       return handlerById;
     }
   }
 
   for (const kind of capabilities.outboxCommitKinds) {
-    const handlerByKind = resolveRouterHandlerByKind(kind);
+    const handlerByKind = resolveMailboxHandlerByKind(kind);
     if (handlerByKind) {
       return handlerByKind;
     }
@@ -91,66 +72,30 @@ function resolveCapabilityRouterHandler(agentId) {
   return null;
 }
 
-function resolveDefaultRouterHandler() {
-  return resolveRouterHandlerById("executor_contract");
+function resolveDefaultMailboxHandler() {
+  return resolveMailboxHandlerById("executor_contract");
 }
 
-export function resolveRouterHandlerForAgent(agentId) {
-  const capabilityHandler = resolveCapabilityRouterHandler(agentId);
+export function resolveMailboxHandlerForAgent(agentId) {
+  const capabilityHandler = resolveCapabilityMailboxHandler(agentId);
   if (capabilityHandler) {
     return capabilityHandler;
   }
 
-  return resolveDefaultRouterHandler();
+  return resolveDefaultMailboxHandler();
 }
 
-function resolveRouterHandlerById(handlerId) {
-  return ROUTER_HANDLER_REGISTRY.find((handler) => handler.id === handlerId) || null;
+function resolveMailboxHandlerById(handlerId) {
+  return MAILBOX_HANDLER_REGISTRY.find((handler) => handler.id === handlerId) || null;
 }
 
-export function resolveAgentByRouterHandler(handlerId) {
-  const normalizedHandlerId = normalizeString(handlerId);
-  if (!normalizedHandlerId) return null;
-  for (const agentId of listRuntimeAgentIds()) {
-    if (readAgentRouterCapabilities(agentId).routerHandlerId === normalizedHandlerId) {
-      return agentId;
-    }
-  }
-  return null;
+export function resolveMailboxOutboxHandler(agentId) {
+  return resolveMailboxHandlerForAgent(agentId) || resolveDefaultMailboxHandler();
 }
 
-export async function readRouterOutboxManifest(outboxDir, logger) {
-  const manifestPath = join(outboxDir, "_manifest.json");
-  try {
-    const raw = await readFile(manifestPath, "utf8");
-    const manifest = normalizeOutboxCommitManifest(JSON.parse(raw));
-    return manifest
-      ? { manifest, manifestPath }
-      : { manifest: null, manifestPath };
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      logger?.warn?.(`[router] invalid outbox manifest ${manifestPath}: ${error.message}`);
-    }
-    return { manifest: null, manifestPath };
-  }
-}
-
-export function resolveRouterOutboxHandler(agentId, manifest = null) {
-  const selector = normalizeManifestSelector(manifest);
-  if (selector) {
-    const manifestHandler = selector.type === "handlerId"
-      ? resolveRouterHandlerById(selector.value)
-      : resolveRouterHandlerByKind(selector.value);
-    if (manifestHandler) {
-      return manifestHandler;
-    }
-  }
-  return resolveRouterHandlerForAgent(agentId) || resolveDefaultRouterHandler();
-}
-
-export function shouldPreserveRouterInbox(agentId, executionObservation) {
-  const handler = resolveRouterHandlerById(executionObservation?.routerHandlerId)
-    || resolveRouterHandlerForAgent(agentId)
-    || resolveDefaultRouterHandler();
+export function shouldPreserveMailboxInbox(agentId, executionObservation) {
+  const handler = resolveMailboxHandlerById(executionObservation?.routerHandlerId)
+    || resolveMailboxHandlerForAgent(agentId)
+    || resolveDefaultMailboxHandler();
   return handler?.preserveInbox?.(agentId, executionObservation?.collected === true) === true;
 }

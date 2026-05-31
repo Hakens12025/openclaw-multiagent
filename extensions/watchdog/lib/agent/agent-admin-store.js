@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -34,7 +34,18 @@ function configPath() {
   return join(OC, "openclaw.json");
 }
 
-export async function loadConfig() {
+// loadConfig is called on every before_agent_start hook; mtime-keyed cache
+// avoids repeated readFile + JSON.parse + normalize on the hot path while
+// still picking up legitimate edits (admin saves bump mtime).
+let configCacheMtime = null;
+let configCachePromise = null;
+
+function invalidateConfigCache() {
+  configCacheMtime = null;
+  configCachePromise = null;
+}
+
+async function loadConfigUncached() {
   const raw = await readFile(configPath(), "utf8");
   const config = JSON.parse(raw);
   if (!config || typeof config !== "object") {
@@ -46,9 +57,31 @@ export async function loadConfig() {
   if (!Array.isArray(config.agents.list)) {
     throw new Error("missing config.agents.list");
   }
-  const nextConfig = applyStoredConfiguredDefaultAgentSkills(config);
+  const originalSnapshot = JSON.stringify(config);
+  const nextConfig = await applyStoredConfiguredDefaultAgentSkills(config);
   normalizeStoredAgentBindings(nextConfig);
+  if (originalSnapshot !== JSON.stringify(nextConfig)) {
+    await atomicWriteFile(configPath(), JSON.stringify(nextConfig, null, 2));
+    invalidateConfigCache();
+  }
   return nextConfig;
+}
+
+export async function loadConfig() {
+  try {
+    const info = await stat(configPath());
+    const mtime = info.mtimeMs;
+    if (mtime === configCacheMtime && configCachePromise) {
+      return configCachePromise;
+    }
+    configCacheMtime = mtime;
+    configCachePromise = loadConfigUncached();
+    return configCachePromise;
+  } catch (error) {
+    invalidateConfigCache();
+    if (error?.code === "ENOENT") throw error;
+    return loadConfigUncached();
+  }
 }
 
 export function stripUnsupportedAgentConfigKeys(config) {
@@ -63,6 +96,7 @@ export async function saveConfig(config) {
   stripUnsupportedAgentConfigKeys(config);
   normalizeStoredAgentBindings(config);
   await atomicWriteFile(configPath(), JSON.stringify(config, null, 2));
+  invalidateConfigCache();
   registerRuntimeAgents(config);
   await syncDispatchTargetsFromRuntime();
   emitDispatchRuntimeSnapshot();

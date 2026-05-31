@@ -6,6 +6,13 @@
 
 import { createHash } from "node:crypto";
 
+export const HARD_STOP_REASON = Object.freeze({
+  REPEAT_THRESHOLD: "repeat_threshold",
+  MAX_TOOL_CALLS: "max_tool_calls",
+  MANUAL: "manual",
+  LOOP_DETECTED: "loop_detected",
+});
+
 const WARN_THRESHOLD = 3;
 const STOP_THRESHOLD = 5;
 const WINDOW_SIZE = 20;
@@ -46,11 +53,32 @@ function ensureSession(sessionKey) {
       }
       if (oldestKey) sessions.delete(oldestKey);
     }
-    s = { hashes: new Map(), hardStopped: false, lastAccess: Date.now() };
+    s = {
+      hashes: new Map(),
+      hardStopped: false,
+      hardStopReason: null,
+      lastAccess: Date.now(),
+    };
     sessions.set(sessionKey, s);
   }
   s.lastAccess = Date.now();
   return s;
+}
+
+export function markSessionHardStopped(epochKey, reason) {
+  if (!epochKey) return false;
+  const s = ensureSession(epochKey);
+  s.hardStopped = true;
+  s.hardStopReason = typeof reason === "string" && reason ? reason : s.hardStopReason || "hard_stop";
+  return true;
+}
+
+/**
+ * Read the reason for hard-stop on a session, or null if none.
+ */
+export function getSessionHardStopReason(epochKey) {
+  if (!epochKey) return null;
+  return sessions.get(epochKey)?.hardStopReason || null;
 }
 
 /**
@@ -66,16 +94,23 @@ export function trackToolCall(sessionKey, toolName, args) {
 
   const hash = hashToolCall(toolName, args);
   const count = (s.hashes.get(hash) || 0) + 1;
+  // Delete before re-inserting to refresh insertion order (Map preserves insertion order;
+  // updating an existing key in-place does NOT move it to the end, so without this delete
+  // a high-frequency hash would remain the "oldest" entry and get evicted before reaching
+  // STOP_THRESHOLD when a new distinct hash enters a full window).
+  s.hashes.delete(hash);
   s.hashes.set(hash, count);
 
-  // Sliding window: trim oldest entries when at capacity
-  if (s.hashes.size >= WINDOW_SIZE) {
+  // Sliding window: trim oldest entry when window overflows.
+  // Use > WINDOW_SIZE (not >=): after delete+set, existing keys keep the same size,
+  // only a brand-new distinct key grows the map beyond capacity.
+  if (s.hashes.size > WINDOW_SIZE) {
     const firstKey = s.hashes.keys().next().value;
     s.hashes.delete(firstKey);
   }
 
   if (count >= STOP_THRESHOLD) {
-    s.hardStopped = true;
+    markSessionHardStopped(sessionKey, HARD_STOP_REASON.REPEAT_THRESHOLD);
     return "hard_stop";
   }
   if (count >= WARN_THRESHOLD) {

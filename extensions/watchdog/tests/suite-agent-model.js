@@ -7,7 +7,7 @@ import {
   composeEffectiveSkillRefs,
   splitConfiguredDefaultSkillRefs,
 } from "../lib/agent/agent-binding-policy.js";
-import { resolveRouterHandlerForAgent } from "../lib/routing/runtime-mailbox-handler-registry.js";
+import { resolveMailboxHandlerForAgent } from "../lib/routing/runtime-mailbox-handler-registry.js";
 import {
   normalizeStoredAgentConfig,
   normalizeStoredAgentBindings,
@@ -46,7 +46,7 @@ export const AGENT_MODEL_CASES = [
   },
   {
     id: "agent-card-base-separates-skills",
-    message: "agent card 基底不再混入 capability，默认能力只存在于投影层",
+    message: "agent card 基底保持身份画像，默认能力只存在于投影层",
   },
   {
     id: "effective-profile-derives-capability-skills",
@@ -58,7 +58,7 @@ export const AGENT_MODEL_CASES = [
   },
   {
     id: "executor-capability-preset-includes-network-search-tools",
-    message: "executor 默认能力直接包含 web_search/web_fetch，新增 worker 不再额外补工具",
+    message: "executor 默认能力直接包含 web_search/web_fetch，新增 worker 保持投影工具集",
   },
   {
     id: "role-summary-stays-short-while-soul-profile-gets-richer",
@@ -74,7 +74,7 @@ export const AGENT_MODEL_CASES = [
   },
   {
     id: "legacy-generic-agents-upgrades-to-managed-template",
-    message: "旧通用工作区 AGENTS 不再被 guidance sync 当作平台模板自动升级",
+    message: "默认 generic AGENTS 会被 guidance sync 升级为受管平台模板",
   },
   {
     id: "agent-binding-normalized-shape",
@@ -102,11 +102,11 @@ export const AGENT_MODEL_CASES = [
   },
   {
     id: "identity-policies-not-inferred-from-role-or-skill",
-    message: "gateway 和 specialized 只来自实例 policy，不再从 role 或 skill 反推",
+    message: "gateway 和 specialized 只来自实例 policy，role 或 skill 保持基础画像语义",
   },
   {
     id: "router-handler-requires-capability-truth",
-    message: "router handler 只来自 capability truth，不再按旧角色样式兜底",
+    message: "router handler 只来自 capability truth，旧角色样式保持历史输入语义",
   },
   {
     id: "effective-profile-exposes-policy-convenience",
@@ -122,11 +122,11 @@ export const AGENT_MODEL_CASES = [
   },
   {
     id: "test-source-requires-explicit-gateway-binding",
-    message: "`source=test` 不再解析到内建 gateway，只有显式 binding 才能承接",
+    message: "`source=test` 通过显式 binding 承接",
   },
   {
     id: "identity-requires-runtime-config-truth",
-    message: "没有 runtime/card truth 时，不再按 legacy id 合成 role/gateway/protected/specialized",
+    message: "缺少 runtime/card truth 时，legacy id 保持原始未知身份",
   },
   {
     id: "worker-effective-profile-exposes-network-search-tools",
@@ -332,13 +332,11 @@ export async function runAgentModelCase(testCase) {
         const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
         const soulUpdate = updates.find((entry) => entry.name === "SOUL.md");
 
-        assert(soulUpdate?.updated === true, "legacy planner soul should be reported as updated");
-        assert(soul.includes("<!-- managed-by-watchdog:agent-bootstrap -->"), "planner soul should gain managed marker");
-        assert(soul.includes("## 工作原则"), "planner soul should include role principles section");
-        assert(soul.includes("规划节点。负责把任务拆成可执行阶段，不直接越权执行。"), "planner soul should use new short role summary");
-        assert(soul.includes("规划只负责把工作说清楚，不替代 runtime 决定协作真值"), "planner soul should use new planner boundary");
-        results.push({ id: 1, name: "Upgrade legacy planner soul", status: "PASS", elapsed: elapsedSeconds(startMs) });
-        results.push({ id: 2, name: "Render managed planner template", status: "PASS", elapsed: elapsedSeconds(startMs) });
+        assert(soulUpdate?.updated === false, "no-marker legacy planner soul should survive startup sync");
+        assert.equal(soul, legacySoul, "startup sync should not overwrite a custom no-marker planner SOUL");
+        assert(!soul.includes("<!-- managed-by-watchdog:agent-bootstrap -->"), "no-marker planner soul should not gain managed marker");
+        results.push({ id: 1, name: "Preserve no-marker legacy planner soul", status: "PASS", elapsed: elapsedSeconds(startMs) });
+        results.push({ id: 2, name: "Skip startup overwrite without marker", status: "PASS", elapsed: elapsedSeconds(startMs) });
         return passResult(testCase, results, startMs);
       } finally {
         await rm(workspaceDir, { recursive: true, force: true });
@@ -374,8 +372,9 @@ export async function runAgentModelCase(testCase) {
         const delivery = await readFile(join(workspaceDir, "DELIVERY.md"), "utf8");
 
         assert(agents.includes("1. `SOUL.md`"), "agents doc should keep SOUL as first read");
-        assert(agents.includes("2. `inbox/contract.json`"), "agents doc should read current contract before guidance docs");
+        assert(agents.includes("2. 当前会话输入"), "agents doc should distinguish current session input before guidance docs");
         assert(agents.includes("3. `PLATFORM-GUIDE.md`"), "agents doc should read platform guide before on-demand docs");
+        assert(agents.includes("只有这轮明确是系统派工时"), "agents doc should scope shared contract reading to system dispatch");
         assert(agents.includes("需要找协作者时再查 `BUILDING-MAP.md`"), "agents doc should make building map on-demand");
         assert(agents.includes("准备显式协作时再查 `COLLABORATION-GRAPH.md`"), "agents doc should make graph guidance on-demand");
         assert(agents.includes("处理 delivery 语义时再查 `DELIVERY.md`"), "agents doc should make delivery guidance on-demand");
@@ -420,14 +419,18 @@ This folder is home. Treat it that way.
           graph: { edges: [] },
           loops: [],
         });
-        const agents = await readFile(join(workspaceDir, "AGENTS.md"), "utf8");
         const agentUpdate = updates.find((entry) => entry.name === "AGENTS.md");
+        let missingAgents = false;
+        try {
+          await readFile(join(workspaceDir, "AGENTS.md"), "utf8");
+        } catch {
+          missingAgents = true;
+        }
 
-        assert(agentUpdate?.updated === false, "legacy generic agents doc should no longer be auto-updated");
-        assert(!agents.includes("<!-- managed-by-watchdog:agent-bootstrap -->"), "legacy generic agents doc should remain unmanaged");
-        assert(agents.includes("This folder is home. Treat it that way."), "legacy generic agents doc should remain untouched");
-        results.push({ id: 1, name: "Reject legacy generic AGENTS auto-upgrade", status: "PASS", elapsed: elapsedSeconds(startMs) });
-        results.push({ id: 2, name: "Leave unmanaged AGENTS untouched", status: "PASS", elapsed: elapsedSeconds(startMs) });
+        assert(agentUpdate?.updated === false, "execution-layer worker should not keep an AGENTS guide at all");
+        assert(missingAgents, "execution-layer worker should prune legacy generic AGENTS");
+        results.push({ id: 1, name: "Prune legacy generic AGENTS from execution workspace", status: "PASS", elapsed: elapsedSeconds(startMs) });
+        results.push({ id: 2, name: "Avoid leaving unmanaged AGENTS residue", status: "PASS", elapsed: elapsedSeconds(startMs) });
         return passResult(testCase, results, startMs);
       } finally {
         await rm(workspaceDir, { recursive: true, force: true });
@@ -778,13 +781,13 @@ This folder is home. Treat it that way.
       assert(workerIdentity.specialized === false, "browser-automation skill alone should not imply specialized");
       assert(workerIdentity.specializedSource === "default", "skill-based specialized inference should be removed");
       assert(!gatewayIds.includes("bridge-office"), "nongateway bridge should not appear in gateway list");
-      results.push({ id: 1, name: "Do not infer gateway from role", status: "PASS", elapsed: elapsedSeconds(startMs) });
-      results.push({ id: 2, name: "Do not infer specialized from skill", status: "PASS", elapsed: elapsedSeconds(startMs) });
+      results.push({ id: 1, name: "Gateway identity is explicit", status: "PASS", elapsed: elapsedSeconds(startMs) });
+      results.push({ id: 2, name: "Specialized identity is explicit", status: "PASS", elapsed: elapsedSeconds(startMs) });
       return passResult(testCase, results, startMs);
     }
 
     if (testCase.id === "router-handler-requires-capability-truth") {
-      const legacyHandler = resolveRouterHandlerForAgent("researcher");
+      const legacyHandler = resolveMailboxHandlerForAgent("researcher");
       assert(legacyHandler === null, "researcher should not get router handler from legacy role matching");
 
       registerRuntimeAgents({
@@ -807,7 +810,7 @@ This folder is home. Treat it that way.
           ],
         },
       });
-      const configuredHandler = resolveRouterHandlerForAgent("researcher");
+      const configuredHandler = resolveMailboxHandlerForAgent("researcher");
       assert(configuredHandler?.id === "research_search_space", "researcher should resolve router handler from capability truth");
       results.push({ id: 1, name: "Remove role-style router fallback", status: "PASS", elapsed: elapsedSeconds(startMs) });
       results.push({ id: 2, name: "Honor capability router truth", status: "PASS", elapsed: elapsedSeconds(startMs) });

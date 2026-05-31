@@ -7,7 +7,7 @@ import {
 } from "../core/runtime-status.js";
 import { resolveTrackingWorkItem } from "../tracking-work-item.js";
 import { normalizeContractIdentity } from "../core/normalize.js";
-import { deriveTrackingActivityProgress } from "../activity-progress.js";
+import { getAgentIdentitySnapshot } from "../agent/agent-identity.js";
 
 const pendingTrackerRemovalTimers = new Map();
 const pendingTrackingContractWaiters = new Map();
@@ -205,15 +205,47 @@ export function hasOtherRunningTrackingSessionForAgent(agentId, sessionKey) {
   return false;
 }
 
+export function listOtherRunningTrackingSessionsForAgent(agentId, sessionKey) {
+  const normalizedAgentId = normalizeAgentId(agentId);
+  const normalizedSessionKey = normalizeSessionKey(sessionKey);
+  if (!normalizedAgentId) return [];
+
+  const sessions = [];
+  for (const [trackedSessionKey, trackedState] of tracker.entries()) {
+    if (normalizedSessionKey && trackedSessionKey === normalizedSessionKey) continue;
+    if (trackedState?.agentId !== normalizedAgentId || !isRunningTrackingStatus(trackedState?.status)) {
+      continue;
+    }
+    const contractId = getTrackedContractId(trackedState);
+    sessions.push({
+      sessionKey: trackedSessionKey,
+      agentId: trackedState.agentId,
+      status: trackedState.status || null,
+      contractId,
+      hasContract: Boolean(contractId),
+    });
+  }
+  return sessions;
+}
+
+export function hasOtherRunningBoundTrackingSessionForAgent(agentId, sessionKey) {
+  return listOtherRunningTrackingSessionsForAgent(agentId, sessionKey)
+    .some((entry) => entry.hasContract);
+}
+
 export function snapshotTrackingSessions(now = Date.now()) {
   return Object.fromEntries(
     [...tracker].map(([sessionKey, trackingState]) => [
       sessionKey,
       (() => {
         const workItem = resolveTrackingWorkItem(trackingState);
-        const activityProgress = deriveTrackingActivityProgress(trackingState);
+        const actorIdentity = getAgentIdentitySnapshot(trackingState?.agentId);
         return {
           agentId: trackingState?.agentId || null,
+          plane: actorIdentity.plane || null,
+          mainViewVisible: actorIdentity.mainViewVisible !== false,
+          formalTimelineVisible: actorIdentity.formalTimelineVisible !== false,
+          autoWakeEligible: actorIdentity.autoWakeEligible !== false,
           status: trackingState?.status || null,
           toolCallCount: trackingState?.toolCallTotal || 0,
           lastLabel: trackingState?.lastLabel || null,
@@ -227,11 +259,10 @@ export function snapshotTrackingSessions(now = Date.now()) {
           taskType: workItem?.taskType || null,
           protocolEnvelope: workItem?.protocolEnvelope || null,
           activityCursor: trackingState?.activityCursor || null,
-          activityProgress,
-          estimatedPhase: activityProgress?.currentPhase || trackingState?.estimatedPhase || null,
           runtimeObservation: trackingState?.runtimeObservation || null,
-          cursor: activityProgress?.cursor || trackingState?.cursor || null,
-          pct: Number.isFinite(activityProgress?.pct) ? activityProgress.pct : (Number.isFinite(trackingState?.pct) ? trackingState.pct : null),
+          ioObservation: trackingState?.ioObservation || null,
+          cursor: trackingState?.cursor || null,
+          pct: Number.isFinite(trackingState?.pct) ? trackingState.pct : null,
           elapsedMs: Number.isFinite(trackingState?.startMs) ? Math.max(0, now - trackingState.startMs) : 0,
         };
       })(),
@@ -293,6 +324,7 @@ export function restoreResumableTrackingSessions(savedSessions, logger = null, n
       status: TRACKING_STATUS.WAITING_FOLLOWUP,
       contract: null,
       artifactContext: null,
+      ioObservation: null,
       stageProjection: null,
       cursor: null,
       pct: null,
@@ -340,6 +372,59 @@ export function deleteTrackingSession(sessionKey) {
   clearPendingTrackerRemoval(normalized);
   clearTrackingContractWaiters(normalized, "session_deleted");
   return tracker.delete(normalized);
+}
+
+export function deleteUnclaimedTrackingSessionForContract({
+  sessionKey,
+  contractId,
+  agentId = null,
+  reason = "contract_claim_failed",
+} = {}) {
+  const normalizedSessionKey = normalizeSessionKey(sessionKey);
+  const normalizedContractId = normalizeContractId(contractId);
+  const normalizedAgentId = normalizeAgentId(agentId);
+  if (!normalizedSessionKey || !normalizedContractId) {
+    return {
+      removed: false,
+      reason: "invalid_target",
+    };
+  }
+
+  const existing = tracker.get(normalizedSessionKey);
+  if (!existing) {
+    clearTrackingContractWaiters(normalizedSessionKey, reason);
+    return {
+      removed: false,
+      reason: "missing_session",
+    };
+  }
+
+  if (normalizedAgentId && existing.agentId !== normalizedAgentId) {
+    return {
+      removed: false,
+      reason: "agent_mismatch",
+      agentId: existing.agentId || null,
+    };
+  }
+
+  const trackedContractId = getTrackedContractId(existing);
+  if (trackedContractId === normalizedContractId) {
+    return {
+      removed: false,
+      reason: "contract_claimed",
+      contractId: trackedContractId,
+    };
+  }
+
+  clearPendingTrackerRemoval(normalizedSessionKey);
+  clearTrackingContractWaiters(normalizedSessionKey, reason);
+  tracker.delete(normalizedSessionKey);
+  return {
+    removed: true,
+    reason,
+    previousContractId: trackedContractId,
+    hadContract: Boolean(trackedContractId),
+  };
 }
 
 export function clearTrackingStore() {

@@ -76,7 +76,7 @@ test("critical error keys exist", () => {
 test("critical system/graph keys exist", () => {
   assert.ok("SYSTEM_RESET" in EVENT_TYPE);
   assert.ok("GRAPH_UPDATED" in EVENT_TYPE);
-  assert.ok("DIRECT_SESSION" in EVENT_TYPE);
+  assert.ok("DIRECT_INTAKE_BLOCKED" in EVENT_TYPE);
 });
 
 // --- Immutability ---

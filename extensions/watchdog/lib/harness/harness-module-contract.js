@@ -1,18 +1,19 @@
 import { normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
 import { getHarnessModuleCatalogEntry } from "./harness-module-catalog.js";
+import {
+  HARNESS_MODULE_KIND,
+  VALID_HARNESS_MODULE_KINDS as VALID_HARNESS_MODULE_KINDS_LIST,
+} from "./harness-module-schema.js";
 
-export const HARNESS_MODULE_KIND = Object.freeze({
-  GUARD: "guard",
-  COLLECTOR: "collector",
-  GATE: "gate",
-  NORMALIZER: "normalizer",
-});
-
-const VALID_HARNESS_MODULE_KINDS = new Set(Object.values(HARNESS_MODULE_KIND));
+// 4 kind 集合归一到 harness-module-schema（单一 source of truth），此处复用不重建。
+export { HARNESS_MODULE_KIND };
+const VALID_HARNESS_MODULE_KINDS = new Set(VALID_HARNESS_MODULE_KINDS_LIST);
 
 function cloneJsonValue(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
+
+export { validateHarnessModuleDefinition } from "./harness-module-schema.js";
 
 export function normalizeHarnessModuleKind(value, fallback = null) {
   const normalized = normalizeString(value)?.toLowerCase() || null;

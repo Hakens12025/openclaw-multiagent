@@ -5,10 +5,10 @@ import { readFile } from "node:fs/promises";
 import { runtimeAgentConfigs } from "../lib/state.js";
 import {
   resolveDirectServiceProbeTopology,
-} from "./suite-direct-service.js";
+} from "../lib/formal-runtime/suite-direct-service.js";
 import {
   resolveLoopPlatformTopology,
-} from "./suite-loop-platform.js";
+} from "../lib/formal-runtime/suite-loop-platform.js";
 
 function setRuntimeAgents(agents) {
   runtimeAgentConfigs.clear();
@@ -72,9 +72,10 @@ test("loop-platform topology reports blocked when runtime lacks enough work agen
   assert.equal(topology.blockedReason, "loop-platform preset requires at least 2 non-bridge work agents");
 });
 
-test("direct-service probe prompt explicitly writes to contract.output instead of editing inbox truth", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/tests/suite-direct-service.js", "utf8");
+test("direct-service probe prompt stays minimal and keeps the formal action marker in the result file flow", async () => {
+  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/formal-runtime/suite-direct-service-prompts.js", "utf8");
 
-  assert.match(source, /contract\.output 指向的 markdown 文件/);
-  assert.match(source, /不要改写 inbox\/contract\.json/);
+  assert.match(source, /先读取当前任务/);
+  assert.match(source, /将结果文件写成下面这一行 \[ACTION\] marker/);
+  assert.doesNotMatch(source, /不要改写 inbox\/contract\.json/);
 });

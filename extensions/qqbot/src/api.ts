@@ -13,7 +13,9 @@ const _proxyAgent = _proxyUrl ? new ProxyAgent(_proxyUrl) : undefined;
 /**
  * 代理感知的 fetch：当设置了 HTTPS_PROXY 环境变量时，通过代理发送请求
  */
-const apiFetch: typeof fetch = _proxyAgent
+type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+const apiFetch: ApiFetch = _proxyAgent
   ? ((input: RequestInfo | URL, init?: RequestInit) =>
       undiciFetch(input as Parameters<typeof undiciFetch>[0], {
         ...(init as Parameters<typeof undiciFetch>[1]),
@@ -209,9 +211,10 @@ export async function apiRequest<T = unknown>(
     options.body = JSON.stringify(body);
   }
 
-  // 打印请求信息
+  // 打印请求信息（脱敏 Authorization 头）
+  const safeHeaders = { ...headers, Authorization: "QQBot ***" };
   console.log(`[qqbot-api] >>> ${method} ${url}`);
-  console.log(`[qqbot-api] >>> Headers:`, JSON.stringify(headers, null, 2));
+  console.log(`[qqbot-api] >>> Headers:`, JSON.stringify(safeHeaders, null, 2));
   if (body) {
     console.log(`[qqbot-api] >>> Body:`, JSON.stringify(body, null, 2));
   }
@@ -236,7 +239,8 @@ export async function apiRequest<T = unknown>(
   let rawBody: string;
   try {
     rawBody = await res.text();
-    console.log(`[qqbot-api] <<< Body:`, rawBody);
+    // 脱敏响应体（不打印原文，防止 token/openid 泄漏）
+    console.log(`[qqbot-api] <<< Body: [${rawBody.length} bytes]`);
     data = JSON.parse(rawBody) as T;
   } catch (err) {
     console.error(`[qqbot-api] <<< Parse error:`, err);

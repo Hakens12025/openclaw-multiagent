@@ -1,33 +1,52 @@
 ---
 name: prompt-craft
-description: Use when writing or reviewing OpenClaw SOUL, skills, agent instructions, operator prompts, wake text, task text, or runtime-facing guidance.
+description: Use when writing or reviewing OpenClaw prompts, SOUL, managed guidance, wake text, operator prompts, skills, or agent-facing task instructions.
 metadata: {"clawdbot":{"emoji":"✏️"}}
 ---
 
-# OpenClaw 提示词标准
+# OpenClaw Prompt Standard
 
-OpenClaw prompt 的目标是最小有用：给 agent 完成当前工作所需的身份、输入、出口和产物格式。runtime truth lives in stores, typed envelopes, policy, and operator/admin surfaces.
+OpenClaw prompts are minimal useful prompt surfaces. They describe the next useful action, the local role boundary, and the expected output. Runtime truth stays in stores, envelopes, policies, admin surfaces, harness evidence, and CLI surfaces.
 
-## 写法
+## Core Standard
 
-- 用正向任务语言：说明要读取什么、产出什么、交给哪个 runtime 对象消费。
-- 每段只服务一个目的：身份、任务输入、输出位置、协作出口、验证标准。
-- SOUL 只承载角色本地循环；平台协议真值放在 runtime、stores、typed envelopes、policy、surface。
-- 技能按需渐进读取；主提示只列触发条件和入口。
-- `[ACTION]` / JSON 是正式协议和 phase/runtime 消费对象；只在对应 skill 或必须产出协议 marker 的场景展示。
+- Write the smallest prompt that lets the agent complete the current turn.
+- Use positive task language: action, input, output, completion condition.
+- Keep role posture in `SOUL.md`; keep reusable method in skills; keep protocol truth in runtime-owned objects.
+- Expose `[ACTION]` and JSON only where the runtime consumes them as formal protocol.
+- Treat prompt-only choreography as a platform capability gap. Add runtime truth or a formal surface instead of more prose.
+- Prefer progressive reading: point to the next relevant file or skill, then let the agent load it when needed.
 
-## 结构
+## Prompt Shape
 
-1. 角色：一句话说明当前 agent 的职责。
-2. 输入：列出当前必须读取的文件或字段。
-3. 动作：用可执行动词写当前任务。
-4. 输出：明确主产物路径、格式和完成信号。
-5. 协作：说明使用哪个已加载 skill 或 runtime surface。
+```text
+Role: one sentence.
+Context: only the current inputs the agent needs.
+Task: concrete action for this turn.
+Output: path, structure, or final message shape.
+Completion: when to stop.
+```
 
-## 检查
+## OpenClaw Placement
 
-- 当前文本是否能删掉一句而不影响执行；能删就删。
-- 规则是否属于 runtime/harness/path guard；属于硬保证就移出 prompt。
-- `[ACTION]` / JSON 是否由 runtime 消费；若只是教学噪声就降级到 skill。
-- agent 是否只看到本轮必要信息；大楼地图、图权限、delivery、operator 能力按需读取。
-- 文案是否描述目标行为，而非罗列失败姿势。
+- `SOUL.md`: identity, role posture, local workflow, stop condition.
+- `HEARTBEAT.md`: liveness and wake posture.
+- Platform docs: stable navigation and managed protocol overview.
+- Skills: reusable methods that are read on demand.
+- Runtime/harness/CLI/operator/automation: enforcement, evidence, routing, topology, queues, budgets, and decisions.
+
+## Formal Protocol Exposure
+
+`[ACTION]` is the concise agent-to-runtime command surface. Keep it visible for roles that can use it.
+
+JSON is appropriate when a formal runtime parser consumes structured fields, such as complex `[ACTION]` payloads or operator plan output.
+
+Every protocol phrase in a prompt should map to a runtime consumer. If no consumer exists, move the requirement to a platform object or delete the phrase.
+
+## Review Checklist
+
+- The prompt fits the current turn.
+- Each sentence changes agent behavior for the task.
+- Topology, queue state, wake semantics, delivery, budgets, and safety gates come from runtime truth.
+- The prompt has one clear output target.
+- The agent can succeed by following local instructions and formal surfaces.

@@ -66,8 +66,8 @@ export const OPERATOR_CASES = [
     message: "operator snapshot 的动作列表来自 operatorExecutable 集合",
   },
   {
-    id: "operator-snapshot-surfaces-pipeline-progression",
-    message: "operator snapshot 会暴露最新的 loop route 自动推进诊断摘要",
+    id: "operator-snapshot-surfaces-graph-route-progression",
+    message: "operator snapshot 会暴露最新的 graph route 推进诊断摘要",
   },
   {
     id: "operator-plan-soft-action-keeps-execution",
@@ -341,18 +341,18 @@ export async function runOperatorCase(testCase) {
       return passResult(testCase, results, startMs);
     }
 
-    if (testCase.id === "operator-snapshot-surfaces-pipeline-progression") {
+    if (testCase.id === "operator-snapshot-surfaces-graph-route-progression") {
       const contractId = buildUniqueContractId("operator-progress");
       try {
         await persistContractById({
           id: contractId,
-          task: "Expose runtime-owned loop route progression in operator snapshot",
+          task: "Expose runtime-owned graph route progression in operator snapshot",
           assignee: "evaluator",
           status: "completed",
           createdAt: Date.now() - 3000,
           updatedAt: Date.now(),
           runtimeDiagnostics: {
-            pipelineProgression: {
+            graphRouteProgression: {
               attempted: true,
               action: "advanced",
               from: "worker-d",
@@ -378,7 +378,7 @@ export async function runOperatorCase(testCase) {
         assert(latestProgression?.action === "advanced", "snapshot should expose progression action");
         assert(latestProgression?.from === "worker-d", "snapshot should expose progression source stage");
         assert(latestProgression?.to === "evaluator", "snapshot should expose progression target stage");
-        assert(payload?.summary?.latestPipelineProgressionContractId === contractId, "snapshot summary should point to latest progression contract");
+        assert(payload?.summary?.latestGraphRouteProgressionContractId === contractId, "snapshot summary should point to latest progression contract");
         assert(recentProgressions.some((entry) => entry?.contractId === contractId), "snapshot should keep recent progression list");
         results.push({ id: 1, name: "Expose latest loop progression", status: "PASS", elapsed: elapsedSeconds(startMs) });
         results.push({ id: 2, name: "Expose progression summary pointer", status: "PASS", elapsed: elapsedSeconds(startMs) });
@@ -435,10 +435,10 @@ export async function runOperatorCase(testCase) {
           },
         },
       });
-      assert(focus.defaults?.controllerAgentId === "controller", "focus should expose controller default");
+      assert(focus.defaults?.webuiGatewayAgentId === "controller", "focus should expose webui gateway default");
       assert(Array.isArray(focus.recentReferents?.agentIds) && focus.recentReferents.agentIds.includes("worker-a"), "focus should retain recent agent referent");
       assert(focus.loopHints?.repairCandidateLoopId === "review-loop", "focus should expose repair candidate loop");
-      results.push({ id: 1, name: "Expose controller default", status: "PASS", elapsed: elapsedSeconds(startMs) });
+      results.push({ id: 1, name: "Expose webui gateway default", status: "PASS", elapsed: elapsedSeconds(startMs) });
       results.push({ id: 2, name: "Retain referents", status: "PASS", elapsed: elapsedSeconds(startMs) });
       results.push({ id: 3, name: "Expose loop hint", status: "PASS", elapsed: elapsedSeconds(startMs) });
       return passResult(testCase, results, startMs);

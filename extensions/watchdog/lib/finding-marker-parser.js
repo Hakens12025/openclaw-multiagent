@@ -115,11 +115,3 @@ export function deriveVerdictFromFindings(findings) {
   if (!Array.isArray(findings) || findings.length === 0) return "pass";
   return findings.some((f) => f.severity === "critical") ? "fail" : "pass";
 }
-
-/**
- * Check if markdown contains any finding markers.
- */
-export function hasFindingMarkers(markdownContent) {
-  if (typeof markdownContent !== "string") return false;
-  return FINDING_MARKER_PATTERN.test(markdownContent);
-}

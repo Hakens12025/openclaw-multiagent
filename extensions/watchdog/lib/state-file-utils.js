@@ -1,5 +1,5 @@
 // state-file-utils.js — File utilities, locking, and path safety
-import { mkdir, readFile, rm, writeFile, rename } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile, rename, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
@@ -48,9 +48,15 @@ async function readCrossProcessLockOwner(lockPath) {
   }
 }
 
-async function maybeClearStaleCrossProcessLock(lockPath, key, timeoutMs) {
+async function maybeClearStaleCrossProcessLock(lockPath, key, timeoutMs, pollMs) {
   const owner = await readCrossProcessLockOwner(lockPath);
   if (!owner || owner.key !== key) {
+    const lockStat = await stat(lockPath).catch(() => null);
+    const orphanGraceMs = Math.max(250, pollMs * 4);
+    if (lockStat && (Date.now() - lockStat.mtimeMs) > orphanGraceMs) {
+      await rm(lockPath, { recursive: true, force: true }).catch(() => {});
+      return true;
+    }
     return false;
   }
 
@@ -86,7 +92,7 @@ async function acquireCrossProcessLock(key, { timeoutMs = 30000, pollMs = 25 } =
       if (error?.code !== "EEXIST") {
         throw error;
       }
-      const cleared = await maybeClearStaleCrossProcessLock(lockPath, key, timeoutMs);
+      const cleared = await maybeClearStaleCrossProcessLock(lockPath, key, timeoutMs, pollMs);
       if (!cleared) {
         await sleep(pollMs);
       }
@@ -135,8 +141,9 @@ export async function withLock(key, fn, { timeoutMs = 30000 } = {}) {
     }
   }
 
-  const releaseCrossProcessLock = await acquireCrossProcessLock(normalizedKey, { timeoutMs });
+  let releaseCrossProcessLock = null;
   try {
+    releaseCrossProcessLock = await acquireCrossProcessLock(normalizedKey, { timeoutMs });
     return await fn();
   } finally {
     await releaseCrossProcessLock?.();

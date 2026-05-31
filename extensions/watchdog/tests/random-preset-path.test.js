@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRandomPathVerdict } from "./suite-single.js";
+import { buildRandomPathVerdict } from "../lib/formal-runtime/suite-single.js";
 
-test("user-random path verdict is BLOCKED when runtime falls into direct session", () => {
+test("user-random path verdict is BLOCKED when runtime falls into topology-free direct intake", () => {
   const result = buildRandomPathVerdict({
     family: "user-random",
     chosenAgent: "worker-x",

@@ -5,7 +5,7 @@ import {
   normalizeReplyTarget,
   shouldUseSystemActionDelivery,
 } from "./coordination-primitives.js";
-import { canReceiveSystemActionDelivery } from "./routing/delivery-system-action-contract-result.js";
+import { canReceiveSystemActionDelivery } from "./routing/delivery-system-action-runtime-result.js";
 import { normalizeString } from "./core/normalize.js";
 import { buildOperatorContextMetadata } from "./operator/operator-context.js";
 import { registerSystemActionDeliveryTicket } from "./routing/delivery-system-action-ticket.js";

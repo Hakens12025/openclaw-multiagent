@@ -7,7 +7,8 @@ import {
   buildSystemRandomRunSingleOptions,
   buildLoopRandomRunSingleOptions,
   buildUnsupportedRandomPresetResult,
-} from "../lib/test-runs.js";
+  resolveLoopRandomSelection,
+} from "../lib/test-run-random-runtime.js";
 
 test("buildRandomPresetRuntime sorts candidate set and picks a stable chosen agent", () => {
   const runtime = buildRandomPresetRuntime({
@@ -70,6 +71,32 @@ test("buildSystemRandomRunSingleOptions dispatches through formal ingress with e
   assert.equal(calls[0].payload.source, "system");
 });
 
+test("buildSystemRandomRunSingleOptions degrades gracefully when runtimeContext.wakePlanner is absent", async () => {
+  // Reproduces the production scenario: startTestRun passes runtimeContext=null (or without wakePlanner)
+  // which previously threw TypeError; after the fix it should dispatch successfully with a no-op wakePlanner.
+  const wakePlannerTypes = [];
+  const options = buildSystemRandomRunSingleOptions({
+    replyTo: { agentId: "test-run", sessionKey: "test-run:TR-2" },
+    randomRuntime: { family: "system-random", chosenAgent: "worker2" },
+    runtimeContext: {
+      api: {},
+      enqueue() { return true; },
+      // wakePlanner intentionally absent — simulates startTestRun({ runtimeContext: { api, enqueue } })
+    },
+    logger: null,
+    dispatchAcceptIngressMessageFn: async (_message, payload) => {
+      wakePlannerTypes.push(typeof payload.wakePlanner);
+      return { ok: true, contractId: "TC-NOOP" };
+    },
+  });
+
+  const result = await options.sendMessage("system-random no wakePlanner");
+
+  assert.equal(result.contractId, "TC-NOOP");
+  // wakePlanner must be forwarded as a function (no-op fallback), not undefined/null
+  assert.equal(wakePlannerTypes[0], "function");
+});
+
 test("resolveRandomPresetCandidateSet narrows system-random to agents with outgoing graph edges", () => {
   const candidates = resolveRandomPresetCandidateSet({
     preset: {
@@ -79,8 +106,8 @@ test("resolveRandomPresetCandidateSet narrows system-random to agents with outgo
     runtimeAgentIds: ["controller", "planner", "worker"],
     graph: {
       edges: [
-        { from: "controller", to: "planner", gate: "default" },
-        { from: "planner", to: "worker", gate: "default" },
+        { from: "controller", to: "planner" },
+        { from: "planner", to: "worker" },
       ],
     },
   });
@@ -97,10 +124,10 @@ test("resolveRandomPresetCandidateSet excludes active loop members from system-r
     runtimeAgentIds: ["controller", "planner", "worker-3", "worker-4"],
     graph: {
       edges: [
-        { from: "controller", to: "planner", gate: "default" },
-        { from: "planner", to: "worker", gate: "default" },
-        { from: "worker-3", to: "worker-4", gate: "default" },
-        { from: "worker-4", to: "worker-3", gate: "default" },
+        { from: "controller", to: "planner" },
+        { from: "planner", to: "worker" },
+        { from: "worker-3", to: "worker-4" },
+        { from: "worker-4", to: "worker-3" },
       ],
     },
     activeLoops: [
@@ -123,10 +150,10 @@ test("resolveRandomPresetCandidateSet narrows loop-random to active loop members
     runtimeAgentIds: ["controller", "planner", "worker-3", "worker-4"],
     graph: {
       edges: [
-        { from: "controller", to: "planner", gate: "default" },
-        { from: "planner", to: "worker", gate: "default" },
-        { from: "worker-3", to: "worker-4", gate: "default" },
-        { from: "worker-4", to: "worker-3", gate: "default" },
+        { from: "controller", to: "planner" },
+        { from: "planner", to: "worker" },
+        { from: "worker-3", to: "worker-4" },
+        { from: "worker-4", to: "worker-3" },
       ],
     },
     activeLoops: [
@@ -139,6 +166,37 @@ test("resolveRandomPresetCandidateSet narrows loop-random to active loop members
   });
 
   assert.deepEqual(candidates, ["worker-3", "worker-4"]);
+});
+
+test("resolveLoopRandomSelection resolves a single active loop for the chosen member", () => {
+  const selection = resolveLoopRandomSelection({
+    chosenAgent: "worker-4",
+    activeLoops: [
+      {
+        id: "loop-worker-pair",
+        active: true,
+        nodes: ["worker-3", "worker-4"],
+      },
+    ],
+  });
+
+  assert.equal(selection.chosenLoopMember, "worker-4");
+  assert.equal(selection.resolvedLoopId, "loop-worker-pair");
+  assert.equal(selection.blockedReason, null);
+});
+
+test("resolveLoopRandomSelection blocks ambiguous loop membership", () => {
+  const selection = resolveLoopRandomSelection({
+    chosenAgent: "worker-4",
+    activeLoops: [
+      { id: "loop-a", active: true, nodes: ["worker-4"] },
+      { id: "loop-b", active: true, nodes: ["worker-4"] },
+    ],
+  });
+
+  assert.equal(selection.chosenLoopMember, "worker-4");
+  assert.equal(selection.resolvedLoopId, null);
+  assert.match(selection.blockedReason, /multiple active loops/);
 });
 
 test("buildLoopRandomRunSingleOptions starts the resolved loop from the chosen member", async () => {
@@ -181,4 +239,48 @@ test("buildLoopRandomRunSingleOptions starts the resolved loop from the chosen m
   assert.equal(calls[0]?.payload?.loopId, "loop-worker-pair");
   assert.equal(calls[0]?.payload?.startAgent, "worker-4");
   assert.equal(calls[0]?.payload?.requestedTask, "formal loop random");
+});
+
+test("buildLoopRandomRunSingleOptions forwards explicit loop budget into runtime.loop.start", async () => {
+  const calls = [];
+  const options = buildLoopRandomRunSingleOptions({
+    randomRuntime: {
+      family: "loop-random",
+      resolvedLoopId: "loop-worker-pair",
+      chosenLoopMember: "worker-4",
+    },
+    runtimeContext: {
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow() {},
+          },
+        },
+      },
+      enqueue() { return true; },
+      wakePlanner() {},
+    },
+    logger: null,
+    loopBudget: {
+      maxRounds: 1,
+      maxExperiments: 4,
+    },
+    startRuntimeLoopFn: async (payload) => {
+      calls.push(payload);
+      return {
+        ok: true,
+        action: "started",
+        contractId: "TC-LOOP-2",
+        loopId: "loop-worker-pair",
+        currentStage: "worker-4",
+      };
+    },
+  });
+
+  await options.sendMessage("formal loop random with budget");
+
+  assert.deepEqual(calls[0]?.payload?.budget, {
+    maxRounds: 1,
+    maxExperiments: 4,
+  });
 });

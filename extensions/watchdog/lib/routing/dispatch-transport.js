@@ -9,29 +9,30 @@
 
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
+import { apiRef } from "../state.js";
+import { canAutoWakeForTaskRuntime } from "../agent/agent-activation-policy.js";
 import { enqueueRuntimeDirectEnvelope } from "../runtime-direct-envelope-queue.js";
 import { getContractPath, mutateContractSnapshot } from "../contracts.js";
 import { readContractSnapshotByPath } from "../store/contract-store.js";
 import { buildLifecycleStageTruth } from "../lifecycle-stage-truth.js";
 import { hasDirectedEdge, loadGraph } from "../agent/agent-graph.js";
-import { isBridgeAgent } from "../agent/agent-identity.js";
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
-import { SYSTEM_ACTION_DELIVERY_IDS } from "./delivery-protocols.js";
+import { getAgentIdentitySnapshot } from "../agent/agent-identity.js";
+import { normalizeWakeDiagnostic } from "../lifecycle/runtime-diagnostics.js";
+import {
+  buildRuntimeWakeReason,
+  RUNTIME_WAKE_SEMANTICS,
+  runtimeWakeAgentDetailed,
+} from "../transport/runtime-wake-transport.js";
 import { routeInbox } from "../../runtime-mailbox.js";
+import { buildAgentContractSessionKey } from "../session-keys.js";
+import { hasRuntimeGraphBypassAuthority } from "./runtime-authority.js";
 
 // ── Graph authorization ─────────────────────────────────────────────────────
 
-const EXEMPT_SOURCES = new Set([
-  null, undefined, "", "system", "worker-runtime", "pipeline-engine",
-  // Unified system_action delivery lanes are runtime-owned return paths.
-  SYSTEM_ACTION_DELIVERY_IDS.ASSIGN_TASK_RESULT,
-  SYSTEM_ACTION_DELIVERY_IDS.REVIEW_VERDICT,
-  SYSTEM_ACTION_DELIVERY_IDS.CONTRACT_RESULT,
-  "system_action.assign_task",
-]);
-
-async function checkGraphAuthorization(from, to, logger) {
-  if (EXEMPT_SOURCES.has(from) || isBridgeAgent(from)) return true;
+async function checkGraphAuthorization(from, to, logger, {
+  runtimeAuthority = null,
+} = {}) {
+  if (hasRuntimeGraphBypassAuthority({ fromAgent: from, targetAgent: to, runtimeAuthority })) return true;
   try {
     const graph = await loadGraph();
     if (hasDirectedEdge(graph, from, to)) return true;
@@ -74,6 +75,7 @@ async function buildWakeReason({
   contractId = null,
   targetAgent = null,
   wakePayload = null,
+  isDirect = false,
 } = {}) {
   if (typeof buildWakeReason === "function") {
     const message = await buildWakeReason({
@@ -93,7 +95,21 @@ async function buildWakeReason({
   if (typeof wakePayload?.reason === "string" && wakePayload.reason.trim()) {
     return wakePayload.reason.trim();
   }
-  return "唤醒: 请读取 inbox/ 中的文件并执行任务";
+  return buildRuntimeWakeReason(null, {
+    wakeSemantic: isDirect
+      ? RUNTIME_WAKE_SEMANTICS.DIRECT_REQUEST_RESUME
+      : RUNTIME_WAKE_SEMANTICS.EXECUTION_CONTRACT,
+    contractId: contract?.id || contractId || null,
+    envelopeId: contract?.id || contractId || null,
+  });
+}
+
+function resolveRuntimeWakeApi(api = null) {
+  const candidate = api || apiRef || null;
+  if (candidate?.runtime?.system && typeof candidate.runtime.system.requestHeartbeatNow === "function") {
+    return candidate;
+  }
+  return null;
 }
 
 async function requestDispatchWake({
@@ -116,8 +132,17 @@ async function requestDispatchWake({
     return wakeupFunc(targetAgent, wakePayload || {});
   }
 
-  if (!api) {
-    return null;
+  const runtimeApi = resolveRuntimeWakeApi(api);
+  if (!runtimeApi) {
+    return normalizeWakeDiagnostic({
+      ok: false,
+      requested: false,
+      reason: "missing_runtime_wake_transport",
+      error: "dispatch requires runtime api or wakeupFunc",
+    }, {
+      lane: "runtime_dispatch",
+      targetAgent,
+    });
   }
 
   const reason = await buildWakeReason({
@@ -126,11 +151,19 @@ async function requestDispatchWake({
     contractId,
     targetAgent,
     wakePayload,
+    isDirect,
   });
   const wakeOptions = wakePayload?.sessionKey
     ? { sessionKey: wakePayload.sessionKey }
     : {};
-  return runtimeWakeAgentDetailed(targetAgent, reason, api, logger, wakeOptions);
+  if (isDirect) {
+    wakeOptions.wakeSemantic = RUNTIME_WAKE_SEMANTICS.DIRECT_REQUEST_RESUME;
+    wakeOptions.envelopeId = contract?.id || contractId || null;
+  } else {
+    wakeOptions.wakeSemantic = RUNTIME_WAKE_SEMANTICS.EXECUTION_CONTRACT;
+    wakeOptions.contractId = contract?.id || contractId || null;
+  }
+  return runtimeWakeAgentDetailed(targetAgent, reason, runtimeApi, logger, wakeOptions);
 }
 
 function buildBlockedDispatchResult({
@@ -148,6 +181,32 @@ function buildBlockedDispatchResult({
     wake: null,
     blocked: true,
     blockReason: `no graph edge from ${from} to ${targetAgent}`,
+  };
+}
+
+function buildControlPlaneDispatchBlock({
+  contractId = null,
+  contract = null,
+  targetAgent = null,
+} = {}) {
+  const blockReason = `ordinary task runtime cannot dispatch to ${targetAgent}`;
+  return {
+    ok: false,
+    targetAgent,
+    contractId: contract?.id || contractId || null,
+    contract: contract || null,
+    enqueueResult: null,
+    wake: normalizeWakeDiagnostic({
+      ok: false,
+      requested: false,
+      reason: "control_plane_activation_blocked",
+      error: blockReason,
+    }, {
+      lane: "runtime_dispatch",
+      targetAgent,
+    }),
+    blocked: true,
+    blockReason,
   };
 }
 
@@ -203,6 +262,8 @@ export async function dispatchSendDirectRequest({
   buildWakeReason = null,
   broadcastDispatch = true,
   dispatchAlert = null,
+  runtimeAuthority = null,
+  skipWake = false,
   logger = null,
 } = {}) {
   if (!targetAgent) {
@@ -214,8 +275,14 @@ export async function dispatchSendDirectRequest({
   if (!inboxDir) {
     throw new Error("dispatchSendDirectRequest requires inboxDir");
   }
+  if (!canAutoWakeForTaskRuntime(getAgentIdentitySnapshot(targetAgent))) {
+    return buildControlPlaneDispatchBlock({
+      contract,
+      targetAgent,
+    });
+  }
 
-  const authorized = await checkGraphAuthorization(from, targetAgent, logger);
+  const authorized = await checkGraphAuthorization(from, targetAgent, logger, { runtimeAuthority });
   if (!authorized) {
     return buildBlockedDispatchResult({
       contract,
@@ -231,18 +298,20 @@ export async function dispatchSendDirectRequest({
     logger,
   });
 
-  const wake = await requestDispatchWake({
-    targetAgent,
-    contractId: contract.id,
-    contract,
-    wakeupFunc,
-    wakePayload,
-    api,
-    buildWakeReason,
-    isDirect: true,
-    enqueueResult,
-    logger,
-  });
+  const wake = skipWake
+    ? null
+    : await requestDispatchWake({
+      targetAgent,
+      contractId: contract.id,
+      contract,
+      wakeupFunc,
+      wakePayload,
+      api,
+      buildWakeReason,
+      isDirect: true,
+      enqueueResult,
+      logger,
+    });
 
   if (broadcastDispatch !== false) {
     broadcast("alert", normalizeDispatchAlert({
@@ -254,7 +323,7 @@ export async function dispatchSendDirectRequest({
   }
 
   return buildDispatchResult({
-    ok: true,
+    ok: wake?.ok !== false,
     targetAgent,
     contractId: contract.id,
     contract,
@@ -277,6 +346,7 @@ export async function dispatchSendExecutionContract({
   buildWakeReason = null,
   broadcastDispatch = true,
   dispatchAlert = null,
+  runtimeAuthority = null,
   logger = null,
 } = {}) {
   if (!targetAgent) {
@@ -285,8 +355,14 @@ export async function dispatchSendExecutionContract({
   if (!contractId) {
     throw new Error("dispatchSendExecutionContract requires contractId");
   }
+  if (!canAutoWakeForTaskRuntime(getAgentIdentitySnapshot(targetAgent))) {
+    return buildControlPlaneDispatchBlock({
+      contractId,
+      targetAgent,
+    });
+  }
 
-  const authorized = await checkGraphAuthorization(from, targetAgent, logger);
+  const authorized = await checkGraphAuthorization(from, targetAgent, logger, { runtimeAuthority });
   if (!authorized) {
     return buildBlockedDispatchResult({
       contractId,
@@ -315,6 +391,7 @@ export async function dispatchSendExecutionContract({
   }
 
   await routeInbox(targetAgent, logger, {
+    sessionKey: buildAgentContractSessionKey(targetAgent, contractId),
     contractIdHint: contractId,
     contractPathHint: contractPath,
   });

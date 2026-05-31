@@ -1,17 +1,18 @@
 import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { listAutomationSpecs } from "./automation-registry.js";
 import { projectAutomationHarnessSummary } from "./automation-harness-projection.js";
 import { normalizeReviewerResult } from "../harness/reviewer-result.js";
 import { normalizeHarnessRun, normalizeHarnessSpec } from "../harness/harness-run.js";
 import { normalizeEnum, normalizeFiniteNumber, normalizePositiveInteger, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
-import {
-  AUTOMATION_RUNTIME_STORE,
-  CONTROL_PLANE_DIR,
-  atomicWriteFile,
-  withLock,
-} from "../state.js";
+import { normalizeAutomationDecision } from "./automation-decision.js";
+import { normalizeGovernanceSnapshot } from "./resolve-governance.js";
+import { normalizeProfileLifecycle } from "./profile-lifecycle.js";
+import { atomicWriteFile, withLock } from "../state.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 
+export const AUTOMATION_RUNTIME_STORE = CONTROL_PLANE_PATHS.automationRuntimeFile;
 const AUTOMATION_RUNTIME_STORE_LOCK = "store:automation-runtime";
 
 const VALID_AUTOMATION_RUNTIME_STATUSES = new Set([
@@ -25,26 +26,6 @@ const VALID_AUTOMATION_RUNTIME_STATUSES = new Set([
 
 function normalizeAutomationRuntimeStatus(value, fallback = "idle") {
   return normalizeEnum(value, VALID_AUTOMATION_RUNTIME_STATUSES, fallback);
-}
-
-function normalizeAutomationDecision(value) {
-  const source = normalizeRecord(value, null);
-  if (!source) return null;
-  const decision = normalizeString(source.decision)?.toLowerCase();
-  if (!decision) return null;
-  return {
-    action: normalizeString(source.action)?.toLowerCase() || decision,
-    decision,
-    status: normalizeString(source.status)?.toLowerCase() || null,
-    reason: normalizeString(source.reason) || null,
-    round: Number.isFinite(source.round) ? source.round : null,
-    score: normalizeFiniteNumber(source.score, null),
-    verdict: normalizeString(source.verdict) || null,
-    improvementState: normalizeRecord(source.improvementState, null),
-    reworkGuidance: normalizeRecord(source.reworkGuidance, null),
-    nextWakeAt: Number.isFinite(source.nextWakeAt) ? source.nextWakeAt : null,
-    ts: Number.isFinite(source.ts) ? source.ts : null,
-  };
 }
 
 function normalizeRoundSummary(value) {
@@ -63,6 +44,36 @@ function normalizeRoundSummary(value) {
     summary: normalizeString(source.summary) || null,
     ts: Number.isFinite(source.ts) ? source.ts : null,
   };
+}
+
+// pendingReworkGuidance: rework 决策时落进 runtime 的「上轮教训」，
+// 下一轮 startAutomationRound 读它拼进 spec.entry.message 后清空（修死链 a）。
+// 形状沿用 automation-decision.buildReworkGuidance 产出：
+//   { failureClass, reworkTarget, actionableFindings:[{category,severity,message}], strategy }
+function normalizePendingReworkGuidance(value) {
+  const source = normalizeRecord(value, null);
+  if (!source) return null;
+
+  const failureClass = normalizeString(source.failureClass) || null;
+  const reworkTarget = normalizeString(source.reworkTarget) || null;
+  const strategy = normalizeString(source.strategy) || null;
+  const actionableFindings = (Array.isArray(source.actionableFindings) ? source.actionableFindings : [])
+    .map((finding) => {
+      const f = normalizeRecord(finding, null);
+      const message = f ? normalizeString(f.message) : null;
+      if (!message) return null;
+      return {
+        category: normalizeString(f.category) || "general",
+        severity: normalizeString(f.severity) || "info",
+        message,
+      };
+    })
+    .filter(Boolean);
+
+  // 与 buildReworkGuidance 一致：三者皆空则视为无教训（不存空壳）
+  if (!failureClass && !reworkTarget && actionableFindings.length === 0) return null;
+
+  return { failureClass, reworkTarget, actionableFindings, strategy };
 }
 
 function buildDefaultRuntimeState(automationSpec) {
@@ -94,7 +105,14 @@ function buildDefaultRuntimeState(automationSpec) {
     lastHarnessRun: null,
     lastReviewerResult: null,
     lastAutomationDecision: null,
+    pendingReworkGuidance: null,
     recentHarnessRuns: [],
+    // P4 死链 c：governanceSnapshot = ProfileLifecycle 算出的收紧治理参数（经 resolveGovernance 消费）。
+    // governanceSnapshotDisabled = 全局熔断（异常 snapshot 一键回 spec 默认）。
+    // profileLifecycle = 对象链尾段（第 11 概念）只读快照。
+    governanceSnapshot: null,
+    governanceSnapshotDisabled: false,
+    profileLifecycle: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -133,6 +151,10 @@ function normalizeAutomationRuntimeState(value) {
     lastHarnessRun: normalizeHarnessRun(source.lastHarnessRun),
     lastReviewerResult: normalizeReviewerResult(source.lastReviewerResult),
     lastAutomationDecision: normalizeAutomationDecision(source.lastAutomationDecision),
+    pendingReworkGuidance: normalizePendingReworkGuidance(source.pendingReworkGuidance),
+    governanceSnapshot: normalizeGovernanceSnapshot(source.governanceSnapshot),
+    governanceSnapshotDisabled: source.governanceSnapshotDisabled === true,
+    profileLifecycle: normalizeProfileLifecycle(source.profileLifecycle),
     recentHarnessRuns: (Array.isArray(source.recentHarnessRuns) ? source.recentHarnessRuns : [])
       .map((entry) => normalizeHarnessRun(entry))
       .filter(Boolean)
@@ -167,7 +189,7 @@ async function writeAutomationRuntimeStore(states) {
       .map((entry) => normalizeAutomationRuntimeState(entry))
       .filter(Boolean),
   );
-  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
+  await mkdir(dirname(AUTOMATION_RUNTIME_STORE), { recursive: true });
   await atomicWriteFile(AUTOMATION_RUNTIME_STORE, JSON.stringify({
     updatedAt: Date.now(),
     states: normalized,
@@ -255,6 +277,46 @@ export async function setAutomationRuntimeStatus(automationId, status, {
   });
 }
 
+// P4 安全阀（非可选）：operator 经 apply 路径调此函数，
+//  - disableGovernanceSnapshot=true/false：全局熔断开关（resolveGovernance 见 true 即忽略 snapshot 回 spec）。
+//  - reviveProfile=true：retired profile 复活——清 governanceSnapshot + profileLifecycle（streak 是派生量，
+//    清 lifecycle 即重置；下一轮从 spec 默认 + 静态 trustLevel 重新现算）。
+// 经同一 store 锁串行化，避免 trustLevel 升降的写竞争（普查并发要求）。
+export async function setAutomationGovernanceControl(automationId, {
+  disableGovernanceSnapshot = undefined,
+  reviveProfile = false,
+} = {}) {
+  const normalizedId = normalizeString(automationId);
+  if (!normalizedId) {
+    throw new Error("missing automation id");
+  }
+
+  return withLock(AUTOMATION_RUNTIME_STORE_LOCK, async () => {
+    const now = Date.now();
+    const states = await listAutomationRuntimeStates();
+    const existing = states.find((entry) => entry.automationId === normalizedId) || null;
+    if (!existing) {
+      throw new Error(`unknown automation runtime id: ${normalizedId}`);
+    }
+
+    const nextStates = states
+      .filter((entry) => entry.automationId !== normalizedId)
+      .concat({
+        ...existing,
+        ...(disableGovernanceSnapshot !== undefined
+          ? { governanceSnapshotDisabled: disableGovernanceSnapshot === true }
+          : {}),
+        ...(reviveProfile === true
+          ? { governanceSnapshot: null, profileLifecycle: null }
+          : {}),
+        createdAt: Number.isFinite(existing?.createdAt) ? existing.createdAt : now,
+        updatedAt: now,
+      });
+    const saved = await writeAutomationRuntimeStore(nextStates);
+    return saved.find((entry) => entry.automationId === normalizedId) || null;
+  });
+}
+
 export async function deleteAutomationRuntimeState(automationId) {
   const normalizedId = normalizeString(automationId);
   if (!normalizedId) {
@@ -303,6 +365,13 @@ function summarizeAutomationInstance(spec, runtime) {
     childAutomationCount: Array.isArray(runtime?.childAutomationIds) ? runtime.childAutomationIds.length : 0,
     ...harnessSummary,
     governance: spec.governance,
+    // P4 ProfileLifecycle 尾段（只读投影）：trustLevel/status/streak + 本轮收紧治理参数。
+    // governanceSnapshotDisabled = 安全阀熔断标志。这是「inspect.profile_lifecycle」的数据源——
+    // 当前经 automation runtime summary 暴露（in-domain）。
+    // 扩展点（P 后补，避免跨域改 cli-system）：在 cli-system catalog 增 inspect.profile_lifecycle
+    // 只读 surface 指向此投影，不碰执行路径。
+    profileLifecycle: runtime?.profileLifecycle || null,
+    governanceSnapshotDisabled: runtime?.governanceSnapshotDisabled === true,
   };
 }
 

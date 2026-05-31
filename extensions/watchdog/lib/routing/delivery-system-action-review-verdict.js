@@ -1,9 +1,7 @@
 import { unlink } from "node:fs/promises";
-import { join } from "node:path";
 import { ARTIFACT_TYPES, INTENT_TYPES } from "../protocol-primitives.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { agentWorkspace } from "../state.js";
 import { buildSystemActionDeliveryResult } from "./delivery-result.js";
 import { inferSemanticWorkflow } from "../runtime-workflow-semantics.js";
 import { normalizeString } from "../core/normalize.js";
@@ -17,7 +15,6 @@ import {
   buildSystemActionDeliveryContext,
   createSystemActionDeliveryContract,
   enqueueSystemActionDeliveryContract,
-  hasLegacySystemActionDeliveryRoute,
   mergeSystemActionDeliverySource,
   resolveSystemActionDeliveryRoute,
 } from "./delivery-system-action-helpers.js";
@@ -77,6 +74,16 @@ export async function deliveryRunSystemActionReviewVerdict({
   const routeSource = mergeSystemActionDeliverySource(artifactContext);
   const route = await resolveSystemActionDeliveryRoute(routeSource);
 
+  if (route.ok !== true) {
+    logger.warn("[system_action_review_delivery] request_review verdict has no valid delivery ticket");
+    return buildSystemActionDeliveryResult({
+      deliveryId: SYSTEM_ACTION_DELIVERY_IDS.REVIEW_VERDICT,
+      error: route.error || "missing_delivery_ticket",
+      reason: route.resolvedBy || "missing_ticket",
+      deliveryTicketId: route.ticketId || null,
+    });
+  }
+
   if (!route.replyTo?.agentId) {
     logger.warn("[system_action_review_delivery] missing source reply target for request_review verdict");
     return buildSystemActionDeliveryResult({
@@ -85,14 +92,11 @@ export async function deliveryRunSystemActionReviewVerdict({
     });
   }
 
-  if (
-    !hasSystemActionDeliveryTicket(routeSource.systemActionDeliveryTicket)
-    && !hasLegacySystemActionDeliveryRoute(routeSource)
-  ) {
-    logger.warn("[system_action_review_delivery] request_review verdict has no upstream reply target");
+  if (!hasSystemActionDeliveryTicket(routeSource.systemActionDeliveryTicket)) {
+    logger.warn("[system_action_review_delivery] request_review verdict has no delivery ticket");
     return buildSystemActionDeliveryResult({
       deliveryId: SYSTEM_ACTION_DELIVERY_IDS.REVIEW_VERDICT,
-      error: "missing_upstream_reply_target_or_resumable_session",
+      error: "missing_delivery_ticket",
     });
   }
 
@@ -161,7 +165,6 @@ export async function deliveryRunSystemActionReviewVerdict({
     resolvedByContractId: contract.id,
   });
   await unlink(artifactContext.path).catch(() => {});
-  await unlink(join(agentWorkspace(reviewerAgentId), "outbox", "code_verdict.json")).catch(() => {});
 
   broadcast("alert", {
     type: EVENT_TYPE.SYSTEM_ACTION_REVIEW_VERDICT_DELIVERED,

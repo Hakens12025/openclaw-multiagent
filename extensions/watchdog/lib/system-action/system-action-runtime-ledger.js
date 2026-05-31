@@ -71,10 +71,10 @@ export function buildDeferredSystemActionFollowUp(systemActionResult) {
   if (systemActionResult.actionType === INTENT_TYPES.CREATE_TASK) {
     return {
       ...baseFollowUp,
-      workflow: DELIVERY_WORKFLOWS.SYSTEM_ACTION_CONTRACT_RESULT,
-      semanticWorkflow: inferSemanticWorkflow(DELIVERY_WORKFLOWS.SYSTEM_ACTION_CONTRACT_RESULT),
+      workflow: DELIVERY_WORKFLOWS.SYSTEM_ACTION_RUNTIME_RESULT,
+      semanticWorkflow: inferSemanticWorkflow(DELIVERY_WORKFLOWS.SYSTEM_ACTION_RUNTIME_RESULT),
       childContractId: systemActionResult.contractId || null,
-      returnArtifactType: ARTIFACT_TYPES.CONTRACT_RESULT,
+      returnArtifactType: ARTIFACT_TYPES.RUNTIME_RESULT,
     };
   }
 
@@ -85,7 +85,7 @@ export function buildDeferredSystemActionFollowUp(systemActionResult) {
       semanticWorkflow: inferSemanticWorkflow(DELIVERY_WORKFLOWS.SYSTEM_ACTION_ASSIGN_TASK_RESULT),
       delegatedAgentId: systemActionResult.targetAgent || null,
       delegatedContractId: systemActionResult.contractId || null,
-      returnArtifactType: ARTIFACT_TYPES.CONTRACT_RESULT,
+      returnArtifactType: ARTIFACT_TYPES.RUNTIME_RESULT,
     };
   }
 

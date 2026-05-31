@@ -12,13 +12,13 @@ import {
   changeAgentHeartbeat,
   changeAgentPolicies,
   changeAgentCardFormats,
-  changeAgentCardTools,
   changeAgentConstraints,
   changeAgentDescription,
   changeAgentPrimaryModel,
   changeAgentName,
   changeAgentRole,
   changeAgentSkills,
+  changeAgentTools,
   createAgentDefinition,
   deleteAgentDefinition,
   hardDeleteAgentDefinition,
@@ -28,7 +28,9 @@ import {
 } from "../agent/agent-enrollment.js";
 import { takeOverLocalAgentGuidance } from "../agent/agent-enrollment-guidance.js";
 import { startTestRun } from "../test-runs.js";
+import { normalizeTestRunCleanMode } from "../test-run-presets.js";
 import { dispatchAcceptIngressMessage } from "../ingress/dispatch-entry.js";
+import { normalizeQQIngressSource } from "../qq-reply-target.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
 import { normalizeOperatorContext } from "../operator/operator-context.js";
 import { resetRuntimeState } from "./runtime-admin.js";
@@ -50,15 +52,17 @@ import {
   enableAutomationDefinition,
   runAutomationDefinition,
   updateAutomationDefinition,
+  controlAutomationGovernance,
 } from "../automation/automation-admin.js";
 import {
   mutateGraphEdge,
   composeGraphLoop,
+  deleteGraphLoop,
   repairGraphLoop,
 } from "./admin-surface-graph-operations.js";
+import { authorSkillSurface } from "./skill-author.js";
 import {
   resolveLoopTargetId,
-  buildAdminWakeup,
   startRuntimeLoop,
 } from "./admin-surface-loop-operations.js";
 
@@ -133,7 +137,7 @@ const AGENT_ADMIN_SURFACE_OPERATIONS = Object.freeze({
     agentId: payload.agentId,
     description: payload.description,
   })),
-  "agents.card.tools": createAgentAdminOperation(changeAgentCardTools, (payload) => ({
+  "agents.tools": createAgentAdminOperation(changeAgentTools, (payload) => ({
     agentId: payload.agentId,
     tools: payload.tools,
   })),
@@ -247,6 +251,12 @@ const AGENT_ADMIN_SURFACE_OPERATIONS = Object.freeze({
     onAlert,
     runtimeContext,
   }),
+  // P4 安全阀（必备非可选）：熔断 governanceSnapshot / 复活 retired profile。
+  "automations.governance": ({ payload, logger, onAlert }) => controlAutomationGovernance({
+    payload,
+    logger,
+    onAlert,
+  }),
 });
 
 const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
@@ -254,10 +264,13 @@ const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
   "graph.edge.add": (args) => mutateGraphEdge({ ...args, mode: "add" }),
   "graph.edge.delete": (args) => mutateGraphEdge({ ...args, mode: "delete" }),
   "graph.loop.compose": composeGraphLoop,
+  "graph.loop.delete": deleteGraphLoop,
   "graph.loop.repair": repairGraphLoop,
-  "runtime.reset": ({ logger, onAlert }) => resetRuntimeState({
+  "skills.create": authorSkillSurface,
+  "runtime.reset": ({ logger, onAlert, runtimeContext }) => resetRuntimeState({
     logger,
     onAlert,
+    runtimeApi: runtimeContext?.api || null,
   }),
   "runtime.loop.start": startRuntimeLoop,
   "runtime.loop.interrupt": ({ payload, logger }) => interruptLoopRound({
@@ -268,15 +281,17 @@ const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
     loopId: resolveLoopTargetId(payload),
     startStage: normalizeString(payload.startStage) || null,
     reason: normalizeString(payload.reason) || "manual_resume",
-  }, buildAdminWakeup(runtimeContext, logger), logger),
+    runtimeApi: runtimeContext?.api || null,
+  }, null, logger),
   "test_runs.start": ({ payload, logger, runtimeContext, surfaceId }) => ({
     ok: true,
     run: startTestRun({
       presetId: payload.presetId,
-      cleanMode: payload.cleanMode || "session-clean",
+      caseId: payload.caseId,
+      cleanMode: normalizeTestRunCleanMode(payload.cleanMode),
       originDraftId: runtimeContext?.originDraftId || null,
       originExecutionId: runtimeContext?.originExecutionId || null,
-      originSurfaceId: surfaceId,
+      originSurfaceId: runtimeContext?.originSurfaceId || surfaceId,
       runtimeContext,
     }, logger),
   }),
@@ -290,7 +305,7 @@ const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
       originSurfaceId: runtimeContext?.originSurfaceId,
     });
     return dispatchAcceptIngressMessage(payload.message, {
-      source: payload.source === "qq" ? "qq" : "webui",
+      source: normalizeQQIngressSource(payload.source) === "qq" ? "qq" : "webui",
       replyTo: payload.replyTo && typeof payload.replyTo === "object" ? payload.replyTo : undefined,
       operatorContext,
       ingressDirective: payload,
@@ -310,6 +325,25 @@ export function hasAdminSurfaceOperationHandler(surfaceId) {
   return typeof getAdminSurfaceOperationHandler(surfaceId) === "function";
 }
 
+// B3 兜底网：destructive/structural surface 落地前自动拍结构快照（best-effort），snapshotId 回传供回滚。
+// 这是所有 apply 路径（operator executeCliSystemSurface / HTTP / change-set）的共同 choke。
+// 懒加载 import 避开 admin-surface-registry↔admin-surface-operations 既有静态循环。
+async function maybePreApplyStructureSnapshot(surfaceId, logger) {
+  try {
+    const { getAdminSurface } = await import("./admin-surface-registry.js");
+    const risk = getAdminSurface(surfaceId)?.risk || null;
+    if (risk !== "destructive" && risk !== "structural") {
+      return null;
+    }
+    const { captureStructureSnapshot } = await import("../control-plane/structure-snapshot.js");
+    const snap = await captureStructureSnapshot({ reason: `pre-apply:${surfaceId}`, label: `pre-apply:${surfaceId}` });
+    return snap?.id || null;
+  } catch (error) {
+    logger?.warn?.(`[watchdog] pre-apply structure snapshot skipped for ${surfaceId}: ${error.message}`);
+    return null;
+  }
+}
+
 export async function executeAdminSurfaceOperation({
   surfaceId,
   payload = {},
@@ -321,11 +355,16 @@ export async function executeAdminSurfaceOperation({
   if (!handler) {
     throw new Error(`unsupported admin surface: ${surfaceId}`);
   }
-  return handler({
+  const preApplySnapshot = await maybePreApplyStructureSnapshot(surfaceId, logger);
+  const result = await handler({
     surfaceId,
     payload: normalizeRecord(payload),
     logger,
     onAlert,
     runtimeContext,
   });
+  if (preApplySnapshot && result && typeof result === "object" && !Array.isArray(result)) {
+    return { ...result, preApplySnapshot };
+  }
+  return result;
 }

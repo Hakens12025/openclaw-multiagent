@@ -6,7 +6,7 @@ import {
   getFormalContractCasePolicy,
 } from "./formal-contract-runtime.js";
 
-test("loop-elevated contract runtime is accepted by explicit system action state", () => {
+test("loop-elevated contract runtime is accepted without worker-only checkpoints", () => {
   const result = classifyContractExecutionMode({
     contractRuntime: {
       status: "completed",
@@ -69,7 +69,7 @@ test("invalid legacy contractor start_loop remains a failed contract runtime", (
   });
 });
 
-test("formal contract cases keep explicit execution-mode policy", () => {
+test("formal contract cases remain worker-only", () => {
   assert.deepEqual(getFormalContractCasePolicy("complex-02"), {
     allowLoopElevation: false,
     requiredExecutionMode: "worker",

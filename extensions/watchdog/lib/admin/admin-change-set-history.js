@@ -20,7 +20,7 @@ export function normalizeVerificationStatus(record) {
   if (record.failedCases > 0 || record.status === "failed") return "failed";
   if (record.blockedCases > 0) return "blocked";
   if (record.status === "completed" && (record.totalCases || 0) > 0) return "passed";
-  if (["queued", "preparing", "running", "cleaning"].includes(record.status)) return "running";
+  if (["queued", "preparing", "running", "cleaning", "finalizing"].includes(record.status)) return "running";
   return record.status || "unknown";
 }
 
@@ -138,6 +138,10 @@ export function resolveDraftStatus({
       return "failed";
     case "previewed":
       return "previewed";
+    case "reverted":
+      return "reverted";
+    case "revert_failed":
+      return "revert_failed";
     default:
       return normalizedStoredStatus;
   }

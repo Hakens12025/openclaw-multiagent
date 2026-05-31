@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { unlink } from "node:fs/promises";
+import { unlink, writeFile } from "node:fs/promises";
 
 import {
   createTrackingState,
 } from "../lib/session-bootstrap.js";
 import {
   listAgentEndMainStages,
-} from "../lib/lifecycle/agent-end-pipeline.js";
+} from "../lib/lifecycle/agent-end-lifecycle.js";
 import {
   getContractPath,
   persistContractSnapshot,
@@ -163,7 +163,7 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
   const contractId = `TC-CONTRACTOR-FALLBACK-${Date.now()}`;
   const contractPath = getContractPath(contractId);
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
-  await clearDispatchQueue(logger);
+  clearDispatchQueue();
   resetAllDispatchStates();
   await syncDispatchTargets([], logger);
   registerRuntimeAgents({
@@ -278,7 +278,7 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
-    await clearDispatchQueue(logger);
+    clearDispatchQueue();
     resetAllDispatchStates();
     await syncDispatchTargets([], logger);
   }
@@ -399,5 +399,517 @@ test("running tracking state does not preserve the root contract when terminal e
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
+  }
+});
+
+test("agent final assistant text is not captured as contract output", async () => {
+  const contractId = `TC-TERMINAL-CAPTURE-${Date.now()}`;
+  const contractPath = getContractPath(contractId);
+  const outputPath = `/tmp/${contractId}.md`;
+  const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: "worker2",
+          binding: {
+            roleRef: "executor",
+            workspace: { configured: "~/.openclaw/workspaces/worker2" },
+            model: { ref: "demo/worker2" },
+          },
+        },
+      ],
+    },
+  });
+
+  await persistContractSnapshot(contractPath, {
+    id: contractId,
+    task: "用户原话：你好",
+    assignee: "worker2",
+    output: outputPath,
+    status: CONTRACT_STATUS.PENDING,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    protocol: {
+      version: 1,
+      envelope: "execution_contract",
+      source: "webui",
+    },
+  }, logger);
+
+  try {
+    const trackingState = createTrackingState({
+      sessionKey: `agent:worker2:contract:${contractId.toLowerCase()}`,
+      agentId: "worker2",
+      parentSession: null,
+    });
+    trackingState.contract = {
+      id: contractId,
+      task: "用户原话：你好",
+      assignee: "worker2",
+      output: outputPath,
+      status: CONTRACT_STATUS.PENDING,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      protocol: {
+        version: 1,
+        envelope: "execution_contract",
+      },
+      path: contractPath,
+    };
+
+    const context = {
+      agentId: "worker2",
+      sessionKey: trackingState.sessionKey,
+      event: {
+        success: true,
+        error: null,
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "先想一下怎么回复。" },
+              { type: "text", text: "你好！我在这里，有什么我可以帮你的吗？" },
+            ],
+          },
+        ],
+      },
+      trackingState,
+      effectiveContractData: {
+        id: contractId,
+        task: "用户原话：你好",
+        assignee: "worker2",
+        status: CONTRACT_STATUS.PENDING,
+        output: outputPath,
+      },
+      executionObservation: {
+        collected: false,
+      },
+      systemActionResult: {
+        status: SYSTEM_ACTION_STATUS.NO_ACTION,
+        actionType: null,
+        error: null,
+        targetAgent: null,
+        contractId: null,
+        wake: null,
+      },
+      contractReadDiagnostic: null,
+      lateCompletionLease: null,
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow() {},
+          },
+        },
+      },
+      logger,
+    };
+
+    await commitStage.run(context);
+
+    const { readFile } = await import("node:fs/promises");
+    const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+
+    await assert.rejects(readFile(outputPath, "utf8"));
+    assert.equal(trackingState.status, CONTRACT_STATUS.FAILED);
+    assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.source, "completion_criteria");
+    assert.equal(persisted.terminalOutcome?.reason, "contract.output missing_file");
+    assert.equal(persisted.runtimeDiagnostics?.completionCapture, undefined);
+  } finally {
+    runtimeAgentConfigs.clear();
+    await unlink(contractPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
+  }
+});
+
+test("control-only assistant text is not captured as contract output", async () => {
+  const contractId = `TC-TERMINAL-CAPTURE-CONTROL-${Date.now()}`;
+  const contractPath = getContractPath(contractId);
+  const outputPath = `/tmp/${contractId}.md`;
+  const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: "worker2",
+          binding: {
+            roleRef: "executor",
+            workspace: { configured: "~/.openclaw/workspaces/worker2" },
+            model: { ref: "demo/worker2" },
+          },
+        },
+      ],
+    },
+  });
+
+  await persistContractSnapshot(contractPath, {
+    id: contractId,
+    task: "控制文本不应被当作最终交付",
+    assignee: "worker2",
+    output: outputPath,
+    status: CONTRACT_STATUS.PENDING,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    protocol: {
+      version: 1,
+      envelope: "execution_contract",
+      source: "webui",
+    },
+  }, logger);
+
+  try {
+    const trackingState = createTrackingState({
+      sessionKey: `agent:worker2:contract:${contractId.toLowerCase()}`,
+      agentId: "worker2",
+      parentSession: null,
+    });
+    trackingState.contract = {
+      id: contractId,
+      task: "控制文本不应被当作最终交付",
+      assignee: "worker2",
+      output: outputPath,
+      status: CONTRACT_STATUS.PENDING,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      protocol: {
+        version: 1,
+        envelope: "execution_contract",
+      },
+      path: contractPath,
+    };
+
+    const context = {
+      agentId: "worker2",
+      sessionKey: trackingState.sessionKey,
+      event: {
+        success: true,
+        error: null,
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "NO_REPLY" },
+            ],
+          },
+        ],
+      },
+      trackingState,
+      effectiveContractData: {
+        id: contractId,
+        task: "控制文本不应被当作最终交付",
+        assignee: "worker2",
+        status: CONTRACT_STATUS.PENDING,
+        output: outputPath,
+      },
+      executionObservation: {
+        collected: false,
+      },
+      systemActionResult: {
+        status: SYSTEM_ACTION_STATUS.NO_ACTION,
+        actionType: null,
+        error: null,
+        targetAgent: null,
+        contractId: null,
+        wake: null,
+      },
+      contractReadDiagnostic: null,
+      lateCompletionLease: null,
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow() {},
+          },
+        },
+      },
+      logger,
+    };
+
+    await commitStage.run(context);
+
+    const { readFile } = await import("node:fs/promises");
+    const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+
+    await assert.rejects(readFile(outputPath, "utf8"));
+    assert.equal(trackingState.status, CONTRACT_STATUS.FAILED);
+    assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.source, "completion_criteria");
+    assert.equal(persisted.terminalOutcome?.reason, "contract.output missing_file");
+    assert.equal(persisted.runtimeDiagnostics?.completionCapture, undefined);
+  } finally {
+    runtimeAgentConfigs.clear();
+    await unlink(contractPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
+  }
+});
+
+test("runtime guard text is not captured as contract output", async () => {
+  const contractId = `TC-TERMINAL-CAPTURE-GUARD-${Date.now()}`;
+  const contractPath = getContractPath(contractId);
+  const outputPath = `/tmp/${contractId}.md`;
+  const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: "worker2",
+          binding: {
+            roleRef: "executor",
+            workspace: { configured: "~/.openclaw/workspaces/worker2" },
+            model: { ref: "demo/worker2" },
+          },
+        },
+      ],
+    },
+  });
+
+  await persistContractSnapshot(contractPath, {
+    id: contractId,
+    task: "runtime 提示文本不应被当作最终交付",
+    assignee: "worker2",
+    output: outputPath,
+    status: CONTRACT_STATUS.PENDING,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    protocol: {
+      version: 1,
+      envelope: "execution_contract",
+      source: "webui",
+    },
+  }, logger);
+
+  try {
+    const trackingState = createTrackingState({
+      sessionKey: `agent:worker2:contract:${contractId.toLowerCase()}`,
+      agentId: "worker2",
+      parentSession: null,
+    });
+    trackingState.contract = {
+      id: contractId,
+      task: "runtime 提示文本不应被当作最终交付",
+      assignee: "worker2",
+      output: outputPath,
+      status: CONTRACT_STATUS.PENDING,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      protocol: {
+        version: 1,
+        envelope: "execution_contract",
+      },
+      path: contractPath,
+    };
+
+    const context = {
+      agentId: "worker2",
+      sessionKey: trackingState.sessionKey,
+      event: {
+        success: true,
+        error: null,
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "根据系统提示，请直接写入结果路径。" },
+            ],
+          },
+        ],
+      },
+      trackingState,
+      effectiveContractData: {
+        id: contractId,
+        task: "runtime 提示文本不应被当作最终交付",
+        assignee: "worker2",
+        status: CONTRACT_STATUS.PENDING,
+        output: outputPath,
+      },
+      executionObservation: {
+        collected: false,
+      },
+      systemActionResult: {
+        status: SYSTEM_ACTION_STATUS.NO_ACTION,
+        actionType: null,
+        error: null,
+        targetAgent: null,
+        contractId: null,
+        wake: null,
+      },
+      contractReadDiagnostic: null,
+      lateCompletionLease: null,
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow() {},
+          },
+        },
+      },
+      logger,
+    };
+
+    await commitStage.run(context);
+
+    const { readFile } = await import("node:fs/promises");
+    const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+
+    await assert.rejects(readFile(outputPath, "utf8"));
+    assert.equal(trackingState.status, CONTRACT_STATUS.FAILED);
+    assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.source, "completion_criteria");
+    assert.equal(persisted.terminalOutcome?.reason, "contract.output missing_file");
+    assert.equal(persisted.runtimeDiagnostics?.completionCapture, undefined);
+  } finally {
+    runtimeAgentConfigs.clear();
+    await unlink(contractPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
+  }
+});
+
+test("invalid tool-error payload already written into contract.output fails terminal evaluation", async () => {
+  const contractId = `TC-TERMINAL-INVALID-OUTPUT-${Date.now()}`;
+  const contractPath = getContractPath(contractId);
+  const outputPath = `/tmp/${contractId}.md`;
+  const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: "worker2",
+          binding: {
+            roleRef: "executor",
+            workspace: { configured: "~/.openclaw/workspaces/worker2" },
+            model: { ref: "demo/worker2" },
+          },
+        },
+      ],
+    },
+  });
+
+  await persistContractSnapshot(contractPath, {
+    id: contractId,
+    task: "工具错误残渣不应被当作完成产物",
+    assignee: "worker2",
+    output: outputPath,
+    status: CONTRACT_STATUS.PENDING,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    protocol: {
+      version: 1,
+      envelope: "execution_contract",
+      source: "webui",
+    },
+  }, logger);
+
+  await writeFile(outputPath, JSON.stringify({
+    status: "error",
+    tool: "write",
+    file_path: "/Users/hakens/.openclaw/workspaces/worker2/outbox/runtime_result.json",
+  }, null, 2), "utf8");
+
+  try {
+    const trackingState = createTrackingState({
+      sessionKey: `agent:worker2:contract:${contractId.toLowerCase()}`,
+      agentId: "worker2",
+      parentSession: null,
+    });
+    trackingState.contract = {
+      id: contractId,
+      task: "工具错误残渣不应被当作完成产物",
+      assignee: "worker2",
+      output: outputPath,
+      status: CONTRACT_STATUS.PENDING,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      runtimeDiagnostics: {
+        executionTrace: {
+          outputCommitted: true,
+        },
+      },
+      protocol: {
+        version: 1,
+        envelope: "execution_contract",
+      },
+      path: contractPath,
+    };
+
+    const context = {
+      agentId: "worker2",
+      sessionKey: trackingState.sessionKey,
+      event: {
+        success: true,
+        error: null,
+        messages: [],
+      },
+      trackingState,
+      effectiveContractData: {
+        id: contractId,
+        task: "工具错误残渣不应被当作完成产物",
+        assignee: "worker2",
+        status: CONTRACT_STATUS.PENDING,
+        output: outputPath,
+        runtimeDiagnostics: {
+          executionTrace: {
+            outputCommitted: true,
+          },
+        },
+      },
+      executionObservation: {
+        collected: true,
+        primaryOutputPath: outputPath,
+        artifactPaths: [outputPath],
+        files: [outputPath],
+        stageRunResult: {
+          status: "completed",
+          summary: "runtime_result declared an invalid artifact",
+          artifacts: [
+            {
+              type: "text_output",
+              path: outputPath,
+              label: "invalid_output",
+              primary: true,
+              required: true,
+            },
+          ],
+          primaryArtifactPath: outputPath,
+        },
+      },
+      systemActionResult: {
+        status: SYSTEM_ACTION_STATUS.NO_ACTION,
+        actionType: null,
+        error: null,
+        targetAgent: null,
+        contractId: null,
+        wake: null,
+      },
+      contractReadDiagnostic: null,
+      lateCompletionLease: null,
+      api: {
+        runtime: {
+          system: {
+            requestHeartbeatNow() {},
+          },
+        },
+      },
+      logger,
+    };
+
+    await commitStage.run(context);
+
+    const { readFile } = await import("node:fs/promises");
+    const persisted = JSON.parse(await readFile(contractPath, "utf8"));
+
+    assert.equal(trackingState.status, CONTRACT_STATUS.FAILED);
+    assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
+    assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    assert.match(persisted.terminalOutcome?.reason || "", /invalid_semantic_payload/u);
+  } finally {
+    runtimeAgentConfigs.clear();
+    await unlink(contractPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
   }
 });

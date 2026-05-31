@@ -60,11 +60,14 @@ unknown -> provisional -> experimental -> stable -> (retired)
 |------|------|
 | 备忘录 62 | 明确 platform vs harness 的主从关系 |
 | 备忘录 79 | 正式定义 automation-of-automation 为系统终局目标 |
+| v109-stable | 对象链 `HarnessRun→CLI System→Operator→Automation` 四关节接上，端到端样例 `tests/cli-chain-e2e.test.js`；automation 经 `inspect.automation_runtime` surface 被读取，不直读 store。`ProfileLifecycle` 概念预算未满足，本轮不建。源: 备忘录114 |
+| 2026-05-31 | 备忘录120 把四关节闭合成带反馈的真值回路，定位三处真死链（reworkGuidance 零消费 / cli-system 无法真执行 / governanceSnapshot 无合流点）+ 阶段计划。详见 [四关节自治闭环](self-governance-loop.md) |
+| v115 | **自治回路物理闭合**：ProfileLifecycle 已建（`profile-lifecycle.js`，现算 streak 渐进硬化 trustLevel）+ resolveGovernance 合流点（`resolve-governance.js`，snapshot 覆盖 spec 回灌下轮）+ reworkGuidance 接通 + 安全阀（熔断/复活）。E2E 闭环已断言 |
 
 ## 当前状态
 
 - 方向：稳定
-- 实现：距离完整还远
-- 当前缺口：`AutomationDecision -> ProfileLifecycle` 链未完全落地
+- 实现：**核心回路已闭合**（HarnessRun→EvaluationResult→AutomationDecision→ProfileLifecycle 全段实接，证据见 [四关节自治闭环](self-governance-loop.md)）
+- 余项：operator 经 CLI-system 的治理闭环（P5）、Agent-Group 空间原语（P6b）
 
 相关概念: [evaluation-result-chain](evaluation-result-chain.md) | [harness](harness.md) | [system-layering](system-layering.md)

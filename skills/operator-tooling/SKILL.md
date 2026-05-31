@@ -1,15 +1,13 @@
 ---
 name: operator-tooling
-description: Runtime Operator 高级工具箱。用于组合使用 snapshot、graph、catalog、change-set、test 与 loop 管理工具。
+description: Runtime Operator 高级工具箱。说明 operator 如何组合使用 snapshot、graph、catalog、change-set、test 与 loop 管理工具。
 ---
 
 # Runtime Operator 高级工具箱
 
-Operator 是平台控制 agent。它通过 typed surface 读取事实、修改系统并留下验证证据。
+你在 runtime operator surface 中工作。工具用于读取平台真相、规划变更、执行变更、绑定验证。
 
-## 高权限事实源
-
-优先读取：
+## 优先读取的真相
 
 1. `/watchdog/operator-snapshot`
 2. `/watchdog/graph`
@@ -18,45 +16,43 @@ Operator 是平台控制 agent。它通过 typed surface 读取事实、修改�
 5. `/watchdog/skills`
 6. `/watchdog/models`
 7. `/watchdog/contracts`
-8. `/watchdog/system-action-delivery-tickets`
+8. `/watchdog/admin-surfaces/system_action_delivery_tickets.list`
 
-这些事实源分别回答：
+这些真相回答：
 
-- 当前 runtime 状态
+- 当前系统状态
 - 图边和 loop
-- 已开放管理动作
-- agent / skill / model 配置
-- 当前 contract 和 delivery 卡点
+- 已开放的管理动作
+- agent / skill / model 当前配置
+- contract、delivery ticket 与 runtime_result 状态
 
-## plan + execute
+## Plan + Execute
 
-目标能落到 operator surface 时：
+目标能落到已注册 operator surface 时：
 
-1. 调 `plan`
-2. 读取 steps、payload、warnings、assumptions
-3. 调 `execute`
-4. 记录验证证据
+1. `plan`
+2. 检查 steps、payload、warnings、assumptions
+3. `execute`
+4. 绑定或读取验证结果
 
-## change-set
+## Change-Set
 
-这些情况优先 change-set：
+以下情况优先 change-set：
 
 - 结构性调整
 - 需要执行证据
 - 需要 preview payload
 - 需要绑定验证结果
-- surface 标记 `confirmation: changeset`
+- surface 要求 `confirmation: changeset`
 
 ## 测试入口
 
-- `test_runs.start`：结构化回归。
-- `test.inject`：小链路探测。
+- `test_runs.start`：结构化回归
+- `test.inject`：小范围链路探测
 
-结构性改动后优先启动 formal/harness 回归；局部修补可先用 inject 验证。
+结构性改动后优先用 `test_runs.start`，小修补可先用 `test.inject`。
 
-## graph 和 loop 工具
-
-常用动作：
+## 图和 loop 工具
 
 - `graph.edge.add`
 - `graph.edge.delete`
@@ -65,17 +61,12 @@ Operator 是平台控制 agent。它通过 typed surface 读取事实、修改�
 - `runtime.loop.interrupt`
 - `runtime.loop.resume`
 
-理解原则：
+图边是协作真相。loop 成环后由 runtime 管理运行态。repair 补结构真相，resume / interrupt 控制运行态。
 
-- 图边是协作权限真相。
-- loop 由成环图边和 LoopSpec 共同成立。
-- repair 补结构真相。
-- resume / interrupt 控制运行态。
+## 核心规则
 
-## 最小操作心法
-
-1. 先看 snapshot / graph / catalog。
-2. 有 typed surface 才执行。
-3. 结构改动和运行态改动分开处理。
-4. change-set 承载执行证据。
-5. destructive 动作使用显式确认。
+1. 先看 snapshot / graph / catalog，再决定动哪把工具
+2. 有 typed surface 才执行管理动作
+3. 结构改动与运行态改动分开处理
+4. 结构性变更优先留 change-set 和验证证据
+5. 高权限工具按 surface 定义使用

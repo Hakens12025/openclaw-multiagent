@@ -4,7 +4,6 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
-  collectReviewerOutbox,
   collectWorkerOutbox,
 } from "../lib/routing/runtime-mailbox-outbox-handlers.js";
 import { agentWorkspace } from "../lib/state.js";
@@ -57,13 +56,22 @@ test("collectWorkerOutbox carries semantic stage id from active contract truth w
     });
     await mkdir(outboxDir, { recursive: true });
     await writeFile(join(outboxDir, outputFileName), "# worker result\n", "utf8");
+    await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
+      version: 1,
+      status: "completed",
+      summary: "worker result",
+      artifacts: [
+        { type: "text_output", path: outputFileName, primary: true, required: true },
+      ],
+      primaryArtifactPath: outputFileName,
+      completion: { status: "completed" },
+    }, null, 2), "utf8");
 
     const result = await collectWorkerOutbox({
       agentId,
       outboxDir,
-      files: [outputFileName],
+      files: ["runtime_result.json", outputFileName],
       logger,
-      manifest: null,
     });
     artifactPath = result.primaryOutputPath;
 
@@ -76,7 +84,112 @@ test("collectWorkerOutbox carries semantic stage id from active contract truth w
   }
 });
 
-test("collectReviewerOutbox carries semantic stage id from active contract truth without self-reported completion action", async () => {
+test("collectWorkerOutbox treats all artifact files as committed artifacts when runtime_result is minimal", async () => {
+  const agentId = `worker-stage-minimal-${Date.now()}`;
+  const outboxDir = join(agentWorkspace(agentId), "outbox");
+  const contractId = `TC-WORKER-STAGE-MINIMAL-${Date.now()}`;
+  const stagePlan = buildInitialTaskStagePlan({
+    contractId,
+    stages: ["整理资料", "形成结论"],
+  });
+  const stageRuntime = buildInitialTaskStageRuntime({ stagePlan });
+  const primaryFileName = `worker-stage-minimal-${Date.now()}.md`;
+  const secondaryFileName = `worker-stage-minimal-${Date.now()}.json`;
+  let primaryArtifactPath = null;
+  let collectedArtifactPaths = [];
+
+  try {
+    await writeActiveContract(agentId, {
+      id: contractId,
+      task: "整理资料并形成结论",
+      assignee: agentId,
+      output: join(agentWorkspace("controller"), "output", `${contractId}.md`),
+      status: "running",
+      createdAt: Date.now() - 1000,
+      updatedAt: Date.now(),
+      stagePlan,
+      stageRuntime,
+    });
+    await mkdir(outboxDir, { recursive: true });
+    await writeFile(join(outboxDir, primaryFileName), "# primary output\n", "utf8");
+    await writeFile(join(outboxDir, secondaryFileName), JSON.stringify({ ok: true }, null, 2), "utf8");
+    await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
+      version: 1,
+      status: "completed",
+      summary: "最小 runtime_result 只声明完成状态",
+      completion: {
+        status: "completed",
+      },
+    }, null, 2), "utf8");
+
+    const result = await collectWorkerOutbox({
+      agentId,
+      outboxDir,
+      files: ["runtime_result.json", primaryFileName, secondaryFileName],
+      logger,
+    });
+
+    primaryArtifactPath = result.primaryOutputPath;
+    collectedArtifactPaths = Array.isArray(result.artifactPaths) ? result.artifactPaths : [];
+
+    assert.equal(result.collected, true);
+    assert.equal(result.stageRunResult?.status, "completed");
+    assert.equal(result.stageCompletion?.status, "completed");
+    assert.deepEqual(
+      collectedArtifactPaths.map((filePath) => filePath.split("/").pop()).sort(),
+      [primaryFileName, secondaryFileName].sort(),
+      "all non-control outbox files should be collected without manifest parsing",
+    );
+    assert.equal(
+      primaryArtifactPath?.split("/").pop(),
+      primaryFileName,
+      "primary output should default to the contract output-compatible markdown artifact",
+    );
+  } finally {
+    for (const artifactPath of collectedArtifactPaths) {
+      await rm(artifactPath, { force: true }).catch(() => {});
+    }
+    await cleanupWorkspace(agentId, primaryArtifactPath);
+  }
+});
+
+test("collectWorkerOutbox rejects legacy outbox manifest residue", async () => {
+  const agentId = `worker-stage-manifest-residue-${Date.now()}`;
+  const outboxDir = join(agentWorkspace(agentId), "outbox");
+  const contractId = `TC-WORKER-STAGE-MANIFEST-${Date.now()}`;
+
+  try {
+    await writeActiveContract(agentId, {
+      id: contractId,
+      task: "legacy manifest should not be accepted",
+      assignee: agentId,
+      status: "running",
+      createdAt: Date.now() - 1000,
+      updatedAt: Date.now(),
+    });
+    await mkdir(outboxDir, { recursive: true });
+    await writeFile(join(outboxDir, "_manifest.json"), JSON.stringify({ artifacts: [] }, null, 2), "utf8");
+    await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
+      version: 1,
+      status: "completed",
+      summary: "legacy manifest residue",
+    }, null, 2), "utf8");
+
+    const result = await collectWorkerOutbox({
+      agentId,
+      outboxDir,
+      files: ["runtime_result.json", "_manifest.json"],
+      logger,
+    });
+
+    assert.equal(result.collected, false);
+    assert.match(result.error || "", /legacy outbox manifest/i);
+  } finally {
+    await cleanupWorkspace(agentId);
+  }
+});
+
+test("collectWorkerOutbox carries reviewer semantic stage id through runtime_result truth", async () => {
   const agentId = `reviewer-stage-truth-${Date.now()}`;
   const outboxDir = join(agentWorkspace(agentId), "outbox");
   const contractId = `TC-REVIEWER-STAGE-TRUTH-${Date.now()}`;
@@ -99,22 +212,29 @@ test("collectReviewerOutbox carries semantic stage id from active contract truth
       stageRuntime,
     });
     await mkdir(outboxDir, { recursive: true });
-    await writeFile(join(outboxDir, "code_verdict.json"), JSON.stringify({
-      verdict: "approve",
-      feedback: "实现符合预期",
+    await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
+      version: 1,
+      status: "completed",
+      summary: "实现符合预期",
+      reviewVerdict: {
+        verdict: "approve",
+        feedback: "实现符合预期",
+      },
+      completion: { status: "completed" },
     }, null, 2), "utf8");
 
-    const result = await collectReviewerOutbox({
+    const result = await collectWorkerOutbox({
       agentId,
       outboxDir,
-      files: ["code_verdict.json"],
+      files: ["runtime_result.json"],
       logger,
-      manifest: null,
     });
     artifactPath = result.primaryOutputPath;
 
     assert.equal(result.collected, true);
     assert.equal(result.stageRunResult?.semanticStageId, stageRuntime.currentStageId);
+    assert.equal(result.reviewVerdict?.verdict, "approve");
+    assert.equal(result.reviewerResult?.verdict, "pass");
     assert.equal("semanticStageAction" in (result.stageRunResult || {}), false);
     assert.equal(result.stageCompletion?.status, "completed");
   } finally {

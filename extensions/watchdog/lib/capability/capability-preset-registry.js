@@ -22,7 +22,7 @@ const TOOL_RESTRICTIONS = Object.freeze({
 const CAPABILITY_PRESETS = Object.freeze({
   [AGENT_ROLE.BRIDGE]: Object.freeze({
     tools: Object.freeze(["read", "write", "edit"]),
-    outputFormats: Object.freeze(["text"]),
+    outputFormats: Object.freeze(["text", "system-action-json"]),
     outboxCommitKinds: Object.freeze([]),
     routerHandlerId: null,
     directoryOrder: 10,
@@ -37,14 +37,14 @@ const CAPABILITY_PRESETS = Object.freeze({
   }),
   [AGENT_ROLE.EXECUTOR]: Object.freeze({
     tools: Object.freeze(["read", "write", "edit", "web_search", "web_fetch"]),
-    outputFormats: Object.freeze(["markdown", "stage-result-json", "contract-result-json", "system-action-json"]),
+    outputFormats: Object.freeze(["markdown", "runtime-result-json", "system-action-json"]),
     outboxCommitKinds: Object.freeze([CAPABILITY_OUTBOX_COMMIT_KINDS.EXECUTION_RESULT]),
     routerHandlerId: "executor_contract",
     directoryOrder: 30,
   }),
   [AGENT_ROLE.RESEARCHER]: Object.freeze({
     tools: Object.freeze(["read", "write", "edit", "web_search", "web_fetch"]),
-    outputFormats: Object.freeze(["markdown", "contract-result-json", "system-action-json"]),
+    outputFormats: Object.freeze(["markdown", "runtime-result-json", "system-action-json"]),
     outboxCommitKinds: Object.freeze([CAPABILITY_OUTBOX_COMMIT_KINDS.EXECUTION_RESULT]),
     routerHandlerId: "executor_contract",
     directoryOrder: 40,
@@ -59,7 +59,7 @@ const CAPABILITY_PRESETS = Object.freeze({
   }),
   [AGENT_ROLE.AGENT]: Object.freeze({
     tools: Object.freeze(["read", "write", "edit"]),
-    outputFormats: Object.freeze(["markdown", "contract-result-json", "system-action-json"]),
+    outputFormats: Object.freeze(["markdown", "runtime-result-json", "system-action-json"]),
     outboxCommitKinds: Object.freeze([]),
     routerHandlerId: null,
     directoryOrder: 60,

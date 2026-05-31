@@ -1,8 +1,8 @@
-// hooks/agent-end.js — thin hook shell; stage pipeline lives in lib/agent-end-pipeline.js
+// hooks/agent-end.js — thin hook shell; stage lifecycle lives in lib/agent-end-lifecycle.js
 
 import {
-  runAgentEndPipeline,
-} from "../lib/lifecycle/agent-end-pipeline.js";
+  runAgentEndLifecycle,
+} from "../lib/lifecycle/agent-end-lifecycle.js";
 import {
   clearProtocolCommitReconcile,
   flushProtocolCommitDeferredRelease,
@@ -28,7 +28,7 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     unignoreHeartbeatSession(sessionKey);
     clearProtocolCommitReconcile(sessionKey);
 
-    await runAgentEndPipeline({
+    await runAgentEndLifecycle({
       event,
       ctx,
       api,

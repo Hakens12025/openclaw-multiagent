@@ -1,15 +1,12 @@
 import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
 import { buildScheduleTriggerCommandMessage } from "./schedule-trigger.js";
-import {
-  CONTROL_PLANE_DIR,
-  OC,
-  SCHEDULE_MATERIALIZER_STORE,
-  atomicWriteFile,
-  cfg,
-  withLock,
-} from "../state.js";
+import { atomicWriteFile, cfg, OC, withLock } from "../state.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
+
+export const SCHEDULE_MATERIALIZER_STORE = CONTROL_PLANE_PATHS.scheduleMaterializerFile;
 
 const CRON_COMMAND_TIMEOUT_MS = 20_000;
 const SCHEDULE_MATERIALIZER_STORE_LOCK = "store:schedule-materializer";
@@ -63,7 +60,7 @@ async function writeMaterializerStore(entries) {
       .map((entry) => normalizeMaterializationEntry(entry))
       .filter(Boolean),
   );
-  await mkdir(CONTROL_PLANE_DIR, { recursive: true });
+  await mkdir(dirname(SCHEDULE_MATERIALIZER_STORE), { recursive: true });
   await atomicWriteFile(SCHEDULE_MATERIALIZER_STORE, JSON.stringify({
     updatedAt: Date.now(),
     entries: normalized,
@@ -177,6 +174,7 @@ function buildEditArgs(scheduleSpec, jobId) {
     "edit",
     normalizedJobId,
     ...buildGatewayCliArgs(),
+    "--json",
     "--name",
     buildScheduleCronJobName(scheduleSpec),
     "--cron",

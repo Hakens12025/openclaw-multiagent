@@ -3,8 +3,10 @@
 
 import { readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { CONVERSATIONS_DIR, atomicWriteFile, withLock } from "./state.js";
+import { atomicWriteFile, withLock } from "./state.js";
+import { CONTROL_PLANE_PATHS } from "./control-plane/control-plane-paths.js";
 
+const CONVERSATIONS_DIR = CONTROL_PLANE_PATHS.conversationsDir;
 const MAX_RECENT_ROUNDS = 3;
 
 export function buildConversationId(replyTo) {

@@ -1,9 +1,18 @@
 // dashboard-common.js — Shared utilities: esc, shortModel, getToken, toast
 
 export function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = String(s ?? '');
-  return d.innerHTML;
+  const str = String(s ?? '');
+  if (typeof document !== 'undefined') {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+  return str
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 export function shortModel(m) {

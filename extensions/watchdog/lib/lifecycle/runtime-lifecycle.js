@@ -10,12 +10,14 @@ import {
 import {
   deleteTrackingSession,
 } from "../store/tracker-store.js";
+import { clearSession as clearLoopDetectionSession } from "../loop/loop-detection.js";
+import { resolveLoopEpochKey } from "../loop/loop-epoch-key.js";
 import { refreshTrackingProjection } from "../stage-projection.js";
 import { recordTaskHistory } from "../store/task-history-store.js";
 import { onAgentDone as dispatchGraphPolicyOnAgentDone } from "../routing/dispatch-graph-policy.js";
 import { syncTrackingRuntimeStageProgress } from "../runtime-stage-progress.js";
 import { AGENT_ROLE, getAgentRole } from "../agent/agent-identity.js";
-import { qqTypingStop } from "../qq.js";
+import { qqTypingStop } from "../channel-notify.js";
 
 export const SESSION_FINALIZE_MODE = Object.freeze({
   TERMINAL: "terminal",
@@ -51,17 +53,6 @@ export async function finalizeAgentSession({
     }
   }
 
-  // Dispatch graph policy: unified queue drain for all agents (sole dispatch authority)
-  if (mode !== SESSION_FINALIZE_MODE.SYNTHETIC_COMPLETION) {
-    try {
-      await dispatchGraphPolicyOnAgentDone(agentId, api, logger, {
-        retainBusy: retainAgentReservation,
-      });
-    } catch (e) {
-      logger?.warn?.(`[lifecycle] dispatch-graph-policy cleanup failed for ${agentId}: ${e?.message}`);
-    }
-  }
-
   if (trackingState) {
     await syncTrackingRuntimeStageProgress(trackingState, {
       currentSessionBoundary: true,
@@ -76,10 +67,24 @@ export async function finalizeAgentSession({
 
       // Immediate cleanup — session 设计用确定性 sessionKey，不需要延迟保活
       deleteTrackingSession(sessionKey);
+      clearLoopDetectionSession(resolveLoopEpochKey(trackingState) || sessionKey);
       trackerRemoved = true;
     }
 
     await persistState(logger);
+  }
+
+  // Queue drain must observe the finalized tracker state. If the next queued
+  // contract is staged while the ending session still exists, exact staging is
+  // blocked by the old bound tracker and the queue enters claim-timeout retry.
+  if (mode !== SESSION_FINALIZE_MODE.SYNTHETIC_COMPLETION) {
+    try {
+      await dispatchGraphPolicyOnAgentDone(agentId, api, logger, {
+        retainBusy: retainAgentReservation,
+      });
+    } catch (e) {
+      logger?.warn?.(`[lifecycle] dispatch-graph-policy cleanup failed for ${agentId}: ${e?.message}`);
+    }
   }
 
   return {

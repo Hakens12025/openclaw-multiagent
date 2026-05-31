@@ -2,6 +2,8 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
+
 import {
   appendExecutionRecord,
   makeExecutionId,
@@ -34,7 +36,8 @@ import {
   normalizeAdminSurfacePayload,
 } from "./admin-surface-registry.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
-import { ADMIN_CHANGE_SET_DIR } from "../state-paths.js";
+
+const ADMIN_CHANGE_SET_DIR = CONTROL_PLANE_PATHS.adminChangeSetsDir;
 
 function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -208,7 +211,9 @@ export async function listAdminChangeSets() {
     try {
       const raw = await readFile(join(ADMIN_CHANGE_SET_DIR, file), "utf8");
       drafts.push(decorateDraft(JSON.parse(raw)));
-    } catch {}
+    } catch (err) {
+      console.warn(`[admin-change-sets] skipped corrupt change-set file: ${file} — ${err.message}`);
+    }
   }
   drafts.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   return drafts.map(summarizeDraft);

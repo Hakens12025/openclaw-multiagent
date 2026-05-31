@@ -60,14 +60,14 @@ export function resolveStageArtifactEvidence(stageResult) {
     || primary?.path
     || null;
   if (!path) {
-    return { present: false, path: null, source: "stage_result" };
+    return { present: false, path: null, source: "runtime_result" };
   }
   return {
     present: true,
     path,
     label: primary?.label || null,
     type: primary?.type || null,
-    source: "stage_result",
+    source: "runtime_result",
   };
 }
 

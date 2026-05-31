@@ -1,7 +1,7 @@
 import {
   materializeTaskStageTruth,
-  deriveCompatibilityPhases,
-  deriveCompatibilityTotal,
+  deriveDisplayPhases,
+  deriveDisplayTotal,
 } from "./task-stage-plan.js";
 
 export function buildLifecycleStageTruth(contract) {
@@ -24,7 +24,7 @@ export function buildLifecycleStageTruth(contract) {
   return {
     stagePlan,
     stageRuntime: truth.stageRuntime,
-    phases: deriveCompatibilityPhases(stagePlan),
-    total: deriveCompatibilityTotal(stagePlan),
+    phases: deriveDisplayPhases(stagePlan),
+    total: deriveDisplayTotal(stagePlan),
   };
 }

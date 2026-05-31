@@ -13,7 +13,7 @@
 ```
 
 启动命令：`bash ~/.openclaw/start.sh`（SSH 隧道 + Gateway 一键启动）
-手动前台：`openclaw gateway run`
+手动运行：`openclaw gateway run`
 
 Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>`
 

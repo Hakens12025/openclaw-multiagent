@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { OC, agentWorkspace, runtimeAgentConfigs } from "../lib/state.js";
+import { composeAgentBinding } from "../lib/effective-profile-composer.js";
 
 function clearRuntimeConfigs() {
   runtimeAgentConfigs.clear();
@@ -54,4 +55,26 @@ test("agentWorkspace ignores workspace-* aliases and keeps canonical workspaces 
     clearRuntimeConfigs();
     await rm(aliasedWorkspace, { recursive: true, force: true }).catch(() => {});
   }
+});
+
+test("profile composition uses the same default workspace overrides as runtime workspace resolution", () => {
+  clearRuntimeConfigs();
+
+  const controllerBinding = composeAgentBinding({
+    config: { agents: { list: [] } },
+    agentConfig: {
+      id: "controller",
+      role: "bridge",
+    },
+  });
+  const operatorBinding = composeAgentBinding({
+    config: { agents: { list: [] } },
+    agentConfig: {
+      id: "operator",
+      role: "agent",
+    },
+  });
+
+  assert.equal(controllerBinding.workspace.effective, agentWorkspace("controller"));
+  assert.equal(operatorBinding.workspace.effective, agentWorkspace("operator"));
 });

@@ -121,12 +121,12 @@ test("buildReviewerResult normalizes findings with artifactRef and confidence", 
       severity: "error",
       message: "variable undefined",
       evidence: "line 42: foo is not defined",
-      artifactRef: "stage_result.json",
+      artifactRef: "runtime_result.json",
       confidence: 0.95,
     }],
   });
   const finding = result.findings[0];
-  assert.equal(finding.artifactRef, "stage_result.json");
+  assert.equal(finding.artifactRef, "runtime_result.json");
   assert.equal(finding.confidence, 0.95);
 });
 

@@ -1,23 +1,26 @@
 import {
-  addEdge,
-  composeLoop,
   detectCycles,
   hasDirectedEdge,
   loadGraph,
-  removeEdge,
 } from "../agent/agent-graph.js";
+import {
+  addEdge,
+  composeLoop,
+  removeEdge,
+} from "../agent/agent-graph-mutations.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import {
   composeLoopSpecFromAgents,
   listResolvedGraphLoops,
+  removeGraphLoopSpec,
   resolveGraphLoopSpec,
   upsertGraphLoopSpec,
 } from "../loop/graph-loop-registry.js";
 import { listResolvedLoopSessions } from "../loop/loop-session-store.js";
 import { listAgentRegistry } from "../capability/capability-registry.js";
 import { normalizeString } from "../core/normalize.js";
-import { resolveLoopTargetId } from "./admin-surface-loop-operations.js";
 import { syncAllRuntimeWorkspaceGuidance } from "../workspace-guidance-writer.js";
+import { resolveLoopTargetId } from "./admin-surface-loop-operations.js";
 
 function parseOrderedAgentIds(value) {
   const values = Array.isArray(value)
@@ -102,7 +105,6 @@ export async function mutateGraphEdge({
   const graph = mode === "add"
     ? await addEdge(from, to, {
       label: payload.label,
-      gates: payload.gates,
       metadata: payload.metadata,
     })
     : await removeEdge(from, to);
@@ -177,6 +179,11 @@ export async function composeGraphLoop({
   const loopSpec = await upsertGraphLoopSpec(composeLoopSpecFromAgents(agentIds, {
     loopId: payload.loopId,
     label: payload.label,
+    entryAgentId: payload.entryAgentId,
+    continueSignal: payload.continueSignal,
+    concludeSignal: payload.concludeSignal,
+    maxRounds: payload.maxRounds,
+    maxExperiments: payload.maxExperiments,
     metadata: {
       ...(payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {}),
       sourceSurfaceId: "graph.loop.compose",
@@ -212,6 +219,40 @@ export async function composeGraphLoop({
     loops,
     cycles,
   };
+}
+
+export async function deleteGraphLoop({
+  payload,
+  logger,
+  onAlert,
+  runtimeContext,
+}) {
+  const loopId = normalizeString(payload.loopId);
+  if (!loopId) {
+    throw new Error("graph.loop.delete requires loopId");
+  }
+  // De-register the LoopSpec (it is no longer a driven loop). Authorization edges remain —
+  // remove them separately via graph.edge.delete if desired. Reversible by graph.loop.compose.
+  const result = await removeGraphLoopSpec(loopId);
+  const graph = await loadGraph();
+  const loops = await listResolvedGraphLoops({ graph });
+  const cycles = detectCycles(graph);
+  if (result.removed === 0) {
+    return { ok: false, error: `loop not found: ${loopId}`, loopId, loops, cycles };
+  }
+  if (runtimeContext?.api?.config) {
+    await syncAllRuntimeWorkspaceGuidance(runtimeContext.api.config, logger);
+  }
+  logger?.info?.(`[watchdog] graph loop deleted: ${loopId}`);
+  onAlert?.({
+    type: EVENT_TYPE.GRAPH_UPDATED,
+    action: "loop_deleted",
+    loopId,
+    loops,
+    cycles,
+    ts: Date.now(),
+  });
+  return { ok: true, loopId, removed: result.removed, loops, cycles, graph };
 }
 
 export async function repairGraphLoop({

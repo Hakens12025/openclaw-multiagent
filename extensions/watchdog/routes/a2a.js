@@ -7,6 +7,39 @@ import {
 } from "../lib/contracts.js";
 import { dispatchAcceptIngressMessage } from "../lib/ingress/dispatch-entry.js";
 import { loadCapabilityRegistry } from "../lib/capability/capability-registry.js";
+import {
+  PENDING_SIGNAL_KINDS,
+  registerPendingSignal,
+  clearPendingSignal,
+} from "../lib/runtime/pending-signal-registry.js";
+import { buildGatewayReplyTarget } from "../lib/agent/agent-identity.js";
+
+function resolveA2AIngressKind(source) {
+  if (source === "qqbot" || source === "qq") {
+    return PENDING_SIGNAL_KINDS.CHANNEL_INGRESS_QQ;
+  }
+  if (source === "test" || source === "test_inject") {
+    return PENDING_SIGNAL_KINDS.CHANNEL_INGRESS_TEST_INJECT;
+  }
+  return PENDING_SIGNAL_KINDS.CHANNEL_INGRESS_WEBUI;
+}
+
+function resolveA2ASignalAgentId(source) {
+  const gatewaySource = source === "qqbot" || source === "qq" ? "qq" : "webui";
+  return buildGatewayReplyTarget(gatewaySource)?.agentId || null;
+}
+
+export function formatA2ATaskSendResponse(result, createdAt = Date.now()) {
+  const contractId = typeof result?.contractId === "string" && result.contractId.trim()
+    ? result.contractId.trim()
+    : null;
+  return {
+    id: contractId,
+    status: result?.ok === false ? "failed" : "submitted",
+    createdAt,
+    _links: contractId ? { self: `/a2a/tasks/${contractId}` } : {},
+  };
+}
 
 export function register(api, logger, { enqueueFn, wakePlanner }) {
 
@@ -41,7 +74,7 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     handler: async (req, res) => {
       const authHeader = req.headers["authorization"] || "";
       const token = authHeader.replace(/^Bearer\s+/i, "");
-      if (cfg.hooksToken && token !== cfg.hooksToken) {
+      if (cfg.gatewayToken && token !== cfg.gatewayToken) {
         res.writeHead(401, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Unauthorized" })); return true;
       }
       let body = "";
@@ -55,21 +88,30 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
         res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "message required (min 2 chars)" })); return true;
       }
 
-      const result = await dispatchAcceptIngressMessage(message, {
-        source: "a2a",
-        replyTo: payload.replyTo,
-        ingressDirective: payload,
-        api, enqueue: enqueueFn, wakePlanner, logger,
-      });
+      const source = typeof payload.source === "string" ? payload.source : "a2a";
+      const ingressKind = resolveA2AIngressKind(source);
+      const signalAgentId = resolveA2ASignalAgentId(source);
+      const signalRef = `${source}:${signalAgentId || "none"}:${Date.now()}`;
+      if (signalAgentId) {
+        registerPendingSignal({ agentId: signalAgentId, sourceKind: ingressKind, sourceRef: signalRef });
+      }
+      let result;
+      try {
+        result = await dispatchAcceptIngressMessage(message, {
+          source,
+          replyTo: payload.replyTo,
+          ingressDirective: payload,
+          api, enqueue: enqueueFn, wakePlanner, logger,
+        });
+      } finally {
+        if (signalAgentId) {
+          clearPendingSignal({ agentId: signalAgentId, sourceKind: ingressKind, sourceRef: signalRef });
+        }
+      }
 
-      logger.info(`[a2a] task created via A2A: ${result.contractId || "research"}`);
+      logger.info(`[a2a] task submitted via A2A: ${result.contractId || "no-contract"}`);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        id: result.contractId || "research",
-        status: result.contractId ? "submitted" : "accepted",
-        createdAt: Date.now(),
-        _links: result.contractId ? { self: `/a2a/tasks/${result.contractId}` } : {},
-      }));
+      res.end(JSON.stringify(formatA2ATaskSendResponse(result)));
       return true;
     },
   });
@@ -102,7 +144,6 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
         id: contract.id, status: STATUS_MAP[contract.status] || contract.status,
         task: contract.task, phases: contract.phases,
         createdAt: contract.createdAt, updatedAt: contract.updatedAt || null,
-        ...(contract.clarification ? { clarification: contract.clarification } : {}),
         ...(artifact ? { artifacts: [artifact] } : {}),
       }, null, 2));
       return true;

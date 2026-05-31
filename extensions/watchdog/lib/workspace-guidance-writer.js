@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { AGENT_ROLE, normalizeAgentRole } from "./agent/agent-identity.js";
+import { composeEffectiveProfile } from "./effective-profile-composer.js";
 import { loadGraph } from "./agent/agent-graph.js";
 import { composeAgentCardProjection } from "./agent/agent-card-composer.js";
 import { composeEffectiveSkillRefs } from "./agent/agent-binding-policy.js";
@@ -12,10 +13,6 @@ import {
   MANAGED_BOOTSTRAP_MARKER,
   normalizeManagedDocContent,
   buildSoulTemplate,
-  isLegacyExecutorSoulContent,
-  isLegacyPlannerSoulContent,
-  isLegacyResearcherSoulContent,
-  isLegacyReviewerSoulContent,
 } from "./soul-template-builder.js";
 import {
   buildHeartbeatTemplate,
@@ -25,6 +22,7 @@ import {
   buildDeliveryTemplate,
   buildPlatformGuideTemplate,
 } from "./platform-doc-builder.js";
+import { MANAGED_GUIDANCE_FILE_NAMES } from "./agent/managed-guidance-files.js";
 
 export function buildAgentCard({ agentId, role, skills }) {
   return composeAgentCardProjection({ agentId, role, skills });
@@ -70,15 +68,14 @@ async function writeSoulFile(filePath, content, {
   role,
   force = false,
 } = {}) {
+  void role;
   const normalizedContent = normalizeManagedDocContent(content);
   if (!force) {
     try {
       const existing = normalizeManagedDocContent(await readFile(filePath, "utf8"));
-      const canUpdate = existing.includes(MANAGED_BOOTSTRAP_MARKER)
-        || (role === AGENT_ROLE.PLANNER && isLegacyPlannerSoulContent(existing))
-        || (role === AGENT_ROLE.EXECUTOR && isLegacyExecutorSoulContent(existing))
-        || (role === AGENT_ROLE.RESEARCHER && isLegacyResearcherSoulContent(existing))
-        || (role === AGENT_ROLE.REVIEWER && isLegacyReviewerSoulContent(existing));
+      // Startup sync only updates marker-managed docs. Non-marker custom or
+      // legacy content must go through explicit takeover (which force-writes).
+      const canUpdate = existing.includes(MANAGED_BOOTSTRAP_MARKER);
       if (!canUpdate) {
         return false;
       }
@@ -93,16 +90,50 @@ async function writeSoulFile(filePath, content, {
   return true;
 }
 
-const MANAGED_GUIDANCE_FILE_NAMES = Object.freeze([
-  "SOUL.md",
-  "AGENTS.md",
-  "BUILDING-MAP.md",
-  "COLLABORATION-GRAPH.md",
-  "DELIVERY.md",
-  "PLATFORM-GUIDE.md",
-  "HEARTBEAT.md",
-]);
 const LEGACY_DELIVERY_GUIDANCE_FILE = ["RUNTIME", "RETURN.md"].join("-");
+const DEFAULT_OPENCLAW_SCAFFOLD_SIGNATURES = Object.freeze({
+  "AGENTS.md": Object.freeze([
+    "# AGENTS.md - Your Workspace",
+    "This folder is home. Treat it that way.",
+  ]),
+  "BOOTSTRAP.md": Object.freeze([
+    "# BOOTSTRAP.md - Hello, World",
+  ]),
+  "IDENTITY.md": Object.freeze([
+    "# IDENTITY.md - Who Am I?",
+  ]),
+  "USER.md": Object.freeze([
+    "# USER.md - About Your Human",
+  ]),
+  "TOOLS.md": Object.freeze([
+    "# TOOLS.md - Local Notes",
+  ]),
+});
+
+function isDefaultOpenClawScaffoldFile(fileName, content) {
+  const signatures = DEFAULT_OPENCLAW_SCAFFOLD_SIGNATURES[fileName];
+  if (!signatures) {
+    return false;
+  }
+  const normalized = normalizeManagedDocContent(content);
+  return signatures.every((signature) => normalized.includes(signature));
+}
+
+async function removeWorkspaceFileIf(filePath, predicate) {
+  try {
+    const existing = normalizeManagedDocContent(await readFile(filePath, "utf8"));
+    if (!predicate(existing)) {
+      return false;
+    }
+    await unlink(filePath);
+    return true;
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+    return false;
+  }
+}
 
 export async function syncAgentWorkspaceGuidance({
   agentId,
@@ -131,6 +162,16 @@ export async function syncAgentWorkspaceGuidance({
     AGENT_ROLE.EXECUTOR, AGENT_ROLE.RESEARCHER, AGENT_ROLE.REVIEWER, AGENT_ROLE.PLANNER,
   ]);
   const isExecutionLayer = EXECUTION_LAYER_ROLES.has(role);
+
+  for (const fileName of ["BOOTSTRAP.md", "IDENTITY.md", "USER.md", "TOOLS.md"]) {
+    await removeWorkspaceFileIf(join(workspaceDir, fileName), (content) => isDefaultOpenClawScaffoldFile(fileName, content));
+  }
+  if (!isExecutionLayer) {
+    await removeWorkspaceFileIf(
+      join(workspaceDir, "AGENTS.md"),
+      (content) => isDefaultOpenClawScaffoldFile("AGENTS.md", content),
+    );
+  }
 
   const soulUpdated = await writeSoulFile(
     join(workspaceDir, "SOUL.md"),
@@ -182,13 +223,10 @@ export async function syncAgentWorkspaceGuidance({
   if (isExecutionLayer) {
     const EXECUTION_LAYER_CLEANUP = ["AGENTS.md", "BUILDING-MAP.md", "COLLABORATION-GRAPH.md", "DELIVERY.md", "PLATFORM-GUIDE.md"];
     for (const fileName of EXECUTION_LAYER_CLEANUP) {
-      try {
-        const filePath = join(workspaceDir, fileName);
-        const content = await readFile(filePath, "utf8");
-        if (content.includes(MANAGED_BOOTSTRAP_MARKER)) {
-            await unlink(filePath);
-        }
-      } catch {}
+      await removeWorkspaceFileIf(join(workspaceDir, fileName), (content) => (
+        content.includes(MANAGED_BOOTSTRAP_MARKER)
+        || isDefaultOpenClawScaffoldFile(fileName, content)
+      ));
     }
   }
 
@@ -211,6 +249,17 @@ export async function syncAllRuntimeWorkspaceGuidance(config, logger) {
   const agentEntries = agents.map((agent) => {
     const agentId = typeof agent?.id === "string" ? agent.id.trim() : "";
     if (!agentId) return null;
+    const profile = composeEffectiveProfile({
+      config,
+      agentConfig: agent,
+    });
+    if (
+      profile?.plane !== "runtime"
+      || profile?.autoWakeEligible !== true
+      || profile?.mainViewVisible !== true
+    ) {
+      return null;
+    }
     const storedBinding = readStoredAgentBinding(agent);
     const role = normalizeAgentRole(storedBinding.roleRef, agentId);
     const skills = composeEffectiveSkillRefs({
@@ -222,6 +271,7 @@ export async function syncAllRuntimeWorkspaceGuidance(config, logger) {
       id: agentId,
       role,
       skills,
+      workspaceDir: profile.workspace || null,
       gateway: agent.gateway === true,
       ingressSource: typeof agent.ingressSource === "string" ? agent.ingressSource : null,
       specialized: agent.specialized === true,
@@ -230,7 +280,7 @@ export async function syncAllRuntimeWorkspaceGuidance(config, logger) {
 
   for (const entry of agentEntries) {
     try {
-      const workspaceDir = agentWorkspace(entry.id);
+      const workspaceDir = entry.workspaceDir || agentWorkspace(entry.id);
       await syncAgentWorkspaceGuidance({
         agentId: entry.id,
         role: entry.role,

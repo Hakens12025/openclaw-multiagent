@@ -3,6 +3,18 @@ import { basename } from "node:path";
 import { getToolLabel } from "./state.js";
 import { classifyRuntimeActivityKind } from "./runtime-activity.js";
 
+const LOOP_HARD_STOP_PATTERN = /\[LOOP DETECTED\]/u;
+const PATH_GUARD_PATTERNS = [
+  /EISDIR/u,
+  /ENOTDIR/u,
+  /ENOENT/u,
+  /permission denied/i,
+  /not a file/i,
+  /is a directory/i,
+  /路径/u,
+  /目录/u,
+];
+
 function normalizeToolName(toolName) {
   return typeof toolName === "string" && toolName.trim()
     ? toolName.trim()
@@ -11,6 +23,34 @@ function normalizeToolName(toolName) {
 
 function normalizeParams(params) {
   return params && typeof params === "object" ? params : {};
+}
+
+function normalizeErrorMessage(error) {
+  if (!error) return "";
+  if (typeof error === "string") return error.trim();
+  if (error instanceof Error) return error.message || "";
+  if (typeof error === "object") {
+    return String(
+      error.message
+      || error.error
+      || error.blockReason
+      || error.reason
+      || "",
+    ).trim();
+  }
+  return String(error || "").trim();
+}
+
+export function classifyToolError(error) {
+  const message = normalizeErrorMessage(error);
+  if (!message) return null;
+  if (LOOP_HARD_STOP_PATTERN.test(message)) {
+    return "loop_hard_stop_block";
+  }
+  if (PATH_GUARD_PATTERNS.some((pattern) => pattern.test(message))) {
+    return "model_tool_args_invalid";
+  }
+  return "tool_failure";
 }
 
 function truncateText(value, limit = 80) {
@@ -161,6 +201,8 @@ export function buildToolTimelineEvent({
   const normalizedToolName = normalizeToolName(toolName);
   const normalizedParams = normalizeParams(params);
   const label = getToolLabel(normalizedToolName, normalizedParams);
+  const errorMessage = normalizeErrorMessage(error);
+  const errorClass = classifyToolError(error);
 
   return {
     index: Number.isFinite(index) ? Math.max(1, Math.trunc(index)) : 1,
@@ -175,9 +217,37 @@ export function buildToolTimelineEvent({
       label,
     }),
     status: error ? "error" : "ok",
+    ...(errorClass ? { errorClass } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
     durationMs: Number.isFinite(durationMs) ? Math.max(0, Math.trunc(durationMs)) : null,
     runId: typeof runId === "string" && runId.trim() ? runId.trim() : null,
     toolCallId: typeof toolCallId === "string" && toolCallId.trim() ? toolCallId.trim() : null,
     ts: Number.isFinite(observedAt) ? observedAt : Date.now(),
   };
+}
+
+function canCollapseTimelineEvent(previousEvent, nextEvent) {
+  return previousEvent?.errorClass === "loop_hard_stop_block"
+    && nextEvent?.errorClass === "loop_hard_stop_block"
+    && previousEvent.tool === nextEvent.tool
+    && previousEvent.label === nextEvent.label;
+}
+
+export function appendToolTimelineEvent(events, event, {
+  maxEvents = Infinity,
+} = {}) {
+  if (!Array.isArray(events) || !event || typeof event !== "object") {
+    return false;
+  }
+  const previous = events[events.length - 1] || null;
+  if (canCollapseTimelineEvent(previous, event)) {
+    previous.repeatCount = Number(previous.repeatCount || 1) + 1;
+    previous.lastTs = event.ts;
+    previous.index = event.index;
+    previous.summary = `${previous.summary.replace(/\s+x\d+$/u, "")} x${previous.repeatCount}`;
+    return true;
+  }
+  if (events.length >= maxEvents) events.shift();
+  events.push(event);
+  return true;
 }

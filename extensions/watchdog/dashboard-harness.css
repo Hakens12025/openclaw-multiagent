@@ -53,10 +53,6 @@
   .harness-box-title,
   .harness-card-meta,
   .harness-chip,
-  .harness-legend-copy strong,
-  .harness-legend-copy span,
-  .harness-stage-head,
-  .harness-stage-lane-label,
   .harness-kv span,
   .harness-placeholder-title {
     font-family: "Courier New", monospace;
@@ -82,7 +78,6 @@
   }
   .harness-focus-card,
   .harness-box,
-  .harness-stage,
   .harness-placeholder {
     border: 1px solid var(--border-secondary);
     background: rgba(255, 249, 236, 0.84);
@@ -183,13 +178,13 @@
     min-width: 0;
   }
   .harness-lane-fill.hardShaped {
-    background: linear-gradient(90deg, #c87533, #df9a5e);
+    background: var(--accent-orange);
   }
   .harness-lane-fill.softGuided {
-    background: linear-gradient(90deg, #2e5fa8, #4f7dc2);
+    background: var(--accent-blue);
   }
   .harness-lane-fill.freeform {
-    background: linear-gradient(90deg, #8b7355, #b39b80);
+    background: var(--border-primary);
   }
   .harness-lane-breakdown {
     display: grid;
@@ -261,17 +256,6 @@
     border-color: rgba(139,115,85,0.34);
     color: var(--text-secondary);
   }
-  .harness-grid {
-    display: grid;
-    gap: 12px;
-  }
-  .harness-grid.atlas {
-    grid-template-columns: minmax(220px, 250px) minmax(360px, 1.05fr) minmax(320px, 0.95fr);
-  }
-  .harness-grid.runs,
-  .harness-grid.placement {
-    grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
-  }
   .harness-box {
     min-height: 240px;
     padding: 12px;
@@ -307,17 +291,7 @@
     margin-bottom: 10px;
     text-transform: none;
   }
-  .harness-list {
-    display: grid;
-    gap: 8px;
-  }
-  .harness-list.scroll {
-    max-height: 960px;
-    overflow: auto;
-    padding-right: 2px;
-  }
-  .harness-card,
-  .harness-stage-item {
+  .harness-card {
     border: 1px solid rgba(139,115,85,0.16);
     background: rgba(255,255,255,0.54);
     padding: 10px 12px;
@@ -359,8 +333,6 @@
   }
   .harness-card-text,
   .harness-empty,
-  .harness-legend-copy,
-  .harness-stage-item-summary,
   .harness-placeholder-copy {
     color: var(--text-secondary);
     font-size: 12px;
@@ -378,104 +350,10 @@
     gap: 6px;
     margin-top: 8px;
   }
-  .harness-legend {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .harness-legend-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    border: 1px solid rgba(139,115,85,0.16);
-    background: rgba(255,255,255,0.52);
-    padding: 10px 12px;
-  }
-  .harness-legend-swatch {
-    width: 12px;
-    height: 12px;
-    margin-top: 4px;
-    flex: 0 0 auto;
-  }
-  .harness-legend-swatch.hardShaped {
-    background: var(--accent-orange);
-  }
-  .harness-legend-swatch.softGuided {
-    background: var(--accent-blue);
-  }
-  .harness-legend-swatch.freeform {
-    background: var(--border-primary);
-  }
-  .harness-legend-copy strong {
-    display: block;
-    color: var(--text-primary);
-    font-size: 10px;
-    margin-bottom: 3px;
-  }
-  .harness-legend-copy span {
-    display: block;
-    color: var(--text-secondary);
-    font-size: 10px;
-    text-transform: none;
-    letter-spacing: 0.04em;
-  }
-  .harness-stage-board {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-  .harness-placement-detail {
-    display: grid;
-    gap: 12px;
-  }
-  .harness-runs-track {
-    position: relative;
-    display: grid;
-    gap: 12px;
-    margin-top: 4px;
-    padding-left: 28px;
-  }
-  .harness-runs-track::before {
-    content: "";
-    position: absolute;
-    left: 8px;
-    top: 6px;
-    bottom: 6px;
-    width: 1px;
-    background: linear-gradient(180deg, rgba(200,117,51,0.35), rgba(139,115,85,0.14));
-  }
   .harness-run-card {
-    position: relative;
     border: 1px solid rgba(139,115,85,0.16);
     background: rgba(255,255,255,0.6);
-    padding: 14px 14px 14px 16px;
-  }
-  .harness-run-card::before {
-    content: "";
-    position: absolute;
-    left: -27px;
-    top: 18px;
-    width: 13px;
-    height: 13px;
-    border-radius: 999px;
-    background: var(--border-primary);
-    border: 2px solid rgba(255,255,255,0.88);
-    box-shadow: 0 0 0 1px rgba(139,115,85,0.24);
-  }
-  .harness-run-card.status-running::before {
-    background: var(--accent-blue);
-  }
-  .harness-run-card.status-completed::before,
-  .harness-run-card.status-passed::before {
-    background: var(--accent-green);
-  }
-  .harness-run-card.status-failed::before,
-  .harness-run-card.status-error::before {
-    background: var(--accent-red);
-  }
-  .harness-run-card.status-pending::before {
-    background: var(--accent-orange);
+    padding: 14px;
   }
   .harness-run-card.status-failed,
   .harness-run-card.status-error {
@@ -529,74 +407,6 @@
     line-height: 1.65;
     word-break: break-word;
     font-weight: 500;
-  }
-  .harness-stage {
-    padding: 12px;
-    min-height: 180px;
-  }
-  .harness-stage-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    color: var(--text-primary);
-    font-size: 11px;
-  }
-  .harness-stage-head strong {
-    color: var(--accent-orange);
-    font-size: 12px;
-  }
-  .harness-stage-lane {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(139,115,85,0.16);
-  }
-  .harness-stage-lane:first-of-type {
-    margin-top: 12px;
-  }
-  .harness-stage-lane-label {
-    color: var(--text-muted);
-    font-size: 10px;
-  }
-  .harness-stage-items {
-    display: grid;
-    gap: 6px;
-    margin-top: 8px;
-  }
-  .harness-stage-item {
-    border-left: 3px solid var(--border-secondary);
-  }
-  .harness-stage-item.lane-hardShaped {
-    border-left-color: var(--accent-orange);
-  }
-  .harness-stage-item.lane-softGuided {
-    border-left-color: var(--accent-blue);
-  }
-  .harness-stage-item.lane-freeform {
-    border-left-color: var(--border-primary);
-  }
-  .harness-stage-item.status-failed {
-    background: rgba(168,48,48,0.06);
-  }
-  .harness-stage-item.status-passed {
-    background: rgba(58,122,74,0.06);
-  }
-  .harness-stage-item.status-pending {
-    background: rgba(200,117,51,0.08);
-  }
-  .harness-stage-item-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .harness-stage-item-title {
-    color: var(--text-primary);
-    font-family: "Courier New", monospace;
-    font-size: 12px;
-  }
-  .harness-stage-item-summary {
-    margin-top: 6px;
   }
   .harness-placeholder {
     padding: 22px 20px;
@@ -661,11 +471,6 @@
     .harness-summary-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .harness-grid.atlas,
-    .harness-grid.runs,
-    .harness-grid.placement {
-      grid-template-columns: minmax(0, 1fr);
-    }
   }
 
   @media (max-width: 780px) {
@@ -677,18 +482,62 @@
     .harness-focus-grid,
     .harness-kv-grid,
     .harness-run-kv-grid,
-    .harness-lane-breakdown,
-    .harness-legend,
-    .harness-stage-board {
+    .harness-lane-breakdown {
       grid-template-columns: minmax(0, 1fr);
     }
-    .harness-runs-track {
-      padding-left: 18px;
-    }
-    .harness-runs-track::before {
-      left: 5px;
-    }
-    .harness-run-card::before {
-      left: -18px;
-    }
+  }
+
+  /* 合并视图(profile 为中心)：家族过滤条 + 左方案清单 + 右详情 */
+  .harness-fam-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 0;
+  }
+  .harness-fam-chip {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    padding: 4px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .harness-fam-chip:hover { background: var(--bg-primary); color: var(--text-primary); }
+  .harness-fam-chip.is-active {
+    border-color: var(--accent-orange);
+    color: var(--accent-orange);
+    background: var(--bg-primary);
+  }
+  .harness-merged {
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    gap: 16px;
+    margin-top: 14px;
+  }
+  .harness-merged-list {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-primary);
+    padding: 12px;
+    max-height: 72vh;
+    overflow: auto;
+  }
+  .harness-merged-detail {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-primary);
+    padding: 14px;
+    min-height: 300px;
+  }
+  .harness-run-list { display: grid; gap: 10px; }
+  .harness-empty-inline { color: var(--text-muted); font-size: 12px; }
+  @media (max-width: 980px) {
+    .harness-merged { grid-template-columns: 1fr; }
+    .harness-merged-list { max-height: 320px; }
   }

@@ -5,6 +5,7 @@ export {
   changeDefaultAgentSkills,
 } from "./agent-admin-default-operations.js";
 export {
+  changeAgentTools,
   changeAgentPrimaryModel,
   createAgentDefinition,
   deleteAgentDefinition,
@@ -17,7 +18,6 @@ export {
 export {
   changeAgentName,
   changeAgentDescription,
-  changeAgentCardTools,
   changeAgentCardFormats,
   changeAgentConstraints,
 } from "./agent-admin-card-operations.js";

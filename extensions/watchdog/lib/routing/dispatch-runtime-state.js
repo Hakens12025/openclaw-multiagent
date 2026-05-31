@@ -1,70 +1,60 @@
-import { access, readFile } from "node:fs/promises";
+// dispatch-runtime-state.js — dispatch runtime state operations (ops layer)
+//
+// Owns: state mutation primitives (sync, ensure, mark, claim, release,
+//       enqueue, dequeue, requeue, remove, reset, clear).
+//
+// Re-exports from sub-modules so all callers keep working unchanged:
+//   - dispatch-runtime-normalize.js  (pure normalization helpers)
+//   - dispatch-runtime-snapshot.js   (snapshot construction + SSE emit)
+//   - dispatch-runtime-persist.js    (persist / load)
+
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
+  dispatchOutgoingStateMap,
   dispatchTargetStateMap,
-  atomicWriteFile,
-  QUEUE_STATE_FILE,
   OC,
-  agentWorkspace,
 } from "../state.js";
 import {
-  AGENT_ROLE,
-  getRuntimeAgentConfig,
-  listRuntimeAgentIds,
   registerRuntimeAgents,
+  listRuntimeAgentIds,
 } from "../agent/agent-identity.js";
-import { broadcast } from "../transport/sse.js";
-import { EVENT_TYPE } from "../core/event-types.js";
 
-function createDispatchTargetState() {
-  return {
-    busy: false,
-    healthy: true,
-    dispatching: false,
-    lastSeen: Date.now(),
-    currentContract: null,
-    queue: [],
-    roundRobinCursor: 0,
-  };
-}
+import {
+  collectDispatchRuntimeTargetIds,
+  clearDispatchingQueueEntry,
+  ensureDispatchOutgoingState,
+  ensureDispatchTargetState,
+  isIdleDispatchState,
+  normalizeIncomingDispatchEntry,
+  normalizeOutgoingDispatchEntry,
+  removeOutgoingQueuedContract,
+  removeQueuedContract,
+} from "./dispatch-runtime-normalize.js";
+import {
+  buildDispatchRuntimeSnapshot,
+  emitDispatchRuntimeSnapshot,
+  summarizeDispatchContractFlow,
+} from "./dispatch-runtime-snapshot.js";
+import {
+  commitDispatchRuntimeState,
+} from "./dispatch-runtime-persist.js";
 
-let dispatchRuntimePersistChain = Promise.resolve();
+// Re-export everything callers use from sub-modules ──────────────────────────
+export { normalizeIncomingDispatchEntry } from "./dispatch-runtime-normalize.js";
+export {
+  summarizeDispatchContractFlow,
+  buildDispatchRuntimeSnapshot,
+  emitDispatchRuntimeSnapshot,
+} from "./dispatch-runtime-snapshot.js";
+export {
+  commitDispatchRuntimeState,
+  persistDispatchRuntimeState,
+  loadDispatchRuntimeState,
+} from "./dispatch-runtime-persist.js";
 
-function commitDispatchRuntimeState(logger = null) {
-  dispatchRuntimePersistChain = dispatchRuntimePersistChain
-    .catch(() => {})
-    .then(() => persistDispatchRuntimeState(logger));
-  return dispatchRuntimePersistChain;
-}
-
-function ensureDispatchTargetState(agentId) {
-  if (!dispatchTargetStateMap.has(agentId)) {
-    dispatchTargetStateMap.set(agentId, createDispatchTargetState());
-  }
-  const state = dispatchTargetStateMap.get(agentId);
-  if (!Array.isArray(state.queue)) {
-    state.queue = [];
-  }
-  if (!Number.isInteger(state.roundRobinCursor) || state.roundRobinCursor < 0) {
-    state.roundRobinCursor = 0;
-  }
-  return state;
-}
-
-function collectDispatchRuntimeTargetIds() {
-  const dispatchRoles = new Set([
-    AGENT_ROLE.PLANNER,
-    AGENT_ROLE.EXECUTOR,
-    AGENT_ROLE.RESEARCHER,
-    AGENT_ROLE.REVIEWER,
-    AGENT_ROLE.AGENT,
-  ]);
-  return listRuntimeAgentIds().filter((agentId) => {
-    const role = getRuntimeAgentConfig(agentId)?.role || null;
-    return dispatchRoles.has(role);
-  });
-}
+// ── Runtime agent hydration ──────────────────────────────────────────────────
 
 async function ensureRuntimeAgentsLoaded(logger) {
   if (listRuntimeAgentIds().length > 0) {
@@ -83,6 +73,12 @@ async function ensureRuntimeAgentsLoaded(logger) {
   }
 }
 
+// ── Public ops ───────────────────────────────────────────────────────────────
+
+export function listRuntimeDispatchTargetIds() {
+  return collectDispatchRuntimeTargetIds();
+}
+
 export async function ensureDispatchTargetAvailable(agentId, logger) {
   const normalizedAgentId = typeof agentId === "string" && agentId.trim()
     ? agentId.trim()
@@ -90,50 +86,15 @@ export async function ensureDispatchTargetAvailable(agentId, logger) {
   if (!normalizedAgentId) {
     return false;
   }
-  if (hasDispatchTarget(normalizedAgentId)) {
-    return true;
-  }
 
   await ensureRuntimeAgentsLoaded(logger);
-  if (hasDispatchTarget(normalizedAgentId)) {
-    return true;
-  }
-
-  try {
-    await access(agentWorkspace(normalizedAgentId));
+  if (collectDispatchRuntimeTargetIds().includes(normalizedAgentId)) {
     ensureDispatchTargetState(normalizedAgentId);
-    logger?.info?.(`[dispatch-state] dynamically registered workspace target ${normalizedAgentId}`);
+    logger?.info?.(`[dispatch-state] registered runtime roster target ${normalizedAgentId}`);
     return true;
-  } catch {
-    return false;
   }
-}
 
-function removeQueuedContract(state, contractId) {
-  if (!state || !Array.isArray(state.queue) || !contractId) return false;
-  const before = state.queue.length;
-  state.queue = state.queue.filter((entry) => {
-    if (typeof entry === "string") return entry !== contractId;
-    return entry?.contractId !== contractId;
-  });
-  return state.queue.length !== before;
-}
-
-function flattenQueuedContracts() {
-  const queue = [];
-  for (const [, state] of dispatchTargetStateMap.entries()) {
-    if (!Array.isArray(state?.queue)) continue;
-    for (const entry of state.queue) {
-      if (typeof entry === "string") {
-        queue.push(entry);
-        continue;
-      }
-      if (entry?.contractId) {
-        queue.push(entry.contractId);
-      }
-    }
-  }
-  return queue;
+  return false;
 }
 
 export async function syncDispatchTargets(targetIds, logger) {
@@ -144,7 +105,8 @@ export async function syncDispatchTargets(targetIds, logger) {
   }
 
   for (const [agentId, state] of [...dispatchTargetStateMap.entries()]) {
-    const hasQueuedWork = Array.isArray(state?.queue) && state.queue.length > 0;
+    const hasQueuedWork = Boolean(state?.dispatchingQueueEntry) || (Array.isArray(state?.queue) && state.queue.length > 0);
+    delete state.outgoingQueue;
     if (!targetSet.has(agentId) && !state?.busy && !state?.dispatching && !hasQueuedWork) {
       dispatchTargetStateMap.delete(agentId);
       logger?.info?.(`[dispatch-state] pruned idle target ${agentId}`);
@@ -157,36 +119,6 @@ export async function syncDispatchTargetsFromRuntime(logger) {
   const targets = collectDispatchRuntimeTargetIds();
   await syncDispatchTargets(targets, logger);
   logger?.info?.(`[dispatch-state] runtime targets: ${listDispatchTargetIds().join(", ") || "(none)"}`);
-}
-
-export function buildDispatchRuntimeSnapshot() {
-  const targets = {};
-  for (const [id, state] of dispatchTargetStateMap.entries()) {
-    targets[id] = {
-      busy: state.busy,
-      healthy: state.healthy,
-      dispatching: state.dispatching,
-      currentContract: state.currentContract,
-      lastSeen: state.lastSeen || null,
-      queue: Array.isArray(state.queue)
-        ? state.queue
-          .map((entry) => (typeof entry === "string" ? entry : entry?.contractId || null))
-          .filter(Boolean)
-        : [],
-    };
-  }
-  return {
-    targets,
-    queue: flattenQueuedContracts(),
-    ts: Date.now(),
-  };
-}
-
-export function emitDispatchRuntimeSnapshot() {
-  broadcast("alert", {
-    type: EVENT_TYPE.DISPATCH_RUNTIME_STATE,
-    ...buildDispatchRuntimeSnapshot(),
-  });
 }
 
 export function listDispatchTargetIds() {
@@ -213,6 +145,9 @@ export function getDispatchTargetCurrentContract(agentId) {
 export function markDispatchTargetDispatching(agentId, contractId) {
   const state = dispatchTargetStateMap.get(agentId);
   if (!state) return false;
+  if (state.busy === true || state.dispatching === true || state.currentContract) {
+    return false;
+  }
   state.dispatching = true;
   state.currentContract = contractId;
   state.lastSeen = Date.now();
@@ -233,8 +168,13 @@ export function rollbackDispatchTargetDispatch(agentId) {
 }
 
 export async function claimDispatchTargetContract({ contractId, agentId, logger }) {
+  if (!hasDispatchTarget(agentId)) {
+    logger?.warn?.(`[dispatch-state] refused claim for unknown target ${agentId}`);
+    return false;
+  }
   const state = ensureDispatchTargetState(agentId);
   removeQueuedContract(state, contractId);
+  clearDispatchingQueueEntry(state, contractId);
 
   state.busy = true;
   state.dispatching = false;
@@ -253,6 +193,7 @@ export async function releaseDispatchTargetContract({ agentId, logger }) {
   state.busy = false;
   state.dispatching = false;
   state.currentContract = null;
+  state.dispatchingQueueEntry = null;
   state.lastSeen = Date.now();
   logger?.info?.(`[dispatch-state] ${agentId} released`);
   emitDispatchRuntimeSnapshot();
@@ -282,6 +223,11 @@ export async function removeDispatchContract(contractId, logger = null) {
       removedFromQueues += 1;
       logger?.info?.(`[dispatch-state] removed queued ${normalized} from ${agentId}`);
     }
+    if (clearDispatchingQueueEntry(state, normalized)) {
+      removedFromQueues += 1;
+      logger?.info?.(`[dispatch-state] removed dispatching queue lease ${normalized} from ${agentId}`);
+    }
+    delete state.outgoingQueue;
     if (state?.currentContract !== normalized) {
       continue;
     }
@@ -311,6 +257,15 @@ export async function removeDispatchContract(contractId, logger = null) {
       logger?.info?.(`[dispatch-state] cleared idle current ${normalized} from ${agentId}`);
     }
   }
+  for (const [sourceAgentId, state] of dispatchOutgoingStateMap.entries()) {
+    if (removeOutgoingQueuedContract(state, normalized)) {
+      removedFromQueues += 1;
+      logger?.info?.(`[dispatch-state] removed outgoing queued ${normalized} from ${sourceAgentId}`);
+      if (isIdleDispatchState(state)) {
+        dispatchOutgoingStateMap.delete(sourceAgentId);
+      }
+    }
+  }
 
   const changed = removedFromQueues > 0
     || clearedDispatching > 0
@@ -337,7 +292,8 @@ export function enqueueDispatchContract(agentId, contractId, meta = {}, logger) 
   }
 
   const state = ensureDispatchTargetState(agentId);
-  const exists = state.queue.some((entry) => (
+  const existingLease = normalizeIncomingDispatchEntry(agentId, state.dispatchingQueueEntry);
+  const exists = existingLease?.contractId === normalized || state.queue.some((entry) => (
     typeof entry === "string" ? entry === normalized : entry?.contractId === normalized
   ));
   if (!exists) {
@@ -352,15 +308,91 @@ export function enqueueDispatchContract(agentId, contractId, meta = {}, logger) 
   return true;
 }
 
+export function enqueueOutgoingDispatchContract(agentId, contractId, meta = {}, logger) {
+  const sourceAgentId = typeof agentId === "string" && agentId.trim() ? agentId.trim() : null;
+  if (!sourceAgentId) {
+    return false;
+  }
+  const entry = normalizeOutgoingDispatchEntry(sourceAgentId, contractId, meta);
+  if (!entry) {
+    return false;
+  }
+
+  const state = ensureDispatchOutgoingState(sourceAgentId);
+  const existing = state.outgoingQueue.find((item) => item?.contractId === entry.contractId);
+  if (existing) {
+    Object.assign(existing, entry);
+    emitDispatchRuntimeSnapshot();
+    void commitDispatchRuntimeState(logger);
+    return true;
+  }
+
+  state.outgoingQueue.push(entry);
+  logger?.info?.(`[dispatch-state] outgoing queued ${entry.contractId} from ${sourceAgentId} to ${entry.targetAgent || "(unknown)"}`);
+  emitDispatchRuntimeSnapshot();
+  void commitDispatchRuntimeState(logger);
+  return true;
+}
+
+export async function removeOutgoingDispatchContract(agentId, contractId, logger = null) {
+  const sourceAgentId = typeof agentId === "string" && agentId.trim() ? agentId.trim() : null;
+  const normalized = typeof contractId === "string" && contractId.trim() ? contractId.trim() : null;
+  if (!sourceAgentId || !normalized) {
+    return false;
+  }
+  const outgoingState = dispatchOutgoingStateMap.get(sourceAgentId);
+  const outgoingChanged = removeOutgoingQueuedContract(outgoingState, normalized);
+  if (outgoingChanged) {
+    if (isIdleDispatchState(outgoingState)) {
+      dispatchOutgoingStateMap.delete(sourceAgentId);
+    }
+  }
+  const state = dispatchTargetStateMap.get(sourceAgentId);
+  if (state?.outgoingQueue) delete state.outgoingQueue;
+  const anyChanged = outgoingChanged;
+  if (anyChanged) {
+    emitDispatchRuntimeSnapshot();
+    await commitDispatchRuntimeState(logger);
+  }
+  return anyChanged;
+}
+
 export async function dequeueDispatchContract(agentId, logger = null) {
   const state = dispatchTargetStateMap.get(agentId);
+  if (state?.dispatchingQueueEntry) {
+    return null;
+  }
   if (!state || !Array.isArray(state.queue) || state.queue.length === 0) return null;
-  const entry = state.queue.shift();
+  const entry = normalizeIncomingDispatchEntry(agentId, state.queue.shift());
+  if (!entry) return null;
+  state.dispatchingQueueEntry = entry;
   emitDispatchRuntimeSnapshot();
   await commitDispatchRuntimeState(logger);
-  return typeof entry === "string"
-    ? { contractId: entry, fromAgent: null }
-    : entry;
+  return entry;
+}
+
+export async function requeueDispatchContractFront(agentId, entry, logger = null) {
+  const normalizedEntry = normalizeIncomingDispatchEntry(agentId, entry);
+  if (!normalizedEntry || !hasDispatchTarget(agentId)) {
+    return false;
+  }
+
+  const state = ensureDispatchTargetState(agentId);
+  clearDispatchingQueueEntry(state, normalizedEntry.contractId);
+  if (state.queue.some((queued) => {
+    const normalizedQueued = normalizeIncomingDispatchEntry(agentId, queued);
+    return normalizedQueued?.contractId === normalizedEntry.contractId;
+  })) {
+    return false;
+  }
+
+  state.queue.unshift({
+    contractId: normalizedEntry.contractId,
+    fromAgent: normalizedEntry.fromAgent,
+  });
+  emitDispatchRuntimeSnapshot();
+  await commitDispatchRuntimeState(logger);
+  return true;
 }
 
 export function getDispatchQueueDepth(agentId) {
@@ -368,106 +400,16 @@ export function getDispatchQueueDepth(agentId) {
   return Array.isArray(state?.queue) ? state.queue.length : 0;
 }
 
-export function advanceDispatchRoundRobinCursor(agentId, modulo) {
-  const state = ensureDispatchTargetState(agentId);
-  const normalizedModulo = Number.isInteger(modulo) && modulo > 0 ? modulo : 1;
-  const current = state.roundRobinCursor % normalizedModulo;
-  state.roundRobinCursor = current + 1;
-  return current;
-}
-
-export function queuePendingDispatchContract(agentId, contractId, meta = {}, logger) {
-  const normalized = typeof contractId === "string" && contractId.trim() ? contractId.trim() : null;
-  if (!normalized) {
-    return { queued: false, reason: "invalid_contract_id" };
-  }
-  if (!hasDispatchTarget(agentId)) {
-    return { queued: false, reason: "unknown_dispatch_target" };
-  }
-  const state = ensureDispatchTargetState(agentId);
-  const before = getDispatchQueueDepth(agentId);
-  const queued = enqueueDispatchContract(agentId, normalized, meta, logger);
-  const after = getDispatchQueueDepth(agentId);
-  return {
-    queued,
-    reason: !queued
-      ? "queue_failed"
-      : after > before
-        ? "enqueued"
-        : "already_scheduled",
-  };
-}
-
-export async function persistDispatchRuntimeState(logger) {
-  try {
-    const savedTargets = {};
-    for (const [id, state] of dispatchTargetStateMap.entries()) {
-      savedTargets[id] = {
-        busy: state.busy === true,
-        healthy: state.healthy !== false,
-        dispatching: state.dispatching === true,
-        currentContract: state.currentContract || null,
-        lastSeen: state.lastSeen || null,
-        queue: Array.isArray(state.queue) ? state.queue : [],
-        roundRobinCursor: Number.isInteger(state.roundRobinCursor) ? state.roundRobinCursor : 0,
-      };
-    }
-    await atomicWriteFile(QUEUE_STATE_FILE, JSON.stringify({
-      targets: savedTargets,
-      savedAt: Date.now(),
-    }, null, 2));
-  } catch (error) {
-    logger?.warn?.(`[dispatch-state] persist failed: ${error.message}`);
-  }
-}
-
-export async function loadDispatchRuntimeState(logger) {
-  let persisted = null;
-  try {
-    const raw = await readFile(QUEUE_STATE_FILE, "utf8");
-    persisted = JSON.parse(raw);
-  } catch {}
-
-  for (const state of dispatchTargetStateMap.values()) {
-    state.busy = false;
-    state.dispatching = false;
-    state.currentContract = null;
-    state.queue = [];
-    state.roundRobinCursor = 0;
-  }
-
-  const targetEntries = persisted?.targets && typeof persisted.targets === "object"
-    ? Object.entries(persisted.targets)
-    : [];
-
-  for (const [agentId, savedState] of targetEntries) {
-    const state = ensureDispatchTargetState(agentId);
-    state.healthy = savedState?.healthy !== false;
-    state.lastSeen = savedState?.lastSeen || state.lastSeen || Date.now();
-    state.roundRobinCursor = Number.isInteger(savedState?.roundRobinCursor)
-      ? savedState.roundRobinCursor
-      : 0;
-    state.queue = Array.isArray(savedState?.queue)
-      ? savedState.queue
-          .map((entry) => (typeof entry === "string" ? { contractId: entry } : entry))
-          .filter((entry) => entry?.contractId)
-      : [];
-  }
-
-  const recovered = flattenQueuedContracts();
-  if (recovered.length > 0) {
-    logger?.info?.(`[dispatch-state] restored ${recovered.length} queued contract(s)`);
-  }
-  emitDispatchRuntimeSnapshot();
-}
-
 export function resetAllDispatchStates() {
   for (const [, state] of dispatchTargetStateMap) {
     state.busy = false;
     state.dispatching = false;
     state.currentContract = null;
-    state.roundRobinCursor = 0;
+    state.dispatchingQueueEntry = null;
+    state.queue = [];
+    delete state.outgoingQueue;
   }
+  dispatchOutgoingStateMap.clear();
   emitDispatchRuntimeSnapshot();
 }
 
@@ -478,7 +420,18 @@ export async function clearDispatchQueue(logger = null) {
       count += state.queue.length;
       state.queue = [];
     }
+    if (state.dispatchingQueueEntry) {
+      count += 1;
+      state.dispatchingQueueEntry = null;
+    }
+    delete state.outgoingQueue;
   }
+  for (const [, state] of dispatchOutgoingStateMap) {
+    if (Array.isArray(state.outgoingQueue)) {
+      count += state.outgoingQueue.length;
+    }
+  }
+  dispatchOutgoingStateMap.clear();
   if (count > 0) {
     emitDispatchRuntimeSnapshot();
     await commitDispatchRuntimeState(logger);

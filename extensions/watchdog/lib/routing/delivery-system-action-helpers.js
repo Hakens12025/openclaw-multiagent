@@ -1,9 +1,5 @@
 import { join } from "node:path";
 
-import {
-  hasDistinctUpstreamReply,
-  hasResumableSourceSession,
-} from "../coordination-primitives.js";
 import { normalizeString } from "../core/normalize.js";
 import { attachOperatorContext, normalizeOperatorContext } from "../operator/operator-context.js";
 import {
@@ -18,31 +14,6 @@ import {
   hasSystemActionDeliveryTicket,
   resolveSystemActionDeliveryTicketRoute,
 } from "./delivery-system-action-ticket.js";
-import {
-  resolveResumableServiceSession,
-  resolveServiceSessionTargetSessionKey,
-} from "../service-session.js";
-
-function resolveSystemActionDeliveryTarget({
-  replyTo,
-  serviceSession = null,
-  sourceSessionKey = null,
-} = {}) {
-  const targetAgent = replyTo?.agentId || null;
-  const normalizedServiceSession = resolveResumableServiceSession(serviceSession, {
-    agentId: targetAgent,
-  });
-  const targetSessionKey = resolveServiceSessionTargetSessionKey(
-    normalizedServiceSession,
-    sourceSessionKey || replyTo?.sessionKey || null,
-  );
-
-  return {
-    targetAgent,
-    targetSessionKey,
-    serviceSession: normalizedServiceSession,
-  };
-}
 
 function normalizeRouteSourceLayer(layer) {
   if (!layer || typeof layer !== "object") return null;
@@ -132,27 +103,6 @@ export function mergeSystemActionDeliverySource(...layers) {
       ...normalizedLayers.map((layer) => layer.routeMetadataDiagnostics),
     ),
   };
-}
-
-export function hasLegacySystemActionDeliveryRoute(routeSource) {
-  const source = mergeSystemActionDeliverySource(routeSource);
-  const normalizedReturnContext = source.returnContext && typeof source.returnContext === "object"
-    ? {
-        ...source.returnContext,
-        ...(source.sourceSessionKey ? { sourceSessionKey: source.sourceSessionKey } : {}),
-      }
-    : source.sourceSessionKey
-      ? { sourceSessionKey: source.sourceSessionKey }
-      : null;
-  const { serviceSession } = resolveSystemActionDeliveryTarget({
-    replyTo: source.replyTo,
-    serviceSession: source.serviceSession,
-    sourceSessionKey: source.sourceSessionKey,
-  });
-
-  return hasDistinctUpstreamReply(source.replyTo, source.upstreamReplyTo)
-    || hasResumableSourceSession(source.replyTo, normalizedReturnContext)
-    || Boolean(serviceSession);
 }
 
 export async function resolveSystemActionDeliveryRoute(routeSource) {

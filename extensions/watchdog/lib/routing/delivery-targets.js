@@ -1,6 +1,6 @@
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { qqNotify } from "../qq.js";
+import { qqNotify } from "../channel-notify.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
 
 const DEFAULT_DELIVERY_MODE = "proactive";

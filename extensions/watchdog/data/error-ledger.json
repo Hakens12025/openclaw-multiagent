@@ -2,27 +2,36 @@
   "patterns": [
     {
       "errorType": "unknown",
-      "count": 89,
-      "firstSeen": 1775722544201,
-      "lastSeen": 1776173630202,
+      "count": 356,
+      "firstSeen": 1780057107824,
+      "lastSeen": 1780254664058,
       "lastAgent": "contractor",
       "lastTask": "retry crash keeps contract active",
       "lastTools": []
     },
     {
       "errorType": "timeout",
-      "count": 19,
-      "firstSeen": 1776137877745,
-      "lastSeen": 1776144519057,
+      "count": 178,
+      "firstSeen": 1780057107416,
+      "lastSeen": 1780254660123,
       "lastAgent": "error-ledger-a",
       "lastTask": "timeout task",
       "lastTools": []
     },
     {
       "errorType": "file_not_found",
-      "count": 17,
-      "firstSeen": 1776138067256,
-      "lastSeen": 1776144519063,
+      "count": 176,
+      "firstSeen": 1780057107419,
+      "lastSeen": 1780254660125,
+      "lastAgent": "error-ledger-b",
+      "lastTask": "missing file task",
+      "lastTools": []
+    },
+    {
+      "errorType": "rate_limit",
+      "count": 2,
+      "firstSeen": 1780157342955,
+      "lastSeen": 1780236464299,
       "lastAgent": "error-ledger-b",
       "lastTask": "missing file task",
       "lastTools": []

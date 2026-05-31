@@ -2,185 +2,33 @@ import WebSocket from "ws";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import path from "node:path";
 import * as fs from "node:fs";
-import type { ResolvedQQBotAccount, WSPayload, C2CMessageEvent, GuildMessageEvent, GroupMessageEvent } from "./types.js";
+import type { ResolvedQQBotAccount, WSPayload, C2CMessageEvent, GuildMessageEvent, GroupMessageEvent, GatewayContext } from "./types.js";
 import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, sendC2CImageMessage, sendGroupImageMessage, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify } from "./api.js";
 import { loadSession, saveSession, clearSession, type SessionState } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
-import { startImageServer, isImageServerRunning, downloadFile, type ImageServerConfig } from "./image-server.js";
+import { downloadFile } from "./image-server.js";
+import { ensureImageServer } from "./utils/image-server-init.js";
 import { getImageSize, formatQQBotMarkdownImage, hasQQBotImageSize, DEFAULT_IMAGE_SIZE } from "./utils/image-size.js";
 import { parseQQBotPayload, encodePayloadForCron, isCronReminderPayload, isMediaPayload, type CronReminderPayload, type MediaPayload } from "./utils/payload.js";
 import { convertSilkToWav, isVoiceAttachment, formatDuration } from "./utils/audio-convert.js";
+import { parseDispatchMarker } from "./dispatch-marker.js";
+import { recordDispatchMarkerSeen } from "./dispatch-compat-state.js";
+import { parseFaceTags, filterInternalMarkers } from "./utils/text-filters.js";
+import {
+  INTENT_LEVELS,
+  RECONNECT_DELAYS,
+  RATE_LIMIT_DELAY,
+  MAX_RECONNECT_ATTEMPTS,
+  MAX_QUICK_DISCONNECT_COUNT,
+  QUICK_DISCONNECT_THRESHOLD,
+  MESSAGE_QUEUE_SIZE,
+  MESSAGE_QUEUE_WARN_THRESHOLD,
+} from "./gateway-constants.js";
 import * as http from "node:http";
 
-// QQ Bot intents - 按权限级别分组
-const INTENTS = {
-  // 基础权限（默认有）
-  GUILDS: 1 << 0,                    // 频道相关
-  GUILD_MEMBERS: 1 << 1,             // 频道成员
-  PUBLIC_GUILD_MESSAGES: 1 << 30,    // 频道公开消息（公域）
-  // 需要申请的权限
-  DIRECT_MESSAGE: 1 << 12,           // 频道私信
-  GROUP_AND_C2C: 1 << 25,            // 群聊和 C2C 私聊（需申请）
-};
-
-// 权限级别：从高到低依次尝试
-const INTENT_LEVELS = [
-  // Level 0: 完整权限（群聊 + 私信 + 频道）
-  {
-    name: "full",
-    intents: INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.DIRECT_MESSAGE | INTENTS.GROUP_AND_C2C,
-    description: "群聊+私信+频道",
-  },
-  // Level 1: 群聊 + 频道（无私信）
-  {
-    name: "group+channel",
-    intents: INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.GROUP_AND_C2C,
-    description: "群聊+频道",
-  },
-  // Level 2: 仅频道（基础权限）
-  {
-    name: "channel-only",
-    intents: INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.GUILD_MEMBERS,
-    description: "仅频道消息",
-  },
-];
-
-// 重连配置
-const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000, 60000]; // 递增延迟
-const RATE_LIMIT_DELAY = 60000; // 遇到频率限制时等待 60 秒
-const MAX_RECONNECT_ATTEMPTS = 100;
-const MAX_QUICK_DISCONNECT_COUNT = 3; // 连续快速断开次数阈值
-const QUICK_DISCONNECT_THRESHOLD = 5000; // 5秒内断开视为快速断开
-
-// 图床服务器配置（可通过环境变量覆盖）
-const IMAGE_SERVER_PORT = parseInt(process.env.QQBOT_IMAGE_SERVER_PORT || "18765", 10);
-// 使用绝对路径，确保文件保存和读取使用同一目录
-const IMAGE_SERVER_DIR = process.env.QQBOT_IMAGE_SERVER_DIR || path.join(process.env.HOME || "/home/ubuntu", "clawd", "qqbot-images");
-
-// 消息队列配置（异步处理，防止阻塞心跳）
-const MESSAGE_QUEUE_SIZE = 1000; // 最大队列长度
-const MESSAGE_QUEUE_WARN_THRESHOLD = 800; // 队列告警阈值
-
-// ============ 消息回复限流器 ============
-// 同一 message_id 1小时内最多回复 4 次，超过1小时需降级为主动消息
-const MESSAGE_REPLY_LIMIT = 4;
-const MESSAGE_REPLY_TTL = 60 * 60 * 1000; // 1小时
-
-interface MessageReplyRecord {
-  count: number;
-  firstReplyAt: number;
-}
-
-const messageReplyTracker = new Map<string, MessageReplyRecord>();
-
-/**
- * 检查是否可以回复该消息（限流检查）
- * @param messageId 消息ID
- * @returns { allowed: boolean, remaining: number } allowed=是否允许回复，remaining=剩余次数
- */
-function checkMessageReplyLimit(messageId: string): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const record = messageReplyTracker.get(messageId);
-  
-  // 清理过期记录（定期清理，避免内存泄漏）
-  if (messageReplyTracker.size > 10000) {
-    for (const [id, rec] of messageReplyTracker) {
-      if (now - rec.firstReplyAt > MESSAGE_REPLY_TTL) {
-        messageReplyTracker.delete(id);
-      }
-    }
-  }
-  
-  if (!record) {
-    return { allowed: true, remaining: MESSAGE_REPLY_LIMIT };
-  }
-  
-  // 检查是否过期
-  if (now - record.firstReplyAt > MESSAGE_REPLY_TTL) {
-    messageReplyTracker.delete(messageId);
-    return { allowed: true, remaining: MESSAGE_REPLY_LIMIT };
-  }
-  
-  // 检查是否超过限制
-  const remaining = MESSAGE_REPLY_LIMIT - record.count;
-  return { allowed: remaining > 0, remaining: Math.max(0, remaining) };
-}
-
-/**
- * 记录一次消息回复
- * @param messageId 消息ID
- */
-function recordMessageReply(messageId: string): void {
-  const now = Date.now();
-  const record = messageReplyTracker.get(messageId);
-  
-  if (!record) {
-    messageReplyTracker.set(messageId, { count: 1, firstReplyAt: now });
-  } else {
-    // 检查是否过期，过期则重新计数
-    if (now - record.firstReplyAt > MESSAGE_REPLY_TTL) {
-      messageReplyTracker.set(messageId, { count: 1, firstReplyAt: now });
-    } else {
-      record.count++;
-    }
-  }
-}
-
-// ============ QQ 表情标签解析 ============
-
-/**
- * 解析 QQ 表情标签，将 <faceType=1,faceId="13",ext="base64..."> 格式
- * 替换为 【表情: 中文名】 格式
- * ext 字段为 Base64 编码的 JSON，格式如 {"text":"呲牙"}
- */
-function parseFaceTags(text: string): string {
-  if (!text) return text;
-
-  // 匹配 <faceType=...,faceId="...",ext="..."> 格式的表情标签
-  return text.replace(/<faceType=\d+,faceId="[^"]*",ext="([^"]*)">/g, (_match, ext: string) => {
-    try {
-      const decoded = Buffer.from(ext, "base64").toString("utf-8");
-      const parsed = JSON.parse(decoded);
-      const faceName = parsed.text || "未知表情";
-      return `【表情: ${faceName}】`;
-    } catch {
-      return _match;
-    }
-  });
-}
-
-// ============ 内部标记过滤 ============
-
-/**
- * 过滤内部标记（如 [[reply_to: xxx]]）
- * 这些标记可能被 AI 错误地学习并输出，需要在发送前移除
- */
-function filterInternalMarkers(text: string): string {
-  if (!text) return text;
-  
-  // 过滤 [[xxx: yyy]] 格式的内部标记
-  // 例如: [[reply_to: ROBOT1.0_kbc...]]
-  let result = text.replace(/\[\[[a-z_]+:\s*[^\]]*\]\]/gi, "");
-  
-  // 清理可能产生的多余空行
-  result = result.replace(/\n{3,}/g, "\n\n").trim();
-  
-  return result;
-}
-
-export interface GatewayContext {
-  account: ResolvedQQBotAccount;
-  abortSignal: AbortSignal;
-  cfg: unknown;
-  onReady?: (data: unknown) => void;
-  onError?: (error: Error) => void;
-  log?: {
-    info: (msg: string) => void;
-    error: (msg: string) => void;
-    debug?: (msg: string) => void;
-  };
-}
+// GatewayContext is now defined in types.ts; re-export for backward compatibility
+export type { GatewayContext } from "./types.js";
 
 /**
  * 消息队列项类型（用于异步处理消息，防止阻塞心跳）
@@ -196,31 +44,6 @@ interface QueuedMessage {
   guildId?: string;
   groupOpenid?: string;
   attachments?: Array<{ content_type: string; url: string; filename?: string }>;
-}
-
-/**
- * 启动图床服务器
- */
-async function ensureImageServer(log?: GatewayContext["log"], publicBaseUrl?: string): Promise<string | null> {
-  if (isImageServerRunning()) {
-    return publicBaseUrl || `http://0.0.0.0:${IMAGE_SERVER_PORT}`;
-  }
-
-  try {
-    const config: Partial<ImageServerConfig> = {
-      port: IMAGE_SERVER_PORT,
-      storageDir: IMAGE_SERVER_DIR,
-      // 使用用户配置的公网地址，而不是 0.0.0.0
-      baseUrl: publicBaseUrl || `http://0.0.0.0:${IMAGE_SERVER_PORT}`,
-      ttlSeconds: 3600, // 1 小时过期
-    };
-    await startImageServer(config);
-    log?.info(`[qqbot] Image server started on port ${IMAGE_SERVER_PORT}, baseUrl: ${config.baseUrl}`);
-    return config.baseUrl!;
-  } catch (err) {
-    log?.error(`[qqbot] Failed to start image server: ${err}`);
-    return null;
-  }
 }
 
 /**
@@ -785,24 +608,38 @@ openclaw cron add \\
 
                 let replyText = payload.text ?? "";
 
-                // ── DISPATCH marker detection (Agent-as-Classifier) ──
-                // Agent outputs [DISPATCH]task[/DISPATCH] for tasks it cannot handle.
-                // We intercept here, create a contract via /a2a/tasks/send, and send a receipt.
-                const dispatchMatch = replyText.match(/\[DISPATCH\]([\s\S]*?)\[\/DISPATCH\]/);
-                if (dispatchMatch) {
-                  const taskDescription = dispatchMatch[1].trim();
-                  log?.info(`[qqbot:${account.accountId}] DISPATCH detected: "${taskDescription.slice(0, 80)}"`);
+                // ── Dispatch marker detection (Agent-as-Classifier) ──
+                // Parser accepts only the formal `[ACTION] delegate ...` marker.
+                // Legacy `[DISPATCH]...[/DISPATCH]` was removed when the Task 4
+                // removal gate fired; see dispatch-marker.ts.
+                const dispatchDirective = parseDispatchMarker(replyText);
+                if (dispatchDirective) {
+                  const { message: taskDescription, targetAgent, format } = dispatchDirective;
+                  try {
+                    await recordDispatchMarkerSeen(format);
+                  } catch (compatErr) {
+                    log?.error(`[qqbot:${account.accountId}] dispatch compat-state update failed: ${(compatErr as Error).message}`);
+                  }
+                  const dispatchLabel = targetAgent
+                    ? `${taskDescription.slice(0, 80)} -> ${targetAgent}`
+                    : taskDescription.slice(0, 80);
+                  log?.info(`[qqbot:${account.accountId}] DISPATCH detected (format=${format}): "${dispatchLabel}"`);
                   let receiptText = "\u{1F4CB} 任务已收到，正在处理中...";
                   try {
                     const gatewayPort = (cfg as any).gateway?.port ?? 18789;
                     const hooksToken = (cfg as any).hooks?.token ?? "";
                     const reqBody = JSON.stringify({
                       message: taskDescription,
+                      source: "qqbot",
+                      ...(targetAgent ? { targetAgent } : {}),
                       replyTo: {
                         agentId: route.agentId,
                         sessionKey: `agent:${route.agentId}:main`,
                         channel: "qqbot",
-                        target: event.senderId,
+                        target: targetTo,
+                        messageId: event.messageId,
+                        replyToId: event.messageId,
+                        accountId: account.accountId,
                       },
                     });
                     const dispatched = await new Promise<boolean>((resolve) => {
@@ -1533,7 +1370,7 @@ openclaw cron add \\
                   accountId: account.accountId,
                   savedAt: Date.now(),
                 });
-                onReady?.(d);
+                onReady?.({ eventType: "READY", payload: d });
               } else if (t === "RESUMED") {
                 log?.info(`[qqbot:${account.accountId}] Session resumed`);
                 // P1-2: 更新 Session 连接时间
@@ -1547,6 +1384,7 @@ openclaw cron add \\
                     savedAt: Date.now(),
                   });
                 }
+                onReady?.({ eventType: "RESUMED", payload: d });
               } else if (t === "C2C_MESSAGE_CREATE") {
                 const event = d as C2CMessageEvent;
                 // P1-3: 记录已知用户

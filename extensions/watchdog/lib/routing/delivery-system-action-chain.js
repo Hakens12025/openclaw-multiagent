@@ -1,9 +1,9 @@
 import {
   deliveryRunSystemActionAssignTaskResult,
   isAssignTaskResultDeliveryCandidate,
-  deliveryRunSystemActionContractResult,
-  isExecutionContractResultDeliveryCandidate,
-} from "./delivery-system-action-contract-result.js";
+  deliveryRunSystemActionRuntimeResult,
+  isExecutionRuntimeResultDeliveryCandidate,
+} from "./delivery-system-action-runtime-result.js";
 import { normalizeSystemActionDeliveryDiagnostic } from "../lifecycle/runtime-diagnostics.js";
 import { buildSystemActionDeliveryResult } from "../routing/delivery-result.js";
 import {
@@ -43,15 +43,15 @@ const SYSTEM_ACTION_DELIVERY_HANDLERS = Object.freeze([
     suppressReason: "system_action_assign_task_delivery",
   }),
   defineSystemActionDelivery({
-    id: SYSTEM_ACTION_DELIVERY_IDS.CONTRACT_RESULT,
+    id: SYSTEM_ACTION_DELIVERY_IDS.RUNTIME_RESULT,
     match({ contractData }) {
-      return isExecutionContractResultDeliveryCandidate(contractData);
+      return isExecutionRuntimeResultDeliveryCandidate(contractData);
     },
-    run: deliveryRunSystemActionContractResult,
+    run: deliveryRunSystemActionRuntimeResult,
     suppressCompletionEgress(result) {
       return result?.handled === true;
     },
-    suppressReason: "system_action_contract_delivery",
+    suppressReason: "system_action_runtime_delivery",
   }),
 ]);
 

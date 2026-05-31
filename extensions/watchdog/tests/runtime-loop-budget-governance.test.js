@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { loadGraph, saveGraph } from "../lib/agent/agent-graph.js";
+import { loadGraph } from "../lib/agent/agent-graph.js";
+import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
 import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
-import { runAgentEndPipeline } from "../lib/lifecycle/agent-end-pipeline.js";
+import { runAgentEndLifecycle } from "../lib/lifecycle/agent-end-lifecycle.js";
 import {
   composeLoopSpecFromAgents,
   loadGraphLoopRegistry,
@@ -15,8 +16,10 @@ import {
 import { loadActiveLoopRuntime, startLoopRound } from "../lib/loop/loop-round-runtime.js";
 import { LOOP_SESSION_STATE_FILE, loadLoopSessionState } from "../lib/loop/loop-session-store.js";
 import { createTrackingState } from "../lib/session-bootstrap.js";
-import { agentWorkspace } from "../lib/state.js";
-import { runGlobalTestEnvironmentSerial } from "./test-locks.js";
+import { agentWorkspace, dispatchOutgoingStateMap, dispatchTargetStateMap, runtimeAgentConfigs } from "../lib/state.js";
+import { clearTrackingStore, listTrackingEntries, notifyTrackingContractClaim, rememberTrackingState } from "../lib/store/tracker-store.js";
+import { buildInitialTaskStagePlan } from "../lib/task-stage-plan.js";
+import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {
   info() {},
@@ -24,7 +27,14 @@ const logger = {
   error() {},
 };
 
-const STAGE_RESULT_FILENAME = "stage_result.json";
+const RUNTIME_RESULT_FILENAME = "runtime_result.json";
+
+let uniqueSuffixCounter = 0;
+
+function uniqueSuffix() {
+  uniqueSuffixCounter += 1;
+  return `${Date.now()}-${process.pid}-${uniqueSuffixCounter}`;
+}
 
 function testWithGlobalLoopRuntime(name, fn) {
   test(name, async () => runGlobalTestEnvironmentSerial(fn));
@@ -50,6 +60,56 @@ async function ensureAgentWorkspace(agentId) {
   await mkdir(agentWorkspace(agentId), { recursive: true });
 }
 
+function registerLoopRuntimeAgents(agentIds) {
+  for (const agentId of Array.isArray(agentIds) ? agentIds : []) {
+    runtimeAgentConfigs.set(agentId, {
+      id: agentId,
+      role: "agent",
+      plane: "runtime",
+      mainViewVisible: true,
+      formalTimelineVisible: true,
+      autoWakeEligible: true,
+    });
+  }
+}
+
+function restoreRuntimeAgentConfigs(snapshot) {
+  runtimeAgentConfigs.clear();
+  for (const [agentId, config] of snapshot.entries()) {
+    runtimeAgentConfigs.set(agentId, config);
+  }
+}
+
+function cloneMapEntries(map) {
+  return new Map([...map.entries()].map(([key, value]) => [
+    key,
+    value && typeof value === "object" ? structuredClone(value) : value,
+  ]));
+}
+
+function snapshotRuntimeMutableState() {
+  return {
+    dispatchTargets: cloneMapEntries(dispatchTargetStateMap),
+    dispatchOutgoing: cloneMapEntries(dispatchOutgoingStateMap),
+    trackingEntries: cloneMapEntries(new Map(listTrackingEntries())),
+  };
+}
+
+function restoreRuntimeMutableState(snapshot) {
+  dispatchTargetStateMap.clear();
+  for (const [agentId, state] of snapshot.dispatchTargets.entries()) {
+    dispatchTargetStateMap.set(agentId, state);
+  }
+  dispatchOutgoingStateMap.clear();
+  for (const [agentId, state] of snapshot.dispatchOutgoing.entries()) {
+    dispatchOutgoingStateMap.set(agentId, state);
+  }
+  clearTrackingStore();
+  for (const [sessionKey, trackingState] of snapshot.trackingEntries.entries()) {
+    rememberTrackingState(sessionKey, trackingState);
+  }
+}
+
 async function cleanAgentBoxes(agentId) {
   for (const box of ["inbox", "outbox", "output"]) {
     const dir = join(agentWorkspace(agentId), box);
@@ -60,8 +120,22 @@ async function cleanAgentBoxes(agentId) {
   }
 }
 
-function stageResultPath(agentId) {
-  return join(agentWorkspace(agentId), "outbox", STAGE_RESULT_FILENAME);
+function buildWakeAndClaim() {
+  return async (_agentId, payload = {}) => {
+    const sessionKey = typeof payload?.sessionKey === "string" ? payload.sessionKey : null;
+    const match = sessionKey ? sessionKey.match(/^agent:[^:]+:contract:(.+)$/i) : null;
+    const contractId = match?.[1] || null;
+    if (sessionKey && contractId) {
+      setTimeout(() => {
+        notifyTrackingContractClaim(sessionKey, contractId);
+      }, 0);
+    }
+    return { ok: true };
+  };
+}
+
+function runtimeResultPath(agentId) {
+  return join(agentWorkspace(agentId), "outbox", RUNTIME_RESULT_FILENAME);
 }
 
 function buildStageResult({
@@ -114,16 +188,8 @@ async function completeLoopStageFromContract(agentId, inboxContract, {
 
   const outboxDir = join(agentWorkspace(agentId), "outbox");
   await mkdir(outboxDir, { recursive: true });
-  await writeFile(join(outboxDir, "_manifest.json"), JSON.stringify({
-    version: 1,
-    kind: "stage_result",
-    artifacts: [
-      { type: "stage_result", path: STAGE_RESULT_FILENAME, required: true },
-      { type: "text_output", path: "result.md", required: false },
-    ],
-  }, null, 2), "utf8");
   await writeFile(join(outboxDir, "result.md"), "# synthetic stage output\n", "utf8");
-  await writeFile(stageResultPath(agentId), JSON.stringify(buildStageResult({
+  await writeFile(runtimeResultPath(agentId), JSON.stringify(buildStageResult({
     stage: inboxContract.pipelineStage?.stage || agentId,
     pipelineId: inboxContract.pipelineStage?.pipelineId || null,
     loopId: inboxContract.pipelineStage?.loopId || null,
@@ -145,12 +211,12 @@ async function completeLoopStageFromContract(agentId, inboxContract, {
     status: CONTRACT_STATUS.RUNNING,
   };
 
-  await runAgentEndPipeline({
+  await runAgentEndLifecycle({
     event: {
       success: true,
       synthetic: true,
       protocolBoundary: "canonical_outbox_commit",
-      commitType: "stage_result",
+      commitType: "runtime_result",
     },
     ctx: {
       sessionKey: trackingState.sessionKey,
@@ -159,7 +225,17 @@ async function completeLoopStageFromContract(agentId, inboxContract, {
     api: {
       runtime: {
         system: {
-          requestHeartbeatNow() {},
+          requestHeartbeatNow({ sessionKey } = {}) {
+            const match = typeof sessionKey === "string"
+              ? sessionKey.match(/^agent:[^:]+:contract:(.+)$/i)
+              : null;
+            const contractId = match?.[1] || null;
+            if (sessionKey && contractId) {
+              setTimeout(() => {
+                notifyTrackingContractClaim(sessionKey, contractId);
+              }, 0);
+            }
+          },
         },
       },
     },
@@ -172,8 +248,87 @@ async function completeLoopStageFromContract(agentId, inboxContract, {
   return readJsonFile(contractPath);
 }
 
+async function completeLoopStageWithPlannerOutput(agentId, inboxContract, {
+  markdown,
+} = {}) {
+  const contractPath = getContractPath(inboxContract.id);
+  const persistedContract = await readJsonFile(contractPath);
+  await persistContractSnapshot(contractPath, {
+    ...persistedContract,
+    status: CONTRACT_STATUS.RUNNING,
+    updatedAt: Date.now(),
+  }, logger);
+
+  await writeFile(
+    persistedContract.output,
+    markdown || [
+      "[STAGE] 收敛问题",
+      "- 目标：明确任务边界",
+      "- 交付：阶段拆解",
+      "- 完成标准：下游可继续执行",
+      "",
+      "[STAGE] 继续执行",
+      "- 目标：交给下游节点推进",
+      "- 交付：执行路径",
+      "- 完成标准：任务继续流动",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const trackingState = createTrackingState({
+    sessionKey: `synthetic:${agentId}:${inboxContract.id}:planner-output`,
+    agentId,
+    parentSession: null,
+  });
+  trackingState.contract = {
+    ...inboxContract,
+    path: contractPath,
+    status: CONTRACT_STATUS.RUNNING,
+  };
+
+  await runAgentEndLifecycle({
+    event: {
+      success: true,
+      synthetic: true,
+      protocolBoundary: "canonical_outbox_commit",
+      commitType: "output_only",
+    },
+    ctx: {
+      sessionKey: trackingState.sessionKey,
+      agentId,
+    },
+    api: {
+      runtime: {
+        system: {
+          requestHeartbeatNow({ sessionKey } = {}) {
+            const match = typeof sessionKey === "string"
+              ? sessionKey.match(/^agent:[^:]+:contract:(.+)$/i)
+              : null;
+            const contractId = match?.[1] || null;
+            if (sessionKey && contractId) {
+              setTimeout(() => {
+                notifyTrackingContractClaim(sessionKey, contractId);
+              }, 0);
+            }
+          },
+        },
+      },
+    },
+    logger,
+    enqueueFn: () => {},
+    wakePlanner: async () => null,
+    trackingState,
+  });
+
+  return {
+    contract: await readJsonFile(contractPath),
+    trackingState,
+  };
+}
+
 testWithGlobalLoopRuntime("startLoopRound defaults loop runtime budget to three rounds", async () => {
-  const suffix = `${Date.now()}`;
+  const suffix = uniqueSuffix();
   const entryAgent = `loop-budget-entry-${suffix}`;
   const peerAgent = `loop-budget-peer-${suffix}`;
   const loopId = `loop-budget-default-${suffix}`;
@@ -181,6 +336,8 @@ testWithGlobalLoopRuntime("startLoopRound defaults loop runtime budget to three 
   const originalGraph = await loadGraph();
   const originalLoopRegistry = await loadGraphLoopRegistry();
   const originalLoopSessionState = await snapshotFile(LOOP_SESSION_STATE_FILE);
+  const originalRuntimeAgentConfigs = new Map(runtimeAgentConfigs);
+  const originalRuntimeMutableState = snapshotRuntimeMutableState();
 
   let contractId = null;
   try {
@@ -188,6 +345,7 @@ testWithGlobalLoopRuntime("startLoopRound defaults loop runtime budget to three 
       ensureAgentWorkspace(entryAgent),
       ensureAgentWorkspace(peerAgent),
     ]);
+    registerLoopRuntimeAgents([entryAgent, peerAgent]);
     await saveGraph({
       edges: [
         { from: entryAgent, to: peerAgent, label: "loop" },
@@ -208,17 +366,187 @@ testWithGlobalLoopRuntime("startLoopRound defaults loop runtime budget to three 
       loopId,
       startAgent: entryAgent,
       requestedTask: "验证 loop 默认预算",
-    }, null, null, null, logger);
+    }, buildWakeAndClaim(), null, null, logger);
     contractId = startResult?.contractId || null;
 
     assert.equal(startResult?.action, "started");
     const runtime = await loadActiveLoopRuntime();
     assert.equal(runtime?.budget?.maxRounds, 3);
+    assert.equal(runtime?.budget?.maxExperiments, 30);
     assert.equal(runtime?.budget?.usedRounds, 1);
+    assert.equal(runtime?.budget?.usedExperiments, 0);
   } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeAgentConfigs);
     await saveGraph(originalGraph);
     await saveGraphLoopRegistry(originalLoopRegistry);
     await restoreFile(LOOP_SESSION_STATE_FILE, originalLoopSessionState);
+    restoreRuntimeMutableState(originalRuntimeMutableState);
+    if (contractId) {
+      await rm(getContractPath(contractId), { force: true });
+    }
+    await rm(agentWorkspace(entryAgent), { recursive: true, force: true });
+    await rm(agentWorkspace(peerAgent), { recursive: true, force: true });
+  }
+});
+
+testWithGlobalLoopRuntime("loop-tagged contracts keep graph routing even when planner only emits stage markers", async () => {
+  const suffix = uniqueSuffix();
+  const plannerAgent = `loop-planner-${suffix}`;
+  const workerAgent = `loop-worker-${suffix}`;
+  const loopId = `loop-graph-routing-${suffix}`;
+
+  const originalGraph = await loadGraph();
+  const originalLoopRegistry = await loadGraphLoopRegistry();
+  const originalLoopSessionState = await snapshotFile(LOOP_SESSION_STATE_FILE);
+  const originalRuntimeAgentConfigs = new Map(runtimeAgentConfigs);
+  const originalRuntimeMutableState = snapshotRuntimeMutableState();
+
+  let contractId = null;
+  try {
+    await Promise.all([
+      ensureAgentWorkspace(plannerAgent),
+      ensureAgentWorkspace(workerAgent),
+      cleanAgentBoxes(plannerAgent),
+      cleanAgentBoxes(workerAgent),
+    ]);
+    registerLoopRuntimeAgents([plannerAgent, workerAgent]);
+    await saveGraph({
+      edges: [
+        { from: plannerAgent, to: workerAgent, label: "loop" },
+        { from: workerAgent, to: plannerAgent, label: "loop" },
+      ],
+    });
+    await saveGraphLoopRegistry({
+      loops: [
+        composeLoopSpecFromAgents([plannerAgent, workerAgent], {
+          id: loopId,
+          entryAgentId: plannerAgent,
+        }),
+      ],
+    });
+    await rm(LOOP_SESSION_STATE_FILE, { force: true });
+
+    const startResult = await startLoopRound({
+      loopId,
+      startAgent: plannerAgent,
+      requestedTask: "你好",
+    }, buildWakeAndClaim(), null, null, logger);
+    contractId = startResult?.contractId || null;
+
+    assert.equal(startResult?.action, "started");
+
+    const plannerInboxContract = await readJsonFile(join(agentWorkspace(plannerAgent), "inbox", "contract.json"));
+    assert.equal(plannerInboxContract?.id, contractId);
+
+    const completionResult = await completeLoopStageWithPlannerOutput(plannerAgent, plannerInboxContract);
+    const contractAfter = completionResult.contract;
+    const workerInboxContract = await readJsonFile(join(agentWorkspace(workerAgent), "inbox", "contract.json"));
+    const runtime = await loadActiveLoopRuntime();
+
+    assert.equal(contractAfter?.assignee, workerAgent);
+    assert.equal(contractAfter?.pipelineStage?.stage, workerAgent);
+    assert.equal(workerInboxContract?.id, contractId);
+    assert.equal(workerInboxContract?.pipelineStage?.stage, workerAgent);
+    assert.equal(runtime?.currentStage, workerAgent);
+    assert.equal(
+      contractAfter?.runtimeDiagnostics?.graphRouteProgression?.action,
+      "advanced",
+    );
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeAgentConfigs);
+    await saveGraph(originalGraph);
+    await saveGraphLoopRegistry(originalLoopRegistry);
+    await restoreFile(LOOP_SESSION_STATE_FILE, originalLoopSessionState);
+    restoreRuntimeMutableState(originalRuntimeMutableState);
+    if (contractId) {
+      await rm(getContractPath(contractId), { force: true });
+    }
+    await rm(agentWorkspace(plannerAgent), { recursive: true, force: true });
+    await rm(agentWorkspace(workerAgent), { recursive: true, force: true });
+  }
+});
+
+testWithGlobalLoopRuntime("loop runtime governance concludes when maxExperiments is exhausted by real stage completions", async () => {
+  const suffix = uniqueSuffix();
+  const entryAgent = `loop-experiments-entry-${suffix}`;
+  const peerAgent = `loop-experiments-peer-${suffix}`;
+  const loopId = `loop-experiments-${suffix}`;
+  const taskStagePlan = buildInitialTaskStagePlan({
+    contractId: `TC-LOOP-EXPERIMENTS-${suffix}`,
+    stages: ["建立比较维度", "补充关键证据"],
+  });
+
+  const originalGraph = await loadGraph();
+  const originalLoopRegistry = await loadGraphLoopRegistry();
+  const originalLoopSessionState = await snapshotFile(LOOP_SESSION_STATE_FILE);
+  const originalRuntimeAgentConfigs = new Map(runtimeAgentConfigs);
+  const originalRuntimeMutableState = snapshotRuntimeMutableState();
+
+  let contractId = null;
+  try {
+    await Promise.all([
+      ensureAgentWorkspace(entryAgent),
+      ensureAgentWorkspace(peerAgent),
+    ]);
+    registerLoopRuntimeAgents([entryAgent, peerAgent]);
+    await saveGraph({
+      edges: [
+        { from: entryAgent, to: peerAgent, label: "loop" },
+        { from: peerAgent, to: entryAgent, label: "loop" },
+      ],
+    });
+    await saveGraphLoopRegistry({
+      loops: [
+        composeLoopSpecFromAgents([entryAgent, peerAgent], {
+          id: loopId,
+          entryAgentId: entryAgent,
+        }),
+      ],
+    });
+    await rm(LOOP_SESSION_STATE_FILE, { force: true });
+    await Promise.all([cleanAgentBoxes(entryAgent), cleanAgentBoxes(peerAgent)]);
+
+    const startResult = await startLoopRound({
+      loopId,
+      startAgent: entryAgent,
+      requestedTask: "验证 loop runtime maxExperiments 正式收口",
+      budget: { maxExperiments: 1 },
+      taskStagePlan,
+    }, buildWakeAndClaim(), null, null, logger);
+    contractId = startResult?.contractId || null;
+
+    assert.equal(startResult?.action, "started");
+
+    const entryContract = await readJsonFile(join(agentWorkspace(entryAgent), "inbox", "contract.json"));
+    const terminalContract = await completeLoopStageFromContract(entryAgent, entryContract, {
+      transition: { kind: "follow_graph" },
+      summary: "entry stage completed",
+      feedback: "entry stage completed",
+    });
+
+    assert.equal(terminalContract?.status, CONTRACT_STATUS.COMPLETED);
+    assert.equal(terminalContract?.terminalOutcome?.source, "loop_runtime_governance");
+    assert.equal(terminalContract?.terminalOutcome?.reason, "loop_budget_exhausted:max_experiments");
+
+    const loopSessionState = await loadLoopSessionState();
+    assert.equal(loopSessionState?.activeSession, null);
+    const concludedSession = loopSessionState?.recentSessions?.[0] || null;
+    assert.equal(concludedSession?.loopId, loopId);
+    assert.equal(concludedSession?.status, "concluded");
+    assert.equal(concludedSession?.concludeReason, "loop_budget_exhausted:max_experiments");
+    assert.equal(concludedSession?.budget?.maxExperiments, 1);
+    assert.equal(concludedSession?.budget?.usedExperiments, 1);
+
+    await assert.rejects(
+      readFile(join(agentWorkspace(peerAgent), "inbox", "contract.json"), "utf8"),
+      { code: "ENOENT" },
+    );
+  } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeAgentConfigs);
+    await saveGraph(originalGraph);
+    await saveGraphLoopRegistry(originalLoopRegistry);
+    await restoreFile(LOOP_SESSION_STATE_FILE, originalLoopSessionState);
+    restoreRuntimeMutableState(originalRuntimeMutableState);
     if (contractId) {
       await rm(getContractPath(contractId), { force: true });
     }
@@ -228,14 +556,20 @@ testWithGlobalLoopRuntime("startLoopRound defaults loop runtime budget to three 
 });
 
 testWithGlobalLoopRuntime("loop runtime governance concludes before routing beyond maxRounds", async () => {
-  const suffix = `${Date.now()}`;
+  const suffix = uniqueSuffix();
   const entryAgent = `loop-govern-entry-${suffix}`;
   const peerAgent = `loop-govern-peer-${suffix}`;
   const loopId = `loop-governance-${suffix}`;
+  const taskStagePlan = buildInitialTaskStagePlan({
+    contractId: `TC-LOOP-GOVERN-${suffix}`,
+    stages: ["建立比较维度", "补充关键证据", "形成结论"],
+  });
 
   const originalGraph = await loadGraph();
   const originalLoopRegistry = await loadGraphLoopRegistry();
   const originalLoopSessionState = await snapshotFile(LOOP_SESSION_STATE_FILE);
+  const originalRuntimeAgentConfigs = new Map(runtimeAgentConfigs);
+  const originalRuntimeMutableState = snapshotRuntimeMutableState();
 
   let contractId = null;
   try {
@@ -243,6 +577,7 @@ testWithGlobalLoopRuntime("loop runtime governance concludes before routing beyo
       ensureAgentWorkspace(entryAgent),
       ensureAgentWorkspace(peerAgent),
     ]);
+    registerLoopRuntimeAgents([entryAgent, peerAgent]);
     await saveGraph({
       edges: [
         { from: entryAgent, to: peerAgent, label: "loop" },
@@ -265,7 +600,8 @@ testWithGlobalLoopRuntime("loop runtime governance concludes before routing beyo
       startAgent: entryAgent,
       requestedTask: "验证 loop runtime maxRounds 正式收口",
       budget: { maxRounds: 1 },
-    }, null, null, null, logger);
+      taskStagePlan,
+    }, buildWakeAndClaim(), null, null, logger);
     contractId = startResult?.contractId || null;
 
     assert.equal(startResult?.action, "started");
@@ -308,9 +644,11 @@ testWithGlobalLoopRuntime("loop runtime governance concludes before routing beyo
       { code: "ENOENT" },
     );
   } finally {
+    restoreRuntimeAgentConfigs(originalRuntimeAgentConfigs);
     await saveGraph(originalGraph);
     await saveGraphLoopRegistry(originalLoopRegistry);
     await restoreFile(LOOP_SESSION_STATE_FILE, originalLoopSessionState);
+    restoreRuntimeMutableState(originalRuntimeMutableState);
     if (contractId) {
       await rm(getContractPath(contractId), { force: true });
     }

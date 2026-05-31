@@ -18,11 +18,11 @@ export function extractContractScore(contract) {
   return null;
 }
 
-export function extractPipelineScore(pipeline) {
+export function extractLoopRuntimeScore(loopRuntime) {
   const candidates = [
-    pipeline?.feedbackOutput?.result?.score,
-    pipeline?.feedbackOutput?.score,
-    pipeline?.conclusionArtifact?.score,
+    loopRuntime?.feedbackOutput?.result?.score,
+    loopRuntime?.feedbackOutput?.score,
+    loopRuntime?.conclusionArtifact?.score,
   ];
   for (const candidate of candidates) {
     const normalized = normalizeFiniteNumber(candidate, null);
@@ -51,9 +51,9 @@ export function extractContractArtifact(contract) {
   );
 }
 
-export function extractPipelineArtifact(pipeline) {
+export function extractLoopRuntimeArtifact(loopRuntime) {
   return extractArtifactPath(
-    pipeline?.conclusionArtifact
+    loopRuntime?.conclusionArtifact
     || null,
   );
 }
@@ -68,18 +68,18 @@ export function extractContractSummary(contract) {
   ) || null;
 }
 
-export function extractPipelineSummary(pipeline) {
+export function extractLoopRuntimeSummary(loopRuntime) {
   return normalizeString(
-    pipeline?.feedbackOutput?.feedback
-    || pipeline?.feedbackOutput?.result?.summary
-    || pipeline?.concludeReason
-    || pipeline?.requestedTask,
+    loopRuntime?.feedbackOutput?.feedback
+    || loopRuntime?.feedbackOutput?.result?.summary
+    || loopRuntime?.concludeReason
+    || loopRuntime?.requestedTask,
   ) || null;
 }
 
-export function derivePipelineTerminalStatus(pipeline) {
+export function deriveLoopRuntimeTerminalStatus(loopRuntime) {
   const explicit = normalizeString(
-    pipeline?.feedbackOutput?.result?.status
+    loopRuntime?.feedbackOutput?.result?.status
   )?.toLowerCase();
   if (explicit && isTerminalContractStatus(explicit)) {
     return explicit;

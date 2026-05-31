@@ -13,7 +13,7 @@ import {
   loadAgentCardProjection,
 } from "../effective-profile-composer.js";
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
-import { OC } from "../state-paths.js";
+import { defaultAgentWorkspace } from "../state-agent-helpers.js";
 import { MANAGED_BOOTSTRAP_MARKER } from "../soul-template-builder.js";
 import { syncAgentWorkspaceGuidance } from "../workspace-guidance-writer.js";
 import {
@@ -23,6 +23,12 @@ import {
   getManagedGuidanceFilesForRole,
   summarizeLocalAgentDiscovery,
 } from "./agent-enrollment-discovery.js";
+import { scanWorkspaceGuidanceDrift } from "./agent-guidance-drift.js";
+import {
+  backupWorkspaceGuidanceFiles,
+  pruneWorkspaceGuidanceBackups,
+  GUIDANCE_BACKUP_RETENTION,
+} from "./agent-guidance-backup.js";
 
 function parseRequestedGuidanceFiles(rawValue, allowedFiles = GUIDANCE_FILES) {
   const values = Array.isArray(rawValue)
@@ -92,7 +98,7 @@ export async function readLocalAgentGuidancePreview({
   const allowedFileName = assertAllowedGuidanceFile(agent, normalizedFileName);
 
   const workspaceDir = resolve(
-    expandHomePath(agent.workspacePath) || agent.workspacePath || join(OC, "workspaces", normalizedAgentId),
+    expandHomePath(agent.workspacePath) || agent.workspacePath || defaultAgentWorkspace(normalizedAgentId),
   );
   const previewPath = join(workspaceDir, allowedFileName);
   try {
@@ -145,7 +151,7 @@ export async function writeLocalAgentGuidanceContent({
     const allowedFileName = assertAllowedGuidanceFile(agent, normalizedFileName);
 
     const workspaceDir = resolve(
-      expandHomePath(agent.workspacePath) || agent.workspacePath || join(OC, "workspaces", normalizedAgentId),
+      expandHomePath(agent.workspacePath) || agent.workspacePath || defaultAgentWorkspace(normalizedAgentId),
     );
     const nextContent = normalizeManualGuidanceContent(payload?.content);
     await writeFile(join(workspaceDir, allowedFileName), nextContent, "utf8");
@@ -216,20 +222,56 @@ export async function takeOverLocalAgentGuidance({
     if (hasExplicitRequestedFiles && requestedFiles.length === 0) {
       throw new Error(`no valid guidance files requested for ${binding.roleRef}`);
     }
+
+    const backupEnabled = payload?.backup !== false;
+    const workspaceDir = binding.workspace?.effective || defaultAgentWorkspace(agentId);
+
+    const scanBefore = await scanWorkspaceGuidanceDrift({ label: "takeover-pre" });
+    const scanBeforeForAgent = scanBefore.perAgent.find((entry) => entry.agentId === agentId) || null;
+
+    const filesToBackup = requestedFiles.length > 0
+      ? requestedFiles
+      : [...getManagedGuidanceFilesForRole(binding.roleRef)];
+    let backupPaths = [];
+    let backupDir = null;
+    if (backupEnabled) {
+      const backup = await backupWorkspaceGuidanceFiles({
+        workspaceDir,
+        fileNames: filesToBackup,
+      });
+      backupPaths = backup.backupPaths;
+      backupDir = backup.backupDir;
+    }
+
     const updatedFiles = await syncAgentWorkspaceGuidance({
       agentId,
       role: binding.roleRef,
       skills: binding.skills?.effective || [],
-      workspaceDir: binding.workspace?.effective || join(OC, "workspaces", agentId),
+      workspaceDir,
       overwriteCustomGuidance: requestedFiles.length === 0,
       overwriteCustomGuidanceFiles: requestedFiles,
     });
+
+    let prunedBackups = [];
+    if (backupEnabled) {
+      const pruneResult = await pruneWorkspaceGuidanceBackups({
+        workspaceDir,
+        keep: GUIDANCE_BACKUP_RETENTION,
+      });
+      prunedBackups = pruneResult.removed;
+    }
+
+    const scanAfter = await scanWorkspaceGuidanceDrift({ label: "takeover-post" });
+    const scanAfterForAgent = scanAfter.perAgent.find((entry) => entry.agentId === agentId) || null;
 
     const discovery = await summarizeLocalAgentDiscovery();
     const enrolled = discovery.agents.find((entry) => entry.id === agentId) || null;
     logger?.info?.(
       `[watchdog] local agent guidance taken over: ${agentId} `
-      + `(status=${enrolled?.status || "unknown"})`,
+      + `(status=${enrolled?.status || "unknown"}, `
+      + `drift_before=${scanBeforeForAgent?.driftCount ?? "?"}, `
+      + `drift_after=${scanAfterForAgent?.driftCount ?? "?"}, `
+      + `backups=${backupPaths.length})`,
     );
     onAlert?.({
       type: "agent_guidance_taken_over",
@@ -239,6 +281,9 @@ export async function takeOverLocalAgentGuidance({
         ? requestedFiles
         : [...getManagedGuidanceFilesForRole(binding.roleRef)],
       updatedFiles: updatedFiles.filter((entry) => entry.updated).map((entry) => entry.name),
+      backupPaths,
+      driftBefore: scanBeforeForAgent?.driftCount ?? null,
+      driftAfter: scanAfterForAgent?.driftCount ?? null,
       ts: Date.now(),
     });
 
@@ -250,6 +295,15 @@ export async function takeOverLocalAgentGuidance({
         ? requestedFiles
         : [...getManagedGuidanceFilesForRole(binding.roleRef)],
       updatedFiles,
+      backup: {
+        enabled: backupEnabled,
+        backupDir,
+        backupPaths,
+        prunedBackups,
+        retention: GUIDANCE_BACKUP_RETENTION,
+      },
+      scanBefore: scanBeforeForAgent,
+      scanAfter: scanAfterForAgent,
       agent: enrolled,
       discovery,
     };

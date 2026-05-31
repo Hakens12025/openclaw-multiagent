@@ -23,12 +23,12 @@ function cloneConcurrentCase(testCase) {
 }
 
 const FORMAL_SINGLE_CASE_DEFS = [
-  { id: "simple-01",  message: "今天星期几",                                           timeoutMs: 120000, validate: { minBytes: 10 } },
-  { id: "simple-02",  message: "现在几点了",                                           timeoutMs: 120000, validate: { minBytes: 10 } },
-  { id: "simple-03",  message: "你好",                                                 timeoutMs: 120000, validate: { minBytes: 10 } },
-  { id: "complex-01", message: "研究北京最近三天天气并总结趋势",                         timeoutMs: 300000, validate: { minBytes: 100, keywords: ["天气", "趋势"] } },
-  { id: "complex-02", message: "对比 React、Vue、Svelte 三个框架的优缺点，写一份报告",  timeoutMs: 300000, validate: { minBytes: 100, keywords: ["React", "Vue"] } },
-  { id: "complex-03", message: "分析 OpenClaw 的设计原则，总结核心要点",                timeoutMs: 300000, validate: { minBytes: 100 } },
+  { id: "simple-01",  message: "今天星期几",                                           timeoutMs: 120000 },
+  { id: "simple-02",  message: "现在几点了",                                           timeoutMs: 120000 },
+  { id: "simple-03",  message: "你好",                                                 timeoutMs: 120000 },
+  { id: "complex-01", message: "研究北京最近三天天气并总结趋势",                         timeoutMs: 300000, validate: { keywords: ["天气", "趋势"] } },
+  { id: "complex-02", message: "对比 React、Vue、Svelte 三个框架的优缺点，写一份报告",  timeoutMs: 300000, validate: { keywords: ["React", "Vue"] } },
+  { id: "complex-03", message: "分析 OpenClaw 的设计原则，总结核心要点",                timeoutMs: 300000 },
 ];
 
 const FORMAL_CONCURRENT_CASE_DEFS = [

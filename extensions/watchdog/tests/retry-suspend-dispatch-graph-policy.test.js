@@ -2,8 +2,19 @@ import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 
 const dispatchTargetStateMap = new Map();
+const dispatchOutgoingStateMap = new Map();
 const dispatchSharedCalls = [];
-const roundRobinCursorByAgent = new Map();
+let mockGraph = { edges: [] };
+
+function normalizeIncomingDispatchEntry(agentId, entry) {
+  const source = typeof entry === "string" ? { contractId: entry } : (entry && typeof entry === "object" ? entry : {});
+  if (!source.contractId) return null;
+  return {
+    contractId: source.contractId,
+    fromAgent: source.fromAgent || null,
+    targetAgent: agentId,
+  };
+}
 
 mock.module("../lib/state.js", {
   namedExports: {
@@ -17,7 +28,7 @@ mock.module("../lib/state.js", {
 
 mock.module("../lib/agent/agent-graph.js", {
   namedExports: {
-    loadGraph: async () => ({ edges: [] }),
+    loadGraph: async () => mockGraph,
     detectCycles: () => [],
     hasDirectedEdge: (graph, from, to) =>
       (graph?.edges || []).some((edge) => edge.from === from && edge.to === to),
@@ -82,6 +93,12 @@ mock.module("../lib/routing/dispatch-runtime-state.js", {
     claimDispatchTargetContract: async ({ contractId, agentId }) => {
       const state = dispatchTargetStateMap.get(agentId);
       if (!state) return false;
+      state.queue = Array.isArray(state.queue)
+        ? state.queue.filter((entry) => normalizeIncomingDispatchEntry(agentId, entry)?.contractId !== contractId)
+        : [];
+      if (state.dispatchingQueueEntry?.contractId === contractId) {
+        state.dispatchingQueueEntry = null;
+      }
       state.busy = true;
       state.dispatching = false;
       state.currentContract = contractId;
@@ -93,31 +110,74 @@ mock.module("../lib/routing/dispatch-runtime-state.js", {
       state.busy = false;
       state.dispatching = false;
       state.currentContract = null;
+      state.dispatchingQueueEntry = null;
       return true;
     },
     enqueueDispatchContract: (agentId, contractId) => {
       const state = dispatchTargetStateMap.get(agentId);
       if (!state) return false;
       state.queue = Array.isArray(state.queue) ? state.queue : [];
-      if (!state.queue.some((entry) => entry?.contractId === contractId)) {
+      const existingLease = normalizeIncomingDispatchEntry(agentId, state.dispatchingQueueEntry);
+      const exists = existingLease?.contractId === contractId || state.queue.some((entry) => (
+        normalizeIncomingDispatchEntry(agentId, entry)?.contractId === contractId
+      ));
+      if (!exists) {
         state.queue.push({ contractId, fromAgent: "planner" });
       }
       return true;
     },
-    dequeueDispatchContract: async (agentId) => {
+    dequeueDispatchContract: (agentId) => {
       const state = dispatchTargetStateMap.get(agentId);
+      if (state?.dispatchingQueueEntry) return null;
       if (!state || !Array.isArray(state.queue) || state.queue.length === 0) return null;
-      return state.queue.shift();
+      const entry = normalizeIncomingDispatchEntry(agentId, state.queue.shift());
+      if (!entry) return null;
+      state.dispatchingQueueEntry = entry;
+      return entry;
+    },
+    requeueDispatchContractFront: async (agentId, entry) => {
+      const state = dispatchTargetStateMap.get(agentId);
+      if (!state) return false;
+      state.queue = Array.isArray(state.queue) ? state.queue : [];
+      const normalized = normalizeIncomingDispatchEntry(agentId, entry);
+      if (!normalized) return false;
+      if (state.dispatchingQueueEntry?.contractId === normalized.contractId) {
+        state.dispatchingQueueEntry = null;
+      }
+      if (state.queue.some((queued) => normalizeIncomingDispatchEntry(agentId, queued)?.contractId === normalized.contractId)) return false;
+      state.queue.unshift({
+        contractId: normalized.contractId,
+        fromAgent: normalized.fromAgent,
+      });
+      return true;
     },
     getDispatchQueueDepth: (agentId) => {
       const state = dispatchTargetStateMap.get(agentId);
       return Array.isArray(state?.queue) ? state.queue.length : 0;
     },
-    advanceDispatchRoundRobinCursor: (agentId, modulo) => {
-      const normalizedModulo = Number.isInteger(modulo) && modulo > 0 ? modulo : 1;
-      const next = (roundRobinCursorByAgent.get(agentId) ?? 0) % normalizedModulo;
-      roundRobinCursorByAgent.set(agentId, next + 1);
-      return next;
+    enqueueOutgoingDispatchContract: (agentId, contractId, meta = {}) => {
+      const state = dispatchOutgoingStateMap.get(agentId) || { outgoingQueue: [] };
+      state.outgoingQueue = Array.isArray(state.outgoingQueue) ? state.outgoingQueue : [];
+      const entry = {
+        contractId,
+        targetAgent: meta?.targetAgent || null,
+        status: meta?.status || "ready",
+        routeEdge: meta?.routeEdge || null,
+      };
+      const existing = state.outgoingQueue.find((item) => item?.contractId === contractId);
+      if (existing) Object.assign(existing, entry);
+      else state.outgoingQueue.push(entry);
+      dispatchOutgoingStateMap.set(agentId, state);
+      return true;
+    },
+    removeOutgoingDispatchContract: async (agentId, contractId) => {
+      const state = dispatchOutgoingStateMap.get(agentId);
+      if (!state || !Array.isArray(state.outgoingQueue)) return false;
+      const before = state.outgoingQueue.length;
+      state.outgoingQueue = state.outgoingQueue.filter((entry) => entry?.contractId !== contractId);
+      const changed = state.outgoingQueue.length !== before;
+      if (state.outgoingQueue.length === 0) dispatchOutgoingStateMap.delete(agentId);
+      return changed;
     },
   },
 });
@@ -130,6 +190,10 @@ mock.module("../lib/agent/agent-identity.js", {
 
 mock.module("../lib/store/tracker-store.js", {
   namedExports: {
+    deleteUnclaimedTrackingSessionForContract: () => ({
+      removed: true,
+      reason: "mock_cleanup",
+    }),
     waitForTrackingContractClaim: async (sessionKey, contractId) => ({
       claimed: true,
       sessionKey,
@@ -141,7 +205,6 @@ mock.module("../lib/store/tracker-store.js", {
 
 mock.module("../lib/role-spec-registry.js", {
   namedExports: {
-    getDispatchInstruction: () => "do the task",
     getRoleSummary: () => "planner summary",
   },
 });
@@ -156,10 +219,11 @@ const api = {};
 
 test("retry-suspended non-worker agent must stay busy and must not drain queued work", async () => {
   dispatchTargetStateMap.clear();
+  dispatchOutgoingStateMap.clear();
   dispatchSharedCalls.length = 0;
-  roundRobinCursorByAgent.clear();
 
   const agentId = `planner-retry-${Date.now()}`;
+  mockGraph = { edges: [{ from: "planner", to: agentId }] };
   dispatchTargetStateMap.set(agentId, {
     busy: false,
     dispatching: false,

@@ -1,11 +1,11 @@
-  /* ── PIPELINE GRAPH ── */
-  .pipeline-label-meta {
+  /* ── RUNTIME GRAPH ── */
+  .runtime-graph-label-meta {
     display: inline-flex;
     align-items: center;
     gap: 8px;
   }
-  .pipeline-loop-state,
-  .pipeline-progress-state {
+  .runtime-graph-loop-state,
+  .runtime-graph-progress-state {
     display: none;
     font-size: 11px;
     letter-spacing: 0.06em;
@@ -14,98 +14,93 @@
     color: var(--text-secondary);
     background: rgba(254,249,236,0.9);
   }
-  .pipeline-loop-state.visible,
-  .pipeline-progress-state.visible {
+  .runtime-graph-loop-state.visible,
+  .runtime-graph-progress-state.visible {
     display: inline-block;
   }
-  .pipeline-loop-state.active {
+  .runtime-graph-loop-state.active {
     color: var(--bg-primary);
     background: var(--accent-green);
     border-color: var(--accent-green);
   }
-  .pipeline-loop-state.ready {
+  .runtime-graph-loop-state.ready {
     color: var(--bg-primary);
     background: var(--accent-orange);
     border-color: var(--accent-orange);
   }
-  .pipeline-loop-state.idle {
+  .runtime-graph-loop-state.idle {
     color: var(--text-secondary);
     background: rgba(245,239,223,0.92);
   }
-  .pipeline-loop-state.broken {
+  .runtime-graph-loop-state.broken {
     color: var(--bg-primary);
     background: var(--accent-red);
     border-color: var(--accent-red);
   }
-  .pipeline-progress-state.active {
+  .runtime-graph-progress-state.active {
     color: var(--bg-primary);
     background: var(--accent-blue);
     border-color: var(--accent-blue);
   }
-  .pipeline-progress-state.done {
+  .runtime-graph-progress-state.done {
     color: var(--bg-primary);
     background: var(--accent-green);
     border-color: var(--accent-green);
   }
-  .pipeline-progress-state.hold {
+  .runtime-graph-progress-state.hold {
     color: var(--accent-amber);
     border-color: rgba(184,134,11,0.55);
     background: rgba(184,134,11,0.1);
   }
-  .pipeline-progress-state.agent {
+  .runtime-graph-progress-state.agent {
     color: var(--bg-primary);
     background: var(--accent-orange);
     border-color: var(--accent-orange);
   }
-  .pipeline-progress-state.error {
+  .runtime-graph-progress-state.error {
     color: var(--bg-primary);
     background: var(--accent-red);
     border-color: var(--accent-red);
   }
-  .pipeline-progress-state.idle {
+  .runtime-graph-progress-state.idle {
     color: var(--text-secondary);
     background: rgba(245,239,223,0.92);
   }
 
-  /* ── CENTER PANEL: PIPELINE ── */
+  /* ── CENTER PANEL: RUNTIME GRAPH ── */
   .panel-center {
     padding: 0; overflow: hidden;
     display: flex; flex-direction: column;
     animation: system-boot 0.6s ease-out 0.2s both;
   }
-  .pipeline-wrap {
+  .runtime-graph-wrap {
     position: relative;
     flex: 1; display: flex; align-items: center; justify-content: center;
-    padding-top: var(--pipeline-wrap-padding-top, 16px);
-    padding-right: var(--pipeline-wrap-padding-right, 12px);
-    padding-bottom: var(--pipeline-wrap-padding-bottom, 16px);
-    padding-left: var(--pipeline-wrap-padding-left, 12px);
+    padding-top: var(--runtime-graph-wrap-padding-top, 16px);
+    padding-right: var(--runtime-graph-wrap-padding-right, 12px);
+    padding-bottom: var(--runtime-graph-wrap-padding-bottom, 16px);
+    padding-left: var(--runtime-graph-wrap-padding-left, 12px);
     min-height: 460px;
     overflow: hidden;
   }
-  .pipeline-svg {
+  .runtime-graph-svg {
     width: 100%; height: auto;
-    max-height: var(--pipeline-svg-max-height, calc(100vh - 210px));
+    max-height: var(--runtime-graph-svg-max-height, calc(100vh - 210px));
     cursor: grab;
   }
-  .pipeline-svg:active { cursor: grabbing; }
+  .runtime-graph-svg:active { cursor: grabbing; }
 
   /* SVG node styles */
   .svg-node-box {
     fill: var(--bg-tertiary); stroke: var(--border-primary); stroke-width: 2;
     transition: stroke 0.3s, fill 0.3s, stroke-width 0.15s;
   }
-  .pipeline-node:hover .svg-node-box {
+  .runtime-graph-node:hover .svg-node-box {
     stroke-width: 3;
     stroke: var(--accent-orange);
   }
-  /* svg-role-bar removed */
   .svg-node-box.active { stroke: var(--accent-orange); fill: var(--bg-primary); }
   .svg-node-box.receiving { stroke: var(--accent-green); fill: var(--bg-primary); }
-  .svg-node-box.dispatching {
-    stroke: var(--accent-amber);
-    animation: dispatch-pulse 2s infinite;
-  }
   /* .link-armed styles moved to LINK ARMED MODE section below */
 
   .svg-node-name {
@@ -125,25 +120,65 @@
     fill: var(--text-secondary); text-anchor: middle;
     transition: fill 0.3s;
   }
-  .queue-bookmark {
-    fill: rgba(200,117,51,0.45);
-    stroke: var(--accent-orange);
-    stroke-width: 1;
+  .contract-flow-card {
+    cursor: pointer;
+    transition: opacity 0.22s ease, transform 0.28s ease;
   }
-  .queue-bookmark.primary {
-    fill: var(--accent-orange);
+  .contract-lane-overlay,
+  .contract-lane-anchor {
+    overflow: visible;
   }
-  .queue-bookmark-count {
+  .contract-flow-card-visual {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.2, 1), filter 0.18s ease;
+  }
+  .contract-flow-card:hover .contract-flow-card-visual {
+    transform: translateY(-10px) scale(1.08);
+    filter: drop-shadow(0 8px 10px rgba(0,0,0,0.2));
+  }
+  .contract-flow-card-box {
+    fill: rgba(200,117,51,0.66);
+    transition: fill 0.2s ease, filter 0.2s ease;
+  }
+  .contract-flow-card.lane-running .contract-flow-card-box {
+    fill: rgba(72,118,170,0.82);
+  }
+  .contract-flow-card.status-blocked .contract-flow-card-box {
+    fill: rgba(168,48,48,0.7);
+  }
+  .contract-flow-card.primary .contract-flow-card-box {
+    filter: brightness(1.12);
+  }
+  .contract-flow-overflow {
     font-family: "Courier New", monospace;
-    font-size: 10px;
+    font-size: 9px;
     fill: var(--accent-orange);
     letter-spacing: 0.04em;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+  }
+  .contract-flow-ghost {
+    pointer-events: none;
+    opacity: 0;
+    animation: contract-flow-ghost-fade 1.2s ease-out forwards;
+    filter: drop-shadow(0 0 8px rgba(72,118,170,0.55));
+  }
+  .contract-flow-ghost-box {
+    fill: rgba(72,118,170,0.84);
+    stroke: var(--accent-blue);
+    stroke-width: 1.5;
+  }
+  @keyframes contract-flow-ghost-fade {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    82% { opacity: 1; }
+    100% { opacity: 0; }
   }
   .svg-status-dot { fill: var(--border-secondary); transition: fill 0.3s; }
   .svg-status-dot.idle { fill: var(--accent-amber); }
   .svg-status-dot.running { fill: var(--accent-green); animation: data-refresh 1.5s infinite; }
   .svg-status-dot.error { fill: var(--accent-red); }
-  .svg-status-dot.dispatching { fill: var(--accent-amber); animation: dispatch-pulse 2s infinite; }
 
   @keyframes svg-dash-flow {
     to { stroke-dashoffset: -21; }
@@ -234,15 +269,25 @@
   .flow-dynamic-group.highlight .flow-dynamic-label {
     font-weight: bold;
   }
+  .flow-dynamic-group.contract-flow-pulse .flow-dynamic {
+    stroke: var(--accent-blue);
+    stroke-width: 4;
+    animation: contract-flow-flash 1.4s ease-out;
+  }
 
   @keyframes flow-pulse {
     0% { stroke-opacity: 0; }
     50% { stroke-opacity: 1; }
     100% { stroke-opacity: 0; }
   }
+  @keyframes contract-flow-flash {
+    0% { stroke-opacity: 0.2; }
+    35% { stroke-opacity: 1; }
+    100% { stroke-opacity: 0.35; }
+  }
 
   /* ── INTERACTIVE: TOOLBAR ── */
-  .pipeline-toolbar {
+  .runtime-graph-toolbar {
     position: absolute;
     top: 12px;
     left: 12px;
@@ -278,7 +323,7 @@
   .model-picker-item:hover { background: rgba(200,117,51,0.2); color: var(--accent-orange); }
 
   /* ── INTERACTIVE: DRAGGABLE NODES ── */
-  .pipeline-node { cursor: default; }
+  .runtime-graph-node { cursor: default; }
   .svg-node-model.clickable { cursor: pointer; }
   .svg-node-model.clickable:hover { fill: var(--accent-orange); }
 
@@ -305,16 +350,16 @@
   body.edit-mode {
     --dashboard-left-column: 248px;
     --dashboard-right-column: 300px;
-    --pipeline-wrap-padding-top: 72px;
-    --pipeline-wrap-padding-right: 10px;
-    --pipeline-wrap-padding-bottom: 10px;
-    --pipeline-wrap-padding-left: 10px;
-    --pipeline-svg-max-height: calc(100vh - 178px);
+    --runtime-graph-wrap-padding-top: 72px;
+    --runtime-graph-wrap-padding-right: 10px;
+    --runtime-graph-wrap-padding-bottom: 10px;
+    --runtime-graph-wrap-padding-left: 10px;
+    --runtime-graph-svg-max-height: calc(100vh - 178px);
   }
   body.edit-mode .edit-toolbar { display: flex; }
-  body.edit-mode .pipeline-svg { outline: 2px dashed var(--accent-orange); outline-offset: -2px; }
-  body.edit-mode .pipeline-node { cursor: grab; }
-  .pipeline-node.dragging { cursor: grabbing; opacity: 0.8; }
+  body.edit-mode .runtime-graph-svg { outline: 2px dashed var(--accent-orange); outline-offset: -2px; }
+  body.edit-mode .runtime-graph-node { cursor: grab; }
+  .runtime-graph-node.dragging { cursor: grabbing; opacity: 0.8; }
   body:not(.edit-mode) .svg-node-model.clickable { cursor: default; }
   body:not(.edit-mode) .svg-node-model.clickable:hover { fill: var(--accent-orange); text-decoration: none; }
 
@@ -365,8 +410,8 @@
   .tip-active { color: var(--accent-green); }
 
   /* ── HOVER HIGHLIGHT ── */
-  .pipeline-node { transition: opacity 0.3s; }
-  .pipeline-node.dimmed { opacity: 0.4; }
+  .runtime-graph-node { transition: opacity 0.3s; }
+  .runtime-graph-node.dimmed { opacity: 0.4; }
 
   /* ── INTERACTIVE: AGENT DIALOG ── */
   .agent-dialog {
@@ -417,7 +462,7 @@
       grid-column: 1;
       max-height: 400px;
     }
-    .pipeline-label-meta {
+    .runtime-graph-label-meta {
       flex-wrap: wrap;
       justify-content: flex-end;
     }
@@ -467,16 +512,6 @@
     fill: var(--accent-orange);
   }
 
-  /* Drawing mode: temporary edge line */
-  .graph-edge-drawing {
-    stroke: var(--accent-blue);
-    stroke-width: 2;
-    stroke-dasharray: 8 4;
-    opacity: 0.6;
-    fill: none;
-    pointer-events: none;
-  }
-
   /* Cycle highlight on nodes */
   .svg-node-box.in-cycle {
     stroke: var(--accent-orange) !important;
@@ -518,7 +553,7 @@
   /* MODEL SELECT MODE — visual feedback when MODEL button is active           */
   /* ══════════════════════════════════════════════════════════════════════════ */
 
-  body.model-select-mode .pipeline-node .svg-node-box {
+  body.model-select-mode .runtime-graph-node .svg-node-box {
     stroke: var(--accent-orange);
     stroke-width: 2.5;
     animation: model-select-invite 1.5s ease-in-out infinite;
@@ -534,12 +569,12 @@
     0%, 100% { opacity: 0.6; }
     50% { opacity: 1; }
   }
-  body.model-select-mode .pipeline-node:hover .svg-node-box {
+  body.model-select-mode .runtime-graph-node:hover .svg-node-box {
     stroke-width: 4;
     fill: rgba(200, 117, 51, 0.12);
     animation: none;
   }
-  body.model-select-mode .pipeline-node { cursor: pointer; }
+  body.model-select-mode .runtime-graph-node { cursor: pointer; }
 
   .model-select-banner {
     font-family: "Courier New", monospace;
@@ -577,14 +612,14 @@
     0%, 100% { stroke-opacity: 0.3; }
     50% { stroke-opacity: 0.7; }
   }
-  .pipeline-node:hover .svg-node-box.link-target-candidate {
+  .runtime-graph-node:hover .svg-node-box.link-target-candidate {
     stroke-dasharray: none;
     stroke-width: 3;
     stroke-opacity: 1;
     fill: rgba(46, 95, 168, 0.1);
     animation: none;
   }
-  body.link-armed-mode .pipeline-node { cursor: crosshair; }
+  body.link-armed-mode .runtime-graph-node { cursor: crosshair; }
 
   /* ── Edge preview line (mouse-follow) ── */
   .graph-edge-preview {
@@ -604,3 +639,125 @@
     transition: opacity 0.3s;
   }
   .graph-edge-group:hover .graph-edge-port { opacity: 0.8; }
+
+  /* ── Register cycle as loop (button + modal) ── */
+  .graph-cycle-register-btn {
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 2px 10px;
+    margin-left: 8px;
+    color: var(--accent-orange);
+    background: transparent;
+    border: 1px solid var(--accent-orange);
+    cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease;
+    animation: cycle-register-appear 0.24s ease-out both;
+  }
+  .graph-cycle-register-btn:hover {
+    color: var(--bg-primary);
+    background: var(--accent-orange);
+  }
+  @keyframes cycle-register-appear {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .graph-loop-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 18, 12, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: graph-loop-overlay-fade 0.18s ease-out both;
+  }
+  @keyframes graph-loop-overlay-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .graph-loop-modal {
+    width: 320px;
+    max-width: calc(100vw - 40px);
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-orange);
+    padding: 16px;
+    font-family: "Courier New", monospace;
+    animation: graph-loop-modal-rise 0.22s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  }
+  @keyframes graph-loop-modal-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .graph-loop-modal-title {
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--accent-orange);
+    margin-bottom: 8px;
+  }
+  .graph-loop-modal-cycle {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    padding: 4px 8px;
+    margin-bottom: 12px;
+    word-break: break-word;
+  }
+  .graph-loop-modal-label {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin: 8px 0 3px;
+  }
+  .graph-loop-modal-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    padding: 4px 6px;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    transition: border-color 0.2s ease;
+  }
+  .graph-loop-modal-input:focus {
+    outline: none;
+    border-color: var(--accent-orange);
+  }
+  .graph-loop-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .graph-loop-modal-btn {
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 4px 12px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border-secondary);
+    cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .graph-loop-modal-btn:hover {
+    color: var(--bg-primary);
+    background: var(--text-secondary);
+  }
+  .graph-loop-modal-btn.primary {
+    color: var(--accent-orange);
+    border-color: var(--accent-orange);
+  }
+  .graph-loop-modal-btn.primary:hover {
+    color: var(--bg-primary);
+    background: var(--accent-orange);
+  }
+  .graph-loop-modal-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }

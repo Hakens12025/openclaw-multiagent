@@ -1,18 +1,14 @@
-// lib/execution-policy-defaults.js — executionPolicy defaults by role
-//
-// Role-based defaults are a transitional bridge. Long-term, each agent
-// should have an explicit executionPolicy in its binding.  When most agents
-// carry their own config, role defaults can be shrunk or removed.
+// lib/execution-policy-defaults.js — executionPolicy defaults by role.
+// maxToolCalls is the formal tool-budget truth; the bare MAX_TOOL_CALLS
+// constant previously used as a compat fallback has been retired.
 
-import { AGENT_ROLE } from "./agent/agent-metadata.js";
+export const DEFAULT_MAX_TOOL_CALLS = 50;
 
-// DRAFT lifecycle eliminated: ingress creates PENDING directly, dispatch-graph-policy handles dispatch.
-// planRequired/draftLifecycle/autoPromoteTimeout removed (plan-dispatch-service deleted).
-const EXECUTION_POLICY_DEFAULTS = Object.freeze({});
+const DEFAULT_POLICY = Object.freeze({ maxToolCalls: DEFAULT_MAX_TOOL_CALLS });
 
 export function getDefaultExecutionPolicy(role) {
   if (!role) return null;
-  return EXECUTION_POLICY_DEFAULTS[role] || null;
+  return DEFAULT_POLICY;
 }
 
 export function mergeExecutionPolicy(defaults, configured) {
@@ -27,4 +23,10 @@ export function mergeExecutionPolicy(defaults, configured) {
     }
   }
   return merged;
+}
+
+export function resolveMaxToolCallsFromPolicy(executionPolicy) {
+  const configured = Number(executionPolicy?.maxToolCalls);
+  if (Number.isFinite(configured) && configured > 0) return Math.trunc(configured);
+  return DEFAULT_MAX_TOOL_CALLS;
 }

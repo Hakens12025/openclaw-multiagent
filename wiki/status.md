@@ -1,50 +1,53 @@
 # 项目状态
 
-> 最后更新: 2026-04-14
+> 最后更新: 2026-05-30
 
 ## 当前位置
 
-- 最近完成的活跃收口：备忘录114/115（四层联动编译版 + HarnessModule 接口冻结入口）
-- one-shot runtime truth 已进入运行时主链
-- CLI system 第一版统一 registry 已落地
-- 备忘录进度: 115 号
-- Wiki: active concepts / decisions 已开始按四层联动编译版对齐
+- **2026-05-30 全面修复完成（W0-W8）**：核心正确性/安全/真值/架构已修，卫生层 god-object 部分拆分（64→约 28 非测试 JS），详见备忘录119。分支 `repair/audit-2026-05-29`，串行门 1186 pass / 0 fail，尚未 push/tag。
+- 系统真值 v5.1 主线已落地：managed guidance、typed wake、pending-signal registry、execution epoch、controller/operator 边界、QQ `[ACTION]` 收口、bare max tool budget 退休。
+- runtime graph 是协作拓扑真值；queue、claim、drain、heartbeat actionability 均由 runtime 状态决定。
+- `prompt-craft` 已收口为 OpenClaw Prompt Standard：minimal useful prompt，协议真值留在 runtime 对象与正式 surface。
+- CLI system / Harness / Operator / Automation 继续按四层联动看待：执行塑形、可操作表面、治理消费、长期演化。
 
 ## 当前活跃拓扑
 
-controller + planner(+plan2) + worker(+worker2) — 无专职 reviewer/researcher/contractor
+controller + planner + worker + worker2/worker-N。operator 是隐藏 runtime control agent，入口在 runtime operator surface，不进入主 agent 视角。
 
 ## 当前最直接的架构债务
 
-1. **`system_action / 角色唤醒 / 外部直达入口` 总规约未最终钉死** — 三条路径仍缺最后一份统一规则
-2. **`HarnessModule` 接口还没正式冻结** — definition / input / result 仍散在实现里
-3. **one-shot 中层对象消费面未彻底闭合** — `ExecutionObservation / TerminalOutcome` 仍需继续向 harness / automation / lifecycle 投影统一
-4. **深水区仍缺一条真实端到端样例** — `Harness -> CLI system -> Operator -> Automation` 还未完整压测
+1. **god-object 剩余约 28 个**（前端 9 个 dashboard IIFE/闭包态；qqbot gateway.ts=1593 行；少数后端纠缠）— 需先补测试基础设施再拆。
+2. **Path B（loop-session）完全引用化**、**OUTBOX_COMMIT_KINDS 单源化** — 格式变更/循环依赖，需独立任务。
+3. **reviewPolicy schema、AgentGroup、WakeEvent** — 骨架未落地，按 Q1 搁置。
+4. **automation trustLevel / profile-lifecycle 治理链** — 仍残缺。
+5. **agent-graph.json 补边**（worker-3/4/operator/reviewer 不可达）— 需独立任务。
+6. **HarnessModule 与 CLISurface schema 仍需完全冻结** — 接口对象已经存在，schema / docs / guard 需要继续收口。
 
 ## 阻塞关系
 
 ```
-system_action / 角色唤醒 / 外部直达入口 总规约未定
-  → 协作入口语义仍可能继续分叉
+prompt 标准未被 guard 化
+  → agent-facing 文案容易重新承担 runtime truth
 
-one-shot 中层对象消费面未闭合
-  → harness / automation / lifecycle projection 难以完全共用同一真值
+queue 并发证据不足
+  → live simple/complex 稳定性难以区分系统故障与模型故障
 ```
 
 ## 方向已冻结、接口待实现的重要对象
 
 | 对象 | 来源 | 状态 |
 |------|------|------|
-| WakeEvent → WakeRule → WakeDecision | 备忘录84 | 概念设计完成 |
+| WakeEvent / typed wake envelope | 备忘录84 / 118 | typed envelope 主线已落地，持续清理旧 string 语义 |
 | ExecutionObservation + TerminalOutcome | 备忘录100 | 主干已部分落地，仍待消费面继续统一 |
 | AutomationDecision + ProfileLifecycle | 备忘录80 | 方向稳定，接口未落地 |
 | reviewPolicy schema | 备忘录88 | 概念设计完成 |
 | AgentGroup 图原语 | 备忘录85 | 概念设计完成 |
 | HarnessModule formal interface | 备忘录115 | 入口已建立，待写 schema / tests |
+| OpenClaw Prompt Standard | 2026-05-04 清洁批次 | 已落到 `skills/prompt-craft/SKILL.md`，guard 已接入 |
 
 ## 下一步建议
 
-1. 先冻结 `HarnessModule` 正式接口和 `CLISurface` schema
-2. 再把 `system_action / 角色唤醒 / 外部直达入口` 的统一规则钉死
-3. 跑一条真实 `Harness -> CLI system -> Operator -> Automation` 样例
-4. 每轮实现后立即更新 active wiki / active guide
+1. 完成 prompt / operator / admin / dashboard / wiki 用户可见旧语义清洁。
+2. 用 guard 固定 OpenClaw Prompt Standard 与 runtime graph wording。
+3. 继续跑 simple/complex 并发，按 runtime evidence 区分模型慢、LLM 输出错、queue 故障。
+4. 冻结 `HarnessModule` 与 `CLISurface` schema 后，再推进 `Harness -> CLI system -> Operator -> Automation` 样例。

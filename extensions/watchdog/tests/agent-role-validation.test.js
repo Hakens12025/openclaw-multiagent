@@ -46,6 +46,18 @@ test("createAgentDefinition rejects unsupported role strings", async () => {
   }
 });
 
+test("createAgentDefinition rejects reserved control-layer ids", async () => {
+  await assert.rejects(
+    () => createAgentDefinition({
+      id: "harness",
+      role: "agent",
+      model: "ark-anthropic/deepseek-v3.2",
+      logger,
+    }),
+    /reserved control-layer id/i,
+  );
+});
+
 test("changeAgentRole rejects unsupported role strings", async () => {
   const tempAgentId = `role-invalid-change-${Date.now()}`;
 
@@ -102,4 +114,16 @@ test("joinLocalAgentDefinition rejects unsupported role strings", async () => {
     }).catch(() => {});
     await rm(agentWorkspace(tempAgentId), { recursive: true, force: true });
   }
+});
+
+test("joinLocalAgentDefinition rejects reserved control-layer ids", async () => {
+  await assert.rejects(
+    () => joinLocalAgentDefinition({
+      payload: {
+        agentId: "cli-system",
+      },
+      logger,
+    }),
+    /reserved control-layer id/i,
+  );
 });

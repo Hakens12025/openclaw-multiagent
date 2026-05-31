@@ -14,7 +14,7 @@ export const PROTOCOL_ID = Object.freeze({
   }),
   DELIVERY: Object.freeze({
     TERMINAL: "delivery:terminal",
-    SYSTEM_ACTION_CONTRACT_RESULT: "delivery:system_action_contract_result",
+    SYSTEM_ACTION_RUNTIME_RESULT: "delivery:system_action_runtime_result",
     SYSTEM_ACTION_ASSIGN_TASK_RESULT: "delivery:system_action_assign_task_result",
     SYSTEM_ACTION_REVIEW_VERDICT: "delivery:system_action_review_verdict",
   }),

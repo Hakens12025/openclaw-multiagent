@@ -1,11 +1,20 @@
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
+import { validateHarnessModuleDefinition } from "./harness-module-schema.js";
 
 function freezeCatalog(values) {
-  return Object.freeze(values.map((entry) => Object.freeze({
-    id: entry.id,
-    kind: entry.kind,
-    hardShaped: Object.freeze(uniqueStrings(entry.hardShaped || [])),
-  })));
+  return Object.freeze(values.map((entry) => {
+    const { ok, problems } = validateHarnessModuleDefinition(entry);
+    if (!ok) {
+      throw new Error(
+        `[harness-module-catalog] invalid HarnessModuleDefinition (id=${entry?.id}): ${problems.join("; ")}`,
+      );
+    }
+    return Object.freeze({
+      id: entry.id,
+      kind: entry.kind,
+      hardShaped: Object.freeze(uniqueStrings(entry.hardShaped || [])),
+    });
+  }));
 }
 
 const HARNESS_MODULE_CATALOG = freezeCatalog([

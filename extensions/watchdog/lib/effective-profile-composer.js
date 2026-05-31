@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { resolveDefaultHeartbeatEvery } from "./agent/agent-admin-defaults.js";
 import { composeDefaultSkillRefs } from "./agent/agent-binding-policy.js";
+import { resolveActorPlanePolicy } from "./agent/agent-plane-policy.js";
 import {
   normalizeStoredAgentModelRef,
   readStoredAgentBinding,
@@ -15,7 +16,8 @@ import {
 } from "./execution-policy-defaults.js";
 import { normalizeRecord, normalizeString, uniqueStrings, uniqueTools } from "./core/normalize.js";
 import { readJsonFile } from "./state-file-utils.js";
-import { HOME, OC } from "./state.js";
+import { defaultAgentWorkspace } from "./state-agent-helpers.js";
+import { HOME, OC } from "./state-paths.js";
 
 function normalizeAgentModel(model) {
   return normalizeStoredAgentModelRef(model) || "unknown";
@@ -32,7 +34,7 @@ export async function loadAgentCardProjection(agentConfig) {
   const agentId = normalizeString(agentConfig?.id) || storedBinding.agentId || "unknown";
   const workspaceDir = expandHomePath(agentConfig?.workspace)
     || expandHomePath(storedBinding.workspace?.configured)
-    || join(OC, `workspaces/${agentId}`);
+    || defaultAgentWorkspace(agentId);
   const paths = [
     join(workspaceDir, "agent-card.json"),
     join(OC, "workspaces", "_configs", `${agentId}-agent-card.json`),
@@ -72,8 +74,10 @@ export function composeAgentBinding({
     agentId,
     roleRef: normalizedRole,
     workspace: {
-      configured: expandHomePath(storedBinding.workspace?.configured),
-      effective: expandHomePath(storedBinding.workspace?.configured) || join(OC, `workspaces/${agentId}`),
+      configured: expandHomePath(agentConfig?.workspace) || expandHomePath(storedBinding.workspace?.configured),
+      effective: expandHomePath(agentConfig?.workspace)
+        || expandHomePath(storedBinding.workspace?.configured)
+        || defaultAgentWorkspace(agentId),
     },
     model: {
       ref: normalizeAgentModel(storedBinding.model?.ref),
@@ -102,6 +106,9 @@ export function composeAgentBinding({
         getDefaultExecutionPolicy(normalizedRole),
         storedBinding.policies?.executionPolicy,
       ),
+      // P6-Phase0: 通用 binding policy 投影（无默认合并——纯配置，Phase1 才接消费者）。
+      outputPolicy: storedBinding.policies?.outputPolicy || null,
+      inboxPolicy: storedBinding.policies?.inboxPolicy || null,
     },
   };
 }
@@ -124,19 +131,19 @@ export function composeEffectiveProfile({
   });
   const baseCapabilities = normalizeRecord(binding.capabilities?.defaults);
   const tools = uniqueTools(
-    binding.capabilities?.projected?.tools
-    || binding.capabilities?.configured?.tools
+    binding.capabilities?.configured?.tools
     || agentConfig?.tools?.allow
+    || binding.capabilities?.projected?.tools
     || baseCapabilities.tools,
   );
   const outputFormats = uniqueStrings(
-    binding.capabilities?.projected?.outputFormats
-    || binding.capabilities?.configured?.outputFormats
+    binding.capabilities?.configured?.outputFormats
+    || binding.capabilities?.projected?.outputFormats
     || baseCapabilities.outputFormats,
   );
   const inputFormats = uniqueStrings(
-    binding.capabilities?.projected?.inputFormats
-    || binding.capabilities?.configured?.inputFormats
+    binding.capabilities?.configured?.inputFormats
+    || binding.capabilities?.projected?.inputFormats
     || baseCapabilities.inputFormats,
   );
   const outboxCommitKinds = uniqueStrings(
@@ -158,6 +165,22 @@ export function composeEffectiveProfile({
     ...(routerHandlerId ? { routerHandlerId } : {}),
     ...(binding.skills?.effective?.length ? { skills: binding.skills.effective } : {}),
   };
+  const actorPolicy = resolveActorPlanePolicy({
+    agentId: binding.agentId,
+    configuredPlane: agentConfig?.plane || null,
+    configuredMainViewVisible: typeof agentConfig?.mainViewVisible === "boolean"
+      ? agentConfig.mainViewVisible
+      : null,
+    configuredFormalTimelineVisible: typeof agentConfig?.formalTimelineVisible === "boolean"
+      ? agentConfig.formalTimelineVisible
+      : null,
+    configuredAutoWakeEligible: typeof agentConfig?.autoWakeEligible === "boolean"
+      ? agentConfig.autoWakeEligible
+      : null,
+    role: binding.roleRef,
+    gateway: binding.policies?.gateway === true,
+    ingressSource: binding.policies?.ingressSource || null,
+  });
 
   return {
     id: binding.agentId,
@@ -178,6 +201,10 @@ export function composeEffectiveProfile({
     protected: binding.policies?.protected === true,
     ingressSource: binding.policies?.ingressSource || null,
     specialized: binding.policies?.specialized === true,
+    plane: actorPolicy.plane,
+    mainViewVisible: actorPolicy.mainViewVisible,
+    formalTimelineVisible: actorPolicy.formalTimelineVisible,
+    autoWakeEligible: actorPolicy.autoWakeEligible,
     policies: binding.policies,
     binding,
   };

@@ -12,11 +12,11 @@ import {
 } from "./stage-results.js";
 import { normalizeExecutionObservation } from "./execution-observation.js";
 import {
-  normalizeBoolean,
   normalizeFiniteNumber,
   normalizeRecord,
   normalizeString,
 } from "./core/normalize.js";
+import { classifyRuntimeControlPayload } from "./runtime-user-facing-output.js";
 
 function normalizeArtifactRequirement(requirement) {
   if (!requirement) return null;
@@ -28,6 +28,7 @@ function normalizeArtifactRequirement(requirement) {
       path: requirement.path,
       label: requirement.label || requirement.path,
       nonEmpty: requirement.nonEmpty === true,
+      semanticText: requirement.semanticText === true,
       jsonPaths: Array.isArray(requirement.jsonPaths) ? requirement.jsonPaths : [],
     };
   }
@@ -50,6 +51,18 @@ async function inspectArtifact(requirement) {
     }
     if (requirement.nonEmpty && fileStat.size <= 0) {
       return { ok: false, label: requirement.label, path: normalizedPath, reason: "empty_file" };
+    }
+    if (requirement.semanticText) {
+      const raw = await readFile(normalizedPath, "utf8");
+      const invalidPayloadReason = classifyRuntimeControlPayload(raw, { outputPath: normalizedPath });
+      if (invalidPayloadReason) {
+        return {
+          ok: false,
+          label: requirement.label,
+          path: normalizedPath,
+          reason: `invalid_semantic_payload:${invalidPayloadReason}`,
+        };
+      }
     }
     if (requirement.jsonPaths?.length) {
       const raw = await readFile(normalizedPath, "utf8");
@@ -80,21 +93,49 @@ function buildFallbackRequirements(contract) {
   if (contract?.completionCriteria?.requireDefaultOutputArtifact === false) {
     return [];
   }
-  if (contract?.output) {
-    return [{ path: contract.output, label: "output", nonEmpty: true }];
+  const outputPath = normalizeString(contract?.output);
+  if (!outputPath) {
+    return [];
   }
-  return [];
+  return [{
+    path: outputPath,
+    label: "contract.output",
+    nonEmpty: true,
+    semanticText: true,
+  }];
 }
 
-function deriveTestsPassed(reviewerResult, contractResult, verdict) {
-  const reviewerTestsPassed = normalizeBoolean(reviewerResult?.testsPassed);
+function shouldCheckStageArtifactSemanticText(artifact) {
+  const type = normalizeString(artifact?.type)?.toLowerCase() || "";
+  return type === "text_output" || type === "notes" || type === "delivery";
+}
+
+function buildStageArtifactRequirements(stageRunResult, rawObservation) {
+  void rawObservation;
+  return (Array.isArray(stageRunResult?.artifacts) ? stageRunResult.artifacts : [])
+    .filter((artifact) => artifact?.required !== false)
+    .map((artifact) => normalizeArtifactRequirement({
+      path: artifact.path,
+      label: artifact.label || artifact.type || artifact.path,
+      nonEmpty: true,
+      semanticText: shouldCheckStageArtifactSemanticText(artifact),
+      jsonPaths: Array.isArray(artifact.jsonPaths) ? artifact.jsonPaths : [],
+    }))
+    .filter(Boolean);
+}
+
+function normalizeNullableBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const s = typeof value === "string" ? value.trim().toLowerCase() : null;
+  if (s === "true" || s === "yes" || s === "1") return true;
+  if (s === "false" || s === "no" || s === "0") return false;
+  return null;
+}
+
+function deriveTestsPassed(reviewerResult, verdict) {
+  const reviewerTestsPassed = normalizeNullableBoolean(reviewerResult?.testsPassed);
   if (reviewerTestsPassed != null) {
     return reviewerTestsPassed;
-  }
-
-  const contractTestsPassed = normalizeBoolean(contractResult?.testsPassed);
-  if (contractTestsPassed != null) {
-    return contractTestsPassed;
   }
 
   if (verdict === "pass" || verdict === "improved") {
@@ -110,25 +151,20 @@ function deriveTestsPassed(reviewerResult, contractResult, verdict) {
 function buildObservationOutcomeEvidence(observation, {
   stageRunResult = null,
   stageCompletion = null,
-  contractResult = null,
 } = {}) {
   const reviewerResult = normalizeRecord(observation?.reviewerResult, null);
-  const reportedContractResult = normalizeRecord(contractResult, null);
   const verdict = normalizeString(
-    reviewerResult?.verdict
-    || reportedContractResult?.verdict,
+    reviewerResult?.verdict,
   )?.toLowerCase() || null;
   const summary = normalizeString(
     stageRunResult?.summary
-    || reportedContractResult?.summary
-    || reportedContractResult?.detail
     || stageCompletion?.feedback,
   ) || null;
   const score = normalizeFiniteNumber(
-    reviewerResult?.score ?? reportedContractResult?.score,
+    reviewerResult?.score,
     null,
   );
-  const testsPassed = deriveTestsPassed(reviewerResult, reportedContractResult, verdict);
+  const testsPassed = deriveTestsPassed(reviewerResult, verdict);
   const artifact = normalizeString(observation?.primaryOutputPath)
     || (Array.isArray(observation?.artifactPaths) ? normalizeString(observation.artifactPaths[0]) : null)
     || null;
@@ -146,9 +182,6 @@ export async function evaluateContractOutcome(contract, executionObservation, lo
   const observation = normalizeExecutionObservation(executionObservation, {
     contractId: contract?.id || null,
   });
-  const reported = observation.contractResult;
-  const reportedStatus = reported?.status;
-  const executionTrace = contract?.runtimeDiagnostics?.executionTrace;
   const stageRunResult = normalizeStageRunResult(observation.stageRunResult);
   const stageCompletion = normalizeStageCompletion(
     observation.stageCompletion,
@@ -157,7 +190,6 @@ export async function evaluateContractOutcome(contract, executionObservation, lo
   const observationEvidence = buildObservationOutcomeEvidence(observation, {
     stageRunResult,
     stageCompletion,
-    contractResult: reported,
   });
 
   if (stageRunResult?.status === "failed") {
@@ -165,7 +197,7 @@ export async function evaluateContractOutcome(contract, executionObservation, lo
       ...observationEvidence,
       status: CONTRACT_STATUS.FAILED,
       reason: stageCompletion?.feedback || stageRunResult.feedback || stageRunResult.summary || "stage reported semantic failure",
-      source: "stage_result",
+      source: "runtime_result",
     };
   }
 
@@ -174,27 +206,8 @@ export async function evaluateContractOutcome(contract, executionObservation, lo
       ...observationEvidence,
       status: CONTRACT_STATUS.AWAITING_INPUT,
       reason: stageCompletion?.feedback || stageRunResult.feedback || stageRunResult.summary || "stage requested additional input",
-      source: "stage_result",
+      source: "runtime_result",
       clarification: stageCompletion?.feedback || stageRunResult.feedback || stageRunResult.summary || null,
-    };
-  }
-
-  if (reportedStatus === CONTRACT_STATUS.FAILED) {
-    return {
-      ...observationEvidence,
-      status: CONTRACT_STATUS.FAILED,
-      reason: reported?.detail || reported?.summary || "worker reported semantic failure",
-      source: "contract_result",
-    };
-  }
-
-  if (reportedStatus === CONTRACT_STATUS.AWAITING_INPUT) {
-    return {
-      ...observationEvidence,
-      status: CONTRACT_STATUS.AWAITING_INPUT,
-      reason: reported?.detail || reported?.summary || "worker requested additional input",
-      source: "contract_result",
-      clarification: reported?.clarification || reported?.detail || reported?.summary || null,
     };
   }
 
@@ -234,51 +247,41 @@ export async function evaluateContractOutcome(contract, executionObservation, lo
     return {
       ...observationEvidence,
       status: CONTRACT_STATUS.COMPLETED,
-      reason: stageRunResult?.summary || stageCompletion?.feedback || reported?.summary || `${requirements.length} required artifact(s) verified`,
+      reason: stageRunResult?.summary || stageCompletion?.feedback || `${requirements.length} required artifact(s) verified`,
       source: "completion_criteria",
     };
   }
 
   if (stageRunResult?.status === "completed") {
-    return {
-      ...observationEvidence,
-      status: CONTRACT_STATUS.COMPLETED,
-      reason: stageCompletion?.feedback || stageRunResult.summary || stageRunResult.feedback || "stage_result captured",
-      source: "stage_result",
-    };
-  }
-
-  if (reportedStatus === CONTRACT_STATUS.COMPLETED) {
-    return {
-      ...observationEvidence,
-      status: CONTRACT_STATUS.COMPLETED,
-      reason: reported?.summary || "worker reported completion",
-      source: "contract_result",
-    };
-  }
-
-  if (observation.files.length > 0) {
-    return {
-      ...observationEvidence,
-      status: CONTRACT_STATUS.COMPLETED,
-      reason: `${observation.files.length} output file(s) collected`,
-      source: "outbox_files",
-    };
-  }
-
-  if (contract?.output && executionTrace?.outputCommitted === true) {
-    return {
-      ...observationEvidence,
-      status: CONTRACT_STATUS.COMPLETED,
-      reason: reported?.summary || "primary output artifact committed",
-      source: "execution_trace",
-    };
+    const stageArtifactRequirements = buildStageArtifactRequirements(stageRunResult, executionObservation);
+    if (stageArtifactRequirements.length > 0) {
+      for (const requirement of stageArtifactRequirements) {
+        const check = await inspectArtifact(requirement);
+        if (!check.ok) {
+          const reason = `${check.label} ${check.reason}`;
+          logger?.warn?.(`[watchdog] contract ${contract?.id || "unknown"} completion artifact check failed: ${reason}`);
+          return {
+            ...observationEvidence,
+            status: CONTRACT_STATUS.FAILED,
+            reason,
+            source: "completion_criteria",
+            artifact: check,
+          };
+        }
+      }
+      return {
+        ...observationEvidence,
+        status: CONTRACT_STATUS.COMPLETED,
+        reason: stageCompletion?.feedback || stageRunResult.summary || stageRunResult.feedback || `${stageArtifactRequirements.length} runtime-observed artifact(s) verified`,
+        source: "completion_criteria",
+      };
+    }
   }
 
   return {
     ...observationEvidence,
     status: CONTRACT_STATUS.FAILED,
-    reason: "no semantic output detected",
-    source: "fallback",
+    reason: stageRunResult?.status === "completed" ? "missing required artifact evidence" : "missing runtime_result",
+    source: "completion_criteria",
   };
 }

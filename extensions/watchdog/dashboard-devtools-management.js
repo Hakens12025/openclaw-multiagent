@@ -27,7 +27,7 @@
             <span>CURRENT DRAFT CONTEXT</span>
             <strong>${app.esc(aligned ? "ALIGNED" : "OFFSET")}</strong>
           </div>
-          <div class="devtool-detail-line"><span>DRAFT</span><strong>${app.esc(draft.title || draft.surfaceId || draft.id || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>DRAFT</span><strong>${app.esc(draft.title || app.formatKnownSurfaceDisplayId(draft.surfaceId, draft.id || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>SUBJECT</span><strong>${app.esc(draftContext.subjectLabel || draftContext.subjectKind || "--")}</strong></div>
           <div class="devtool-detail-line"><span>TARGET</span><strong>${app.esc(draftContext.targetLabel || draftContext.targetId || "--")}</strong></div>
           <div class="devtool-detail-line"><span>VIEW TARGET</span><strong>${app.esc(selectedTarget?.label || selectedTarget?.id || "--")}</strong></div>
@@ -229,7 +229,7 @@
       return `
         <div class="devtool-detail-card">
           <div class="devtool-detail-head">
-            <span>${app.esc(surface?.id || "--")}</span>
+            <span>${app.esc(app.formatSurfaceDisplayId(surface, surface?.id || "--"))}</span>
             <strong>${app.esc(surface?.aspect || surface?.stage || "--")}</strong>
           </div>
           <div class="devtool-detail-line"><span>STAGE</span><strong>${app.esc(surface?.stage || "--")}</strong></div>

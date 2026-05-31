@@ -232,9 +232,17 @@ async function loadKnowledgeCorpus() {
   })();
 
   try {
-    return await knowledgeCorpusPromise;
-  } finally {
+    const corpus = await knowledgeCorpusPromise;
+    // Clear only after a successful resolution so that callers arriving
+    // between the IIFE completing and this await resuming still find the
+    // populated cache (set inside the IIFE) rather than a stale null.
     knowledgeCorpusPromise = null;
+    return corpus;
+  } catch (error) {
+    // Clear on error so the next caller will start a fresh load instead of
+    // awaiting a settled-rejected promise.
+    knowledgeCorpusPromise = null;
+    throw error;
   }
 }
 

@@ -1,5 +1,8 @@
 import { join } from "node:path";
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
+import {
+  RUNTIME_WAKE_SEMANTICS,
+  runtimeWakeAgentDetailed,
+} from "../transport/runtime-wake-transport.js";
 import { agentWorkspace } from "../state.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
@@ -27,6 +30,11 @@ function createDeliveryTargetContext({
   logger,
   wakeReason = null,
   wakeHandler = null,
+  wakeSemantic = null,
+  deliveryTicketId = null,
+  sourceAgentId = null,
+  actionType = null,
+  sourceContractId = null,
   missingWakeReason = "wake_callback_missing",
   missingWakeError = "wake callback missing",
 } = {}) {
@@ -39,6 +47,11 @@ function createDeliveryTargetContext({
     logger,
     wakeReason,
     wakeHandler,
+    wakeSemantic,
+    deliveryTicketId,
+    sourceAgentId,
+    actionType,
+    sourceContractId,
     missingWakeReason,
     missingWakeError,
   };
@@ -53,6 +66,11 @@ function normalizeDeliveryWakeOptions({
     handler: wake?.handler ?? null,
     targetSessionKey: wake?.targetSessionKey ?? targetSessionKey ?? null,
     failureAlert: wake?.failureAlert ?? null,
+    wakeSemantic: wake?.wakeSemantic ?? null,
+    deliveryTicketId: wake?.deliveryTicketId ?? null,
+    sourceAgentId: wake?.sourceAgentId ?? null,
+    actionType: wake?.actionType ?? null,
+    sourceContractId: wake?.sourceContractId ?? null,
     missingReason: wake?.missingReason ?? "wake_callback_missing",
     missingError: wake?.missingError ?? "wake callback missing",
   };
@@ -87,12 +105,28 @@ function getLiveTargetSession(targetSessionKey) {
 }
 
 async function requestSystemActionDeliveryHeartbeat(deliveryTargetContext, { wakeReason = null } = {}) {
-  const { api, targetAgent, targetSessionKey, logger } = deliveryTargetContext;
+  const {
+    api,
+    targetAgent,
+    targetSessionKey,
+    logger,
+    deliveryTicketId,
+    sourceAgentId,
+    actionType,
+    sourceContractId,
+  } = deliveryTargetContext;
   if (!targetSessionKey || !targetAgent) {
     return { requested: false, mode: null };
   }
-  const reason = wakeReason || deliveryTargetContext.wakeReason || "system_action delivery wake";
-  const result = await runtimeWakeAgentDetailed(targetAgent, reason, api, logger, { sessionKey: targetSessionKey });
+  const reason = wakeReason || deliveryTargetContext.wakeReason || null;
+  const result = await runtimeWakeAgentDetailed(targetAgent, reason, api, logger, {
+    sessionKey: targetSessionKey,
+    wakeSemantic: RUNTIME_WAKE_SEMANTICS.SYSTEM_ACTION_DELIVERY_RESUME,
+    deliveryTicketId,
+    sourceAgentId,
+    actionType,
+    sourceContractId,
+  });
   return { requested: result.ok, mode: result.mode || null };
 }
 
@@ -187,16 +221,14 @@ async function confirmTargetSessionWake(deliveryTargetContext, {
     }
 
     try {
-      await requestSystemActionDeliveryHeartbeat(deliveryTargetContext, {
-        wakeReason: `${lane} confirm retry`,
-      });
+      await requestSystemActionDeliveryHeartbeat(deliveryTargetContext);
       logger?.info?.(
         `[system_action_delivery] retrying exact-session wake for ${targetAgent} `
         + `(${lane}, attempt ${attempt + 1}/${maxAttempts})`,
       );
     } catch (error) {
       logger?.warn?.(
-        `[system_action_delivery] system_action delivery wake retry failed for ${targetSessionKey}: ${error.message}`,
+        `[system_action_delivery] system_action delivery resume retry failed for ${targetSessionKey}: ${error.message}`,
       );
     }
   }
@@ -212,6 +244,10 @@ async function requestFallbackAgentWake(deliveryTargetContext) {
     lane,
     targetSessionKey,
     contractId,
+    deliveryTicketId,
+    sourceAgentId,
+    actionType,
+    sourceContractId,
   } = deliveryTargetContext;
   if (!targetAgent || !api) {
     return false;
@@ -220,11 +256,16 @@ async function requestFallbackAgentWake(deliveryTargetContext) {
   try {
     const wake = await runtimeWakeAgentDetailed(
       targetAgent,
-      `system_action delivery fallback for ${contractId || "direct request"}`,
+      null,
       api,
       logger,
       {
         sessionKey: targetSessionKey,
+        wakeSemantic: RUNTIME_WAKE_SEMANTICS.SYSTEM_ACTION_DELIVERY_RESUME,
+        deliveryTicketId,
+        sourceAgentId,
+        actionType,
+        sourceContractId,
       },
     );
     logger?.info?.(
@@ -312,6 +353,11 @@ async function resolveDeliveryWake(deliveryTargetContext) {
     return normalizeWakeDiagnostic(
       await runtimeWakeAgentDetailed(targetAgent, wakeReason, api, logger, {
         sessionKey: targetSessionKey,
+        wakeSemantic: deliveryTargetContext.wakeSemantic,
+        deliveryTicketId: deliveryTargetContext.deliveryTicketId,
+        sourceAgentId: deliveryTargetContext.sourceAgentId,
+        actionType: deliveryTargetContext.actionType,
+        sourceContractId: deliveryTargetContext.sourceContractId,
       }),
       {
         lane,
@@ -392,6 +438,11 @@ export async function deliveryEnqueueSystemActionReturn({
     logger,
     wakeReason: wakeOptions.reason,
     wakeHandler: wakeOptions.handler,
+    wakeSemantic: wakeOptions.wakeSemantic,
+    deliveryTicketId: wakeOptions.deliveryTicketId || contract?.systemActionDeliveryTicket?.id || null,
+    sourceAgentId: wakeOptions.sourceAgentId || null,
+    actionType: wakeOptions.actionType || null,
+    sourceContractId: wakeOptions.sourceContractId || null,
     missingWakeReason: wakeOptions.missingReason,
     missingWakeError: wakeOptions.missingError,
   });
@@ -401,9 +452,32 @@ export async function deliveryEnqueueSystemActionReturn({
     inboxDir: targetInbox,
     contract,
     from: lane,
+    runtimeAuthority: {
+      kind: "system_action_delivery",
+      deliveryId: lane,
+      targetAgent,
+      targetSessionKey: wakeOptions.targetSessionKey || null,
+      deliveryTicketId: wakeOptions.deliveryTicketId || contract?.systemActionDeliveryTicket?.id || null,
+    },
     logger,
     broadcastDispatch: false,
+    skipWake: true,
   });
+  if (dispatchResult?.blocked) {
+    return {
+      targetInbox,
+      enqueueResult: null,
+      wake: dispatchResult.wake || normalizeWakeDiagnostic({
+        ok: false,
+        requested: false,
+        reason: "control_plane_activation_blocked",
+        error: dispatchResult.blockReason || `ordinary task runtime cannot dispatch to ${targetAgent}`,
+      }, {
+        lane,
+        targetAgent,
+      }),
+    };
+  }
   const enqueueResult = dispatchResult.enqueueResult;
 
   if (!enqueueResult.promoted) {

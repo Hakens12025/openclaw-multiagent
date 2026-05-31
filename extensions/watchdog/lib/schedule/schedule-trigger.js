@@ -4,6 +4,11 @@ import { listLifecycleWorkItems } from "../contracts.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
 import { isActiveContractStatus } from "../core/runtime-status.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
+import {
+  PENDING_SIGNAL_KINDS,
+  registerPendingSignal,
+  clearPendingSignal,
+} from "../runtime/pending-signal-registry.js";
 
 export const SCHEDULE_TRIGGER_COMMAND = "watchdog-schedule-run";
 
@@ -48,14 +53,6 @@ async function findActiveScheduleContract(scheduleId) {
     && isActiveContractStatus(entry?.status)) || null;
 }
 
-async function findActiveSchedulePipeline(scheduleId) {
-  // scheduleContext is a comms field on the contract, not on loop-session-store.
-  // After P2 migration, loop-session doesn't carry scheduleContext.
-  // Schedule concurrency is fully covered by findActiveScheduleContract() above.
-  // This function is a no-op placeholder until pipeline-store is deleted (P4).
-  return null;
-}
-
 export async function executeScheduleTrigger(scheduleId, {
   api,
   enqueue,
@@ -98,31 +95,38 @@ export async function executeScheduleTrigger(scheduleId, {
       };
     }
 
-    const activePipeline = await findActiveSchedulePipeline(normalizedId);
-    if (activePipeline) {
-      return {
-        ok: true,
-        skipped: true,
-        reason: "schedule_pipeline_running",
-        scheduleId: normalizedId,
-        schedule: spec,
-        activePipelineId: activePipeline.pipelineId || null,
-        activeLoopId: activePipeline.loopId || null,
-      };
-    }
   }
 
   const replyTo = spec.systemActionDelivery || buildDefaultSystemActionDelivery(spec);
-  const triggerResult = await dispatchAcceptIngressMessage(spec.entry.message, {
-    source: "schedule",
-    replyTo,
-    deliveryTargets: spec.deliveryTargets,
-    scheduleContext: buildScheduleContext(spec),
-    api,
-    enqueue,
-    wakePlanner,
-    logger,
-  });
+  const targetAgentId = normalizeString(spec?.entry?.targetAgent) || replyTo?.agentId || null;
+  if (targetAgentId) {
+    registerPendingSignal({
+      agentId: targetAgentId,
+      sourceKind: PENDING_SIGNAL_KINDS.SCHEDULE_DUE,
+      sourceRef: normalizedId,
+    });
+  }
+  let triggerResult;
+  try {
+    triggerResult = await dispatchAcceptIngressMessage(spec.entry.message, {
+      source: "schedule",
+      replyTo,
+      deliveryTargets: spec.deliveryTargets,
+      scheduleContext: buildScheduleContext(spec),
+      api,
+      enqueue,
+      wakePlanner,
+      logger,
+    });
+  } finally {
+    if (targetAgentId) {
+      clearPendingSignal({
+        agentId: targetAgentId,
+        sourceKind: PENDING_SIGNAL_KINDS.SCHEDULE_DUE,
+        sourceRef: normalizedId,
+      });
+    }
+  }
 
   return {
     ok: true,

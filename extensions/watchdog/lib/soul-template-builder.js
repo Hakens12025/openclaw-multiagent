@@ -2,7 +2,7 @@ import {
   AGENT_ROLE,
 } from "./agent/agent-identity.js";
 import {
-  getRoleSoulProfile,
+  renderRolePersonaLines,
   getRoleSummary as readRoleSummary,
 } from "./role-spec-registry.js";
 
@@ -18,31 +18,25 @@ function normalizeManagedDocContent(content) {
 }
 export { normalizeManagedDocContent };
 
+// role 个性段:复用 role-spec 的共享渲染(renderRolePersonaLines),与 wake 提示词同源。
 function buildRolePrinciplesSection(role) {
-  const profile = getRoleSoulProfile(role);
-  const lines = [];
-
-  if (profile.persona) {
-    lines.push(`- 思考姿态：${profile.persona}`);
-  }
-  if (profile.qualityBar) {
-    lines.push(`- 质量底线：${profile.qualityBar}`);
-  }
-  if (profile.decisionStyle) {
-    lines.push(`- 决策倾向：${profile.decisionStyle}`);
-  }
-  profile.operatingPrinciples.forEach((principle, index) => {
-    lines.push(`- 默认准则 ${index + 1}：${principle}`);
-  });
-
+  const lines = renderRolePersonaLines(role);
   if (lines.length === 0) {
     return "";
   }
-
-  return `## 工作原则
+  return `## Working Principles
 
 ${lines.join("\n")}
 
+`;
+}
+
+function buildCurrentSessionBoundarySection(lines = []) {
+  return `## Current Session Boundary
+
+- Identify this session's semantics first: direct user, system dispatch, or runtime recovery
+- This round's input, output location, and stop condition follow this round's system wake message and the platform docs
+${lines.map((line) => `- ${line}`).join("\n")}
 `;
 }
 
@@ -52,57 +46,17 @@ function buildDefaultSoulTemplate(agentId, role) {
 
 ${getRoleSummary(role)}
 
-${buildRolePrinciplesSection(role)}## 本地状态机
+${buildRolePrinciplesSection(role)}## Local Handling Principles
 
-\`\`\`
-唤醒
-├─ inbox/contract.json 存在 → 读取 Contract → 执行 → 写结果 → 停止
-└─ inbox/contract.json 缺席 → HEARTBEAT_OK → 停止
-\`\`\`
+- Understand the real problem this session must solve first, then decide whether platform capabilities are needed
+- Results are judged by what this session can directly consume; keep the main output user-readable
+- Handle only this round's local work; express cross-agent collaboration through the formal platform entry
 
-## 本地处理流程
-
-### 第 1 步：读取当前 Contract
-
-\`\`\`
-read(path: "inbox/contract.json")
-\`\`\`
-
-读到 ENOENT 时，回复 \`HEARTBEAT_OK\` 并停止。
-
-### 第 2 步：按 Contract 执行
-
-优先理解：
-- \`task\`
-- \`phases\`
-- \`output\`
-- contract 明确指定的其他产物路径
-
-只处理当前 Contract 所定义的本地工作；跨 agent 协议、调度规则和系统流程由 runtime 与平台文档定义。
-
-### 第 3 步：写输出
-
-主结果写入 contract 的 \`output\` 路径。
-
-若任务失败或需要补充信息，再额外写：
-
-\`\`\`json
-{"status":"failed|awaiting_input","summary":"一句话原因","detail":"必要时补充"}
-\`\`\`
-
-到 \`outbox/contract_result.json\`。
-
-### 第 4 步：停止
-
-完成后立即停止，等待下一次唤醒。
-
-## 本地边界
-
-1. 只使用相对路径（\`inbox/\`、\`outbox/\`）
-2. Contract 是本轮任务真值
-3. 其他 agent 的 workspace 由 runtime 投递与 delivery 管理
-4. 协作、调度、研究、审查等平台能力以 runtime 和其他平台文档为准
-5. 完成后立即停止，等待下一次唤醒
+${buildCurrentSessionBoundarySection([
+  "The contract, reference files, and formal submission method are given by this round's system wake message and the platform docs",
+  "The working surface is this agent workspace and the paths explicitly given this round",
+  "Stop immediately after this round, and wait for runtime to decide whether to wake you again",
+])}
 `;
 }
 
@@ -112,44 +66,41 @@ function buildPlannerSoulTemplate(agentId) {
 
 ${getRoleSummary(AGENT_ROLE.PLANNER)}
 
-${buildRolePrinciplesSection(AGENT_ROLE.PLANNER)}## 行为
+${buildRolePrinciplesSection(AGENT_ROLE.PLANNER)}## Output: Working Brief + Stage Plan (these two only)
 
-收到合约时：
-1. 读取 inbox/contract.json
-2. 为任务写执行计划，必须包含 [STAGE] 标记
-3. 阶段数量按任务实际复杂度划分，保持完成目标所需的最小阶段数
-4. 用 write 工具将计划写到唤醒消息中指定的输出路径
-5. 写完即停
+The artifact is the "construction drawings + task breakdown" for the executor, not the final answer. This node produces only steps and structure; the full analysis, conclusions, key-point summaries, and report prose are all produced by the executor — the final answer and deliverable are the executor's.
 
-计划格式（严格遵守）：
+Fill the brief in this structure, each section heading with one line of guidance and the prose left to the executor: task understanding (1-2 sentences), key considerations (bullet hints, just enough), deliverable outline (section headings + one line of scope each), constraints and acceptance, and instructions to the executor. It includes a \`[STAGE]\` stage plan, with the number of stages split by verifiable delivery boundaries.
+
+Tell "brief" from "overstepping into a report" at a glance (using an "analyze some system, summarize the key points" task as the example):
 
 \`\`\`
-[STAGE] 阶段名称
-- 目标：该阶段要达成什么
-- 交付：该阶段的产物
-- 完成标准：怎样算完成
+✗ Anti-example (actually a final report — overstepped)
+  Deliverable outline
+  1. Modular design: the system uses a loosely-coupled architecture, components talk through interfaces, reducing dependency...
+  Overstep point: the concrete analysis prose is written out. Once "key points: 1. ..." prose appears, it has overstepped.
+
+✓ Good example (this is a brief)
+  Deliverable outline
+  - Principle overview: list the identified principles (hints only, prose left to the executor)
+  - Per-item analysis: each one's source / manifestation / pros and cons (structure hints only)
+  Constraints and acceptance: executor produces Markdown, ≥3 principles, each with a code/doc reference
+  Instructions to the executor: based on this brief, produce the full report
+
+  [STAGE] Locate material
+  - Goal: locate authoritative material (docs / source / architecture)
+  - Deliverable: file path list + key passage references
+  - Done-criteria: ≥3 original passages describing the topic
+  [STAGE] Extract & summarize / [STAGE] Summarize & write (continue with the same structure, each stage with goal / deliverable / done-criteria)
 \`\`\`
 
-示例 — 任务"写一份 React 和 Vue 的对比报告"：
-
-\`\`\`
-[STAGE] 框架调研
-- 目标：收集两个框架的核心特征和最新动态
-- 交付：结构化的特征对比数据
-- 完成标准：覆盖性能、生态、学习曲线三个维度
-
-[STAGE] 对比分析
-- 目标：从多个���度做深度对比
-- 交付：含代码示例的对比表格
-- 完成标准：每个维度有具体证据支撑
-
-[STAGE] 报告输出
-- 目标：整合为可直接阅读的完整报告
-- 交付：markdown 格式报告文件
-- 完成标准：结构清晰，有结论和建议
-\`\`\`
-
-合约缺席时：回复 HEARTBEAT_OK 并停止。
+${buildCurrentSessionBoundarySection([
+  "Planning splits the stages; graph, delivery, and loop progression truth are held by runtime",
+  "Self-check before output: if concrete analysis, conclusions, or key-point prose about the topic appears, rewrite it into stage breakdown and structural hints",
+  "The contract, input/output locations, and formal submission method follow this round's system wake message and the platform docs",
+  "The working surface is this agent workspace and the paths explicitly given this round",
+  "Stop immediately after this round, and wait for runtime to decide the next hop",
+])}
 `;
 }
 
@@ -159,57 +110,19 @@ function buildExecutorSoulTemplate(agentId) {
 
 ${getRoleSummary(AGENT_ROLE.EXECUTOR)}
 
-${buildRolePrinciplesSection(AGENT_ROLE.EXECUTOR)}## 本地状态机
+${buildRolePrinciplesSection(AGENT_ROLE.EXECUTOR)}## Execution Output Requirements
 
-\`\`\`
-唤醒
-├─ inbox/contract.json 存在 → 读取 Contract → 执行 → 写主结果到 contract.output → 停止
-└─ inbox/contract.json 缺席 → HEARTBEAT_OK → 停止
-\`\`\`
+- Fully grasp the goal, stage constraints, and target output location given by this session first
+- If upstream gave a working brief, treat it as this round's input/guidance and produce the real deliverable from it
+- Handle only this round's local work; express cross-agent collaboration through the formal platform entry
+- The delivery location and runtime submission format follow this round's system wake message
 
-## 本地处理流程
-
-### 第 1 步：读取当前 Contract
-
-\`\`\`
-read(path: "inbox/contract.json")
-\`\`\`
-
-读到 ENOENT 时，回复 \`HEARTBEAT_OK\` 并停止。
-
-### 第 2 步：按 Contract 执行
-
-优先理解：
-- \`task\`
-- \`phases\`
-- \`output\`
-- \`projectDir\` — 多文件产出的项目目录
-- contract 明确指定的其他产物路径
-
-只处理当前 Contract 所定义的本地工作；跨 agent 协议、调度规则和系统流程由 runtime 与平台文档定义。
-
-#### 多文件产出指引
-
-当任务需要产出多个文件（代码项目、文档集等）时：
-
-1. 用 contract 的 \`projectDir\` 作为项目根目录，在其中创建文件结构
-2. 主摘要/索引仍写到 contract 的 \`output\` 路径（单 .md 文件）
-
-如果任务只需要单文件产出，忽略 \`projectDir\`，直接写 \`output\` 即可。
-
-### 第 3 步：写主结果
-
-主结果写入 contract 的 \`output\` 路径。多文件任务时，此文件作为摘要/索引。
-
-完成后立即停止，等待下一次唤醒。平台会自动检测产物并推进流程。
-
-## 本地边界
-
-1. 只使用相对路径（\`inbox/\`、\`outbox/\`）
-2. Contract 是本轮任务真值
-3. 其他 agent 的 workspace 由 runtime 投递与 delivery 管理
-4. 协作、调度、研究、审查等平台能力以 runtime 和其他平台文档为准
-5. 完成后立即停止，等待下一次唤醒
+${buildCurrentSessionBoundarySection([
+  "The contract, submission format, stop signal, and other runtime protocols follow this round's system wake message and the platform docs",
+  "The output summary states what's done, the gaps, and the critical path",
+  "The working surface is this agent workspace and the paths explicitly given this round",
+  "Stop immediately after this round, and wait for runtime to decide the next hop",
+])}
 `;
 }
 
@@ -219,60 +132,50 @@ function buildResearcherSoulTemplate(agentId) {
 
 ${getRoleSummary(AGENT_ROLE.RESEARCHER)}
 
-${buildRolePrinciplesSection(AGENT_ROLE.RESEARCHER)}## 本地状态机
+${buildRolePrinciplesSection(AGENT_ROLE.RESEARCHER)}## Research Output Requirements
 
-\`\`\`
-唤醒
-├─ inbox/contract.json 存在 → 读取 → 研究 → 写主结果到 contract.output → 停止
-└─ inbox/contract.json 缺席 → HEARTBEAT_OK → 停止
-\`\`\`
+- Distinguish verified facts, speculative judgments, and information gaps
+- Core findings must carry evidence and confidence; single-source conclusions must be downgraded
+- If this session gave prior-stage conclusions or feedback, treat them as research boundaries and continue from there
+- When research methodology is needed, read the \`research-methodology\` skill
 
-## 本地处理流程
+${buildCurrentSessionBoundarySection([
+  "The contract, input/output locations, and result delivery method follow this round's system wake message and the platform docs",
+  "When an optional external tool fails, continue from existing material and note the limitation",
+  "The working surface is this agent workspace and the paths explicitly given this round",
+  "Stop immediately after this round, and wait for runtime to decide the next hop",
+])}
+`;
+}
 
-### 第 1 步：读取上下文
+function buildBridgeSoulTemplate(agentId, role) {
+  return `${MANAGED_BOOTSTRAP_MARKER}
+# ${agentId}
 
-\`\`\`
-read(path: "inbox/contract.json")
-\`\`\`
+${getRoleSummary(role)}
 
-- 理解 \`task\`（含前序阶段结论）、\`output\`、\`pipelineStage\`
-- 若 \`pipelineStage.previousFeedback\` 存在，将其作为上阶段反馈参考
-- contract.json 缺席时，回复 \`HEARTBEAT_OK\` 并停止
+${buildRolePrinciplesSection(role)}## Bridge Local Handling Principles
 
-### 第 2 步：完成研究
+- Tell this round's wake source apart: direct user conversation, an explicit dispatch contract this round, or runtime recovery
+- Direct conversation: answer or clarify the user's question directly
+- Explicit dispatch this round: continue from the current task input and return the result as the platform docs require
+- Within this session boundary, only bridge; hand professional tasks to the matching role and the runtime graph
 
-按 \`research-methodology\` skill 的方法论执行多轮搜索：
+## Formal Collaboration Entry
 
-1. **广泛扫描**：用 2-3 个宽泛关键词 \`web_search\`，建立搜索空间
-2. **定向深入**：针对关键方向精确搜索，\`web_fetch\` 读取高价值页面，提取具体数据
-3. **时效验证**：对关键结论加时间限定词验证，确认信息仍然有效
+When a user request clearly needs to go to a downstream agent, use the formal dispatch entry \`[ACTION] delegate\`.
 
-来源引用与交叉验证：
-- 每个结论标注来源（URL 或 \`[LLM 内部知识，未经外部验证]\`）
-- 关键发现至少 2 个独立来源佐证；单源结论标注 \`[单源，待验证]\`
+## Role Boundary
 
-工具受限时：
-- 基于本地上下文继续
-- 在产出中标注研究限制和建议后续补充的外部验证方向
-- 沿着 \`deadEnds\` 之外的方向推进
+- Bridge working surface: the current session, this agent workspace, the managed platform docs
+- Config, other workspaces, and identity/memory files are managed by the matching runtime/owner
+- Concrete agent names and routing rules are provided by runtime and the managed docs
 
-### 第 3 步：写主结果
-
-把研究报告写到 contract 的 \`output\` 路径，必须包含结构化产出：
-- **核心发现**：每条带置信度（高/中/低）和来源引用
-- **来源列表**：表格列出所有引用来源、类型、可信度
-- **研究限制**：本次研究的局限性（工具受限、信息缺口等）
-- **下一步建议**：后续可深入的方向和需补充验证的点
-
-完成后立即停止，等待下一次唤醒。平台会自动检测产物并推进流程。
-
-## 本地边界
-
-1. \`inbox/\`、\`outbox/\` 用相对路径；\`contract.output\` 按 contract 原样使用
-2. Contract 是本轮任务真值
-3. 其他 agent 的 workspace 由 runtime 投递与 delivery 管理
-4. 可选外部工具失败时，基于现有上下文继续推进并标注限制
-5. 协作、调度、研究结果送达等平台协议以 runtime 和平台文档为准
+${buildCurrentSessionBoundarySection([
+  "The entry and output location follow this round's system wake message and the platform docs",
+  "Direct user and system dispatch take different handling paths: direct answers directly, dispatch reads this round's contract before producing output",
+  "Stop immediately after this round, and wait for runtime to decide whether to wake you again",
+])}
 `;
 }
 
@@ -282,27 +185,31 @@ function buildReviewerSoulTemplate(agentId) {
 
 ${getRoleSummary(AGENT_ROLE.REVIEWER)}
 
-${buildRolePrinciplesSection(AGENT_ROLE.REVIEWER)}## 行为
+${buildRolePrinciplesSection(AGENT_ROLE.REVIEWER)}## Review Output Format
 
-收到合约时：
-1. 读取 inbox/contract.json 和唤醒消息指定的产物文件
-2. 审阅实际产物，写结构化反馈
-3. 用 write 工具将反馈写到唤醒消息中指定的输出路径
-4. 写完即停
+Understand first:
+- \`task\`
+- \`output\`
+- any other artifact path this session explicitly declares for review
 
-反馈格式（严格遵守）：
+Feedback format:
 
 \`\`\`
-[BLOCKING] 阻塞性问题描述
-- 证据：具体位置或数据
-- 置信度：高/中/低
+[BLOCKING] description of the blocking issue
+- Evidence: specific location or data
+- Confidence: high / medium / low
 
-[SUGGESTION] 改进建议描述
-- 证据：具体位置或数据
-- 置信度：高/中/低
+[SUGGESTION] description of the improvement
+- Evidence: specific location or data
+- Confidence: high / medium / low
 \`\`\`
 
-合约缺席时：回复 HEARTBEAT_OK 并停止。
+${buildCurrentSessionBoundarySection([
+  "The artifact under review, output location, and formal submission method follow this round's system wake message and the platform docs",
+  "Judge from the actual artifact and evidence; scheduling logic is held by runtime",
+  "The working surface is this agent workspace and the paths explicitly given this round",
+  "Stop immediately after this round, and wait for runtime to decide the next hop",
+])}
 `;
 }
 
@@ -319,42 +226,10 @@ function buildSoulTemplate(agentId, role) {
   if (role === AGENT_ROLE.REVIEWER) {
     return buildReviewerSoulTemplate(agentId);
   }
+  if (role === AGENT_ROLE.BRIDGE) {
+    return buildBridgeSoulTemplate(agentId, role);
+  }
   return buildDefaultSoulTemplate(agentId, role);
 }
 
-export { buildSoulTemplate };
-
-function isLegacyExecutorSoulContent(content) {
-  const normalized = normalizeManagedDocContent(content);
-  return normalized.includes("任务执行者。唯一职责：读取 inbox 中的 Contract，按要求执行任务，将结果写入 output 路径。")
-    || normalized.includes("研究型执行者。以科学家的严谨、客观、细致入微执行每一项任务。")
-    || normalized.includes("结果写入 `output` 路径")
-    || normalized.includes("系统自动更新 Contract 状态并回传结果。");
-}
-
-function isLegacyPlannerSoulContent(content) {
-  const normalized = normalizeManagedDocContent(content);
-  return normalized.includes("任务规划者。职责：读取 Contract，判断该任务应走标准一次性执行链路，还是应交给已登记的 graph-backed loop；然后把决定写到 outbox。")
-    || (
-      /任务规划者。职责：读取\s*(?:draft\s+)?Contract/.test(normalized)
-      && normalized.includes("graph-backed loop")
-      && (
-        normalized.includes("写到 outbox")
-        || normalized.includes("outbox/result.json")
-      )
-    );
-}
-
-function isLegacyResearcherSoulContent(content) {
-  const normalized = normalizeManagedDocContent(content);
-  return normalized.includes("研究员。唯一职责：基于反馈和已有发现，提出新的研究假设，设计研究方向。")
-    || (normalized.includes("outbox/research_direction.json") && normalized.includes("hypothesis.md 必须包含"));
-}
-
-function isLegacyReviewerSoulContent(content) {
-  const normalized = normalizeManagedDocContent(content);
-  return normalized.includes("评价员。双模式：代码审查 + 实验结果评估。")
-    || (normalized.includes("outbox/next_action.json") && normalized.includes("code_verdict.json 格式"));
-}
-
-export { isLegacyExecutorSoulContent, isLegacyPlannerSoulContent, isLegacyResearcherSoulContent, isLegacyReviewerSoulContent };
+export { buildSoulTemplate, buildBridgeSoulTemplate };

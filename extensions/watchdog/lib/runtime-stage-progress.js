@@ -307,11 +307,10 @@ export async function syncTrackingRuntimeStageProgress(
     const candidateRuntime = buildAdvancedStageRuntime(stagePlan, normalizedRuntime, activeStageIndex);
     if (hasStageRuntimeChanged(normalizedRuntime, candidateRuntime)) {
       nextStageRuntime = candidateRuntime;
-      trackingState.contract = {
-        ...contract,
-        stageRuntime: candidateRuntime,
-        updatedAt: observedAt,
-      };
+      // Path C: only update runtimeObservation (display/observation layer).
+      // Do NOT write back to trackingState.contract.stageRuntime — canonical
+      // stageRuntime is owned by Path A (agent-end-graph-route → contract disk).
+      // This projection must not usurp the contract truth source.
     }
   }
 
@@ -333,7 +332,7 @@ export async function syncTrackingRuntimeStageProgress(
   };
 
   return {
-    stageRuntime: trackingState.contract?.stageRuntime || nextStageRuntime || null,
+    stageRuntime: nextStageRuntime || null,
     runtimeObservation: trackingState.runtimeObservation,
   };
 }

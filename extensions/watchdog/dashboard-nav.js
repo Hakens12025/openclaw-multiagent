@@ -4,8 +4,10 @@ import { t, getCurrentLang, setLang } from "./dashboard-i18n.js";
 
 export const DASHBOARD_NAV_ITEMS = Object.freeze([
   { key: "nav.home", path: "/watchdog/progress", page: "home", paths: ["/watchdog/progress"] },
+  { key: "nav.workflow", path: "/watchdog/workflow-view", page: "workflow", paths: ["/watchdog/workflow-view"] },
   { key: "nav.agents", path: "/watchdog/agents-view", page: "agents", paths: ["/watchdog/agents-view"] },
   { key: "nav.work_items", path: "/watchdog/work-items-view", page: "work-items", paths: ["/watchdog/work-items-view"] },
+  { key: "nav.control_plane", path: "/watchdog/control-plane-view", page: "control-plane", paths: ["/watchdog/control-plane-view"] },
   { key: "nav.harness", path: "/watchdog/harness-view", page: "harness", paths: ["/watchdog/harness-view"] },
   { key: "nav.test_tools", path: "/watchdog/devtools", page: "devtools", paths: ["/watchdog/devtools"] },
 ]);

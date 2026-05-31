@@ -1,6 +1,15 @@
 import { listAdminSurfaces } from "../admin/admin-surface-registry.js";
 import { normalizeBoolean, normalizeString } from "../core/normalize.js";
 import { CLI_SYSTEM_STATIC_SURFACES } from "./cli-surface-catalog.js";
+import { buildCliSystemDisplayId } from "./cli-surface-display.js";
+import { validateCliSurface } from "./cli-surface-schema.js";
+
+export { executeCliSystemSurface } from "./cli-surface-executor.js";
+export { inspectCliSystemSurface } from "./cli-surface-inspector.js";
+export {
+  findMissingRequiredCliSystemSurfaceFields,
+  normalizeCliSystemSurfacePayload,
+} from "./cli-surface-payload.js";
 
 const CLI_SYSTEM_FAMILIES = Object.freeze([
   "hook",
@@ -22,6 +31,7 @@ function normalizeFamily(value) {
 function normalizeStaticSurface(surface) {
   return {
     ...surface,
+    displayId: buildCliSystemDisplayId(surface?.id),
     family: normalizeFamily(surface?.family) || "observe",
     stage: null,
     subject: null,
@@ -33,6 +43,7 @@ function normalizeAdminSurface(surface) {
   const family = normalizeFamily(surface?.stage) || "inspect";
   return {
     ...surface,
+    displayId: buildCliSystemDisplayId(surface?.displayId || surface?.id),
     family,
     source: "admin_surface",
   };
@@ -60,11 +71,24 @@ function matchesFilter(surface, filters = {}) {
   return true;
 }
 
+function assertValidCliSurface(surface) {
+  const { ok, problems } = validateCliSurface(surface);
+  if (!ok) {
+    throw new Error(
+      `[cli-surface-registry] invalid CLISurface (id=${surface?.id}): ${problems.join("; ")}`,
+    );
+  }
+}
+
 function buildCliSystemSurfaceList(options = {}) {
   const includeTemplates = normalizeBoolean(options.includeTemplates);
   const adminSurfaces = listAdminSurfaces({}, { includeTemplates }).map(normalizeAdminSurface);
   const staticSurfaces = CLI_SYSTEM_STATIC_SURFACES.map(normalizeStaticSurface);
-  return [...staticSurfaces, ...adminSurfaces];
+  const allSurfaces = [...staticSurfaces, ...adminSurfaces];
+  for (const surface of allSurfaces) {
+    assertValidCliSurface(surface);
+  }
+  return allSurfaces;
 }
 
 export function listCliSystemSurfaces(filters = {}, options = {}) {

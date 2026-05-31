@@ -2,6 +2,7 @@ import { buildReviewerResult } from "./reviewer-result.js";
 import {
   normalizeHarnessRun,
 } from "./harness-run.js";
+import { validateCoverageCompleteness } from "./run-shape-map.js";
 import { normalizeString } from "../core/normalize.js";
 
 import {
@@ -24,8 +25,22 @@ export async function initializeHarnessRunModules(harnessRun, {
   if (!run) return null;
   const executionContext = await resolveExecutionContext(automationSpec);
 
+  // coverage 完整性校验（备忘录78 §7.1 消除假安全感）：装了硬管模块却没在
+  // RunShapeMap.hardShaped 标注的段 → 记进 diagnostics.warnings（非硬失败，避免破坏跑通）。
+  const completeness = validateCoverageCompleteness(run.runShapeMap, listModuleIds(run));
+  const diagnostics = completeness.warnings.length > 0
+    ? {
+        ...(run.diagnostics || {}),
+        warnings: [
+          ...((run.diagnostics?.warnings) || []),
+          ...completeness.warnings,
+        ],
+      }
+    : run.diagnostics;
+
   return normalizeHarnessRun({
     ...run,
+    diagnostics,
     moduleRuns: listModuleIds(run).map((moduleId) => buildStartModuleRun(
       moduleId,
       run,
@@ -94,28 +109,56 @@ export async function finalizeHarnessRunModules(harnessRun, {
   if (!run) return null;
   const executionContext = await resolveExecutionContext(automationSpec);
 
-  const finalizedRun = normalizeHarnessRun({
+  const builtModuleRuns = listModuleIds(run).map((moduleId) => buildFinalModuleRun(
+    moduleId,
+    run,
+    automationSpec,
+    terminalSource,
+    {
+      terminalStatus,
+      score,
+      artifact,
+      summary,
+      finalizedAt,
+    },
+    executionContext,
+  ));
+
+  let finalizedRun = normalizeHarnessRun({
     ...run,
     finalizedAt,
     terminalStatus: normalizeString(terminalStatus)?.toLowerCase() || run.terminalStatus || null,
     score: normalizeFiniteNumber(score, run.score),
     artifact: normalizeString(artifact) || run.artifact || null,
     summary: normalizeString(summary) || run.summary || null,
-    moduleRuns: listModuleIds(run).map((moduleId) => buildFinalModuleRun(
-      moduleId,
-      run,
-      automationSpec,
-      terminalSource,
-      {
-        terminalStatus,
-        score,
-        artifact,
-        summary,
-        finalizedAt,
-      },
-      executionContext,
-    )),
+    moduleRuns: builtModuleRuns,
   });
+
+  if (!finalizedRun) {
+    // normalizeHarnessRun returns null when any moduleRun fails normalization.
+    // Preserve valid modules and mark the run as degraded rather than silently losing all data.
+    const validModuleRuns = builtModuleRuns.filter(Boolean);
+    const invalidCount = builtModuleRuns.length - validModuleRuns.length;
+    console.warn(
+      `[harness-module-runner] finalizeHarnessRunModules: ${invalidCount} moduleRun(s) failed normalization for automationId=${run.automationId} round=${run.round}; preserving ${validModuleRuns.length} valid modules`,
+    );
+    finalizedRun = normalizeHarnessRun({
+      ...run,
+      finalizedAt,
+      terminalStatus: normalizeString(terminalStatus)?.toLowerCase() || run.terminalStatus || null,
+      score: normalizeFiniteNumber(score, run.score),
+      artifact: normalizeString(artifact) || run.artifact || null,
+      summary: normalizeString(summary) || run.summary || null,
+      moduleRuns: validModuleRuns,
+      diagnostics: {
+        ...(run.diagnostics || {}),
+        warnings: [
+          ...((run.diagnostics?.warnings) || []),
+          `${invalidCount} module run(s) failed normalization and were dropped`,
+        ],
+      },
+    });
+  }
 
   if (finalizedRun) {
     finalizedRun.reviewerResult = deriveReviewerResultFromModules(finalizedRun, {

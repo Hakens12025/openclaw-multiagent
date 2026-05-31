@@ -1,8 +1,6 @@
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { QQ_OPENID } from "../state.js";
-import { isQQIngressAgent } from "../agent/agent-identity.js";
+import { getAgentRole } from "../agent/agent-identity.js";
 import { normalizeString } from "../core/normalize.js";
 import {
   INTENT_TYPES,
@@ -14,6 +12,10 @@ import {
   SYSTEM_ACTION_STATUS,
 } from "../core/runtime-status.js";
 import { startLoopRound } from "../loop/loop-round-runtime.js";
+import {
+  isActionAllowedForRole,
+  resolveDisallowedActionReason,
+} from "./system-action-role-policy.js";
 export {
   buildDeferredSystemActionFollowUp,
   deriveSystemActionTerminalOutcome,
@@ -33,6 +35,24 @@ export function resolveStartLoopParams(normalizedAction, contractData) {
   };
 }
 
+export function buildSystemActionReplyTarget({
+  agentId,
+  sessionKey,
+  contractData,
+} = {}) {
+  if (
+    contractData?.replyTo
+    && typeof contractData.replyTo === "object"
+    && contractData.replyTo.agentId === agentId
+  ) {
+    return { ...contractData.replyTo };
+  }
+  return {
+    agentId,
+    sessionKey,
+  };
+}
+
 async function systemActionDispatchEntry(action, {
   agentId,
   sessionKey,
@@ -43,11 +63,11 @@ async function systemActionDispatchEntry(action, {
   logger,
 }) {
   const normalizedAction = normalizeSystemIntent(action);
-  const actionReplyTo = {
+  const actionReplyTo = buildSystemActionReplyTarget({
     agentId,
     sessionKey,
-    ...(isQQIngressAgent(agentId) ? { channel: "qqbot", target: QQ_OPENID } : {}),
-  };
+    contractData,
+  });
   const runtimeActionResult = await systemActionDispatch(normalizedAction, {
     agentId,
     sessionKey,
@@ -66,16 +86,11 @@ async function systemActionDispatchEntry(action, {
     case INTENT_TYPES.START_LOOP: {
       const startLoopParams = resolveStartLoopParams(normalizedAction, contractData);
       const loopResult = await startLoopRound(
-        startLoopParams,
-        (targetAgentId, wakeOptions = {}) => runtimeWakeAgentDetailed(
-          targetAgentId,
-          "loop 启动: 请读取 inbox/contract.json 并执行当前合同",
-          api,
-          logger,
-          {
-            sessionKey: wakeOptions?.sessionKey || null,
-          },
-        ),
+        {
+          ...startLoopParams,
+          runtimeApi: api,
+        },
+        null,
         (contractId) => enqueueFn?.(contractId) ?? contractId,
         actionReplyTo,
         logger,
@@ -129,6 +144,23 @@ export async function systemActionConsume({
 }) {
   // Path 1: Injected action (from [ACTION] markers — Rule 12.2)
   if (injectedAction) {
+    // Role-policy enforcement: reject disallowed (role, actionType) pairs
+    // before any side effects occur. This applies uniformly to every role,
+    // including bridge: a bridge that emits [ACTION] review is rejected here.
+    const actionRole = (() => {
+      try { return getAgentRole(agentId); } catch { return null; }
+    })();
+    const attemptedActionType = injectedAction?.type || null;
+    if (actionRole && attemptedActionType && !isActionAllowedForRole(actionRole, attemptedActionType)) {
+      const reason = resolveDisallowedActionReason(actionRole, attemptedActionType);
+      logger.warn(`[system_action] ${agentId} role-policy reject: ${reason}`);
+      return {
+        status: SYSTEM_ACTION_STATUS.DISPATCH_ERROR,
+        actionType: attemptedActionType,
+        error: reason,
+        rolePolicyRejected: true,
+      };
+    }
     try {
       return await systemActionDispatchEntry(injectedAction, {
         agentId, sessionKey, contractData, api, enqueueFn, wakePlanner, logger,

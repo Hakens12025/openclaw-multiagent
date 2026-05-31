@@ -2,9 +2,9 @@
 // No contract mutation, no inbox ingress, no draft promotion.
 
 import { unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
-  HOME, MAX_RECENT_TOOL_EVENTS, MAX_TOOL_CALLS,
+  HOME, MAX_RECENT_TOOL_EVENTS, TOOL_CALLS_WINDOW_SIZE,
   agentWorkspace,
 } from "../lib/state.js";
 import {
@@ -15,9 +15,12 @@ import { getTrackingState } from "../lib/store/tracker-store.js";
 import { broadcast, buildProgressPayload } from "../lib/transport/sse.js";
 import { writeTaskState } from "../lib/contracts.js";
 import { recordStep } from "../lib/store/execution-trace-store.js";
-import { normalizeSystemIntent } from "../lib/protocol-primitives.js";
+import { evaluateTrace } from "../lib/store/execution-trace-store.js";
+import { normalizeSystemIntent, RUNTIME_RESULT_FILE } from "../lib/protocol-primitives.js";
 import {
   AGENT_ROLE,
+  getAgentIdentitySnapshot,
+  getAgentRole,
   resolveAgentIdByRole,
 } from "../lib/agent/agent-identity.js";
 import {
@@ -25,20 +28,60 @@ import {
   scheduleProtocolCommitReconcile,
 } from "../lib/protocol-commit-reconcile.js";
 import { refreshTrackingProjection } from "../lib/stage-projection.js";
-import { trackToolCall } from "../lib/loop/loop-detection.js";
+import {
+  trackToolCall,
+  markSessionHardStopped,
+  getSessionHardStopReason,
+  HARD_STOP_REASON,
+} from "../lib/loop/loop-detection.js";
+import { resolveLoopEpochKey } from "../lib/loop/loop-epoch-key.js";
+import { resolveMaxToolCallsFromPolicy } from "../lib/execution-policy-defaults.js";
 import { buildToolActivityCursor } from "../lib/runtime-activity.js";
-import { observeCanonicalStageResultCommit } from "../lib/protocol-commit-observer.js";
+import { observeCanonicalRuntimeResultCommit } from "../lib/protocol-commit-observer.js";
 import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
-import { buildToolTimelineEvent } from "../lib/tool-timeline.js";
+import {
+  appendToolTimelineEvent,
+  buildToolTimelineEvent,
+} from "../lib/tool-timeline.js";
+import { canonicalizeContractOutputPath } from "../lib/runtime-contract-output-alias.js";
+import { isToolOutcomeError } from "../lib/runtime-user-facing-output.js";
+import {
+  getExecutionIncident,
+  upsertExecutionIncident,
+} from "../lib/runtime/execution-incident-store.js";
+import { evaluateRuntimeFault } from "../lib/runtime/runtime-fault-evaluator.js";
+import { terminalizeHardStoppedRuntimeSession } from "../lib/runtime/hard-stop-terminalize.js";
 
-export function resolveToolWriteTargetPath({ agentId, rawPath }) {
+function deriveLoopHardStopCommitInfo({ agentId, trackingState, traceVerdict }) {
+  const fallbackRuntimeResultPath = agentId
+    ? join(agentWorkspace(agentId), "outbox", RUNTIME_RESULT_FILE)
+    : "";
+  const contractOutput = String(trackingState?.contract?.output || "").trim();
+  const commitPath = contractOutput || fallbackRuntimeResultPath;
+  if (!commitPath) {
+    return null;
+  }
+  return {
+    type: traceVerdict?.outputCommitted === true ? "loop_hard_stop_output" : "loop_hard_stop_terminal",
+    fileName: basename(commitPath),
+    commitPath,
+    allowMissing: traceVerdict?.outputCommitted !== true,
+  };
+}
+
+export function resolveToolWriteTargetPath({ agentId, rawPath, trackingState = null }) {
   const normalized = String(rawPath || "").replace(/^~/, HOME);
   if (!normalized) return normalized;
-  if (normalized.startsWith("/") || /^[A-Za-z]:[\\/]/.test(normalized)) {
-    return normalized;
-  }
-  if (!agentId) return normalized;
-  return join(agentWorkspace(agentId), normalized);
+  const resolvedPath = normalized.startsWith("/") || /^[A-Za-z]:[\\/]/.test(normalized)
+    ? normalized
+    : !agentId
+      ? normalized
+      : join(agentWorkspace(agentId), normalized);
+  return canonicalizeContractOutputPath({
+    agentId,
+    rawPath: resolvedPath,
+    contractOutput: trackingState?.contract?.output || "",
+  });
 }
 
 export function deriveDelegationIntentForEarlyCheck(action) {
@@ -51,38 +94,97 @@ export function deriveDelegationIntentForEarlyCheck(action) {
   };
 }
 
+function resolveSameToolLoopEvidence(loopSignal, hardStopReason) {
+  if (loopSignal === "warn") {
+    return 3;
+  }
+  if (loopSignal === "hard_stop" && hardStopReason === HARD_STOP_REASON.REPEAT_THRESHOLD) {
+    return 5;
+  }
+  return 0;
+}
+
+function resolveIncidentTerminationReason(incidentVerdict, hardStopReason, wrongActorActivation) {
+  if (wrongActorActivation) {
+    return "wrong_actor_activation";
+  }
+  if (incidentVerdict?.firstFaultCode === "max_tool_calls" || hardStopReason === HARD_STOP_REASON.MAX_TOOL_CALLS) {
+    return HARD_STOP_REASON.MAX_TOOL_CALLS;
+  }
+  return incidentVerdict?.firstFaultCode || hardStopReason || null;
+}
+
+function resolveObservedToolPath(agentId, rawPath) {
+  const normalized = String(rawPath || "").replace(/^~/, HOME).trim();
+  if (!normalized) return "";
+  if (normalized.startsWith("/") || /^[A-Za-z]:[\\/]/.test(normalized)) {
+    return normalized;
+  }
+  return agentId ? join(agentWorkspace(agentId), normalized) : normalized;
+}
+
 export function register(api, logger, { enqueueFn, wakePlanner }) {
   api.on("after_tool_call", async (event, ctx) => {
     const sessionKey = ctx.sessionKey;
     const agentId = ctx.agentId ?? "unknown";
     const toolName = event.toolName ?? "unknown";
     const params = event.params ?? {};
+    const trackingState = getTrackingState(sessionKey);
 
     // ── Execution trace: record every tool call ──
     const writeTarget = resolveToolWriteTargetPath({
       agentId,
       rawPath: params.path ?? params.file_path ?? params.filePath ?? "",
+      trackingState,
     });
-    recordStep(sessionKey, { tool: toolName, targetPath: writeTarget });
+    const writeSucceeded = !isToolOutcomeError(event);
+    recordStep(sessionKey, {
+      tool: toolName,
+      targetPath: writeTarget,
+      writeSucceeded,
+    });
 
     // ── Loop detection: track repeated identical tool calls ──
-    const loopSignal = trackToolCall(sessionKey, toolName, params);
-    if (loopSignal === "warn") {
-      broadcast("loop_warning", { sessionKey, agentId, toolName, level: "warn", ts: Date.now() });
-      logger.warn(`[watchdog] LOOP WARNING: ${agentId} repeated tool call detected (session: ${sessionKey})`);
-    } else if (loopSignal === "hard_stop") {
-      broadcast("loop_warning", { sessionKey, agentId, toolName, level: "hard_stop", ts: Date.now() });
-      logger.error(`[watchdog] LOOP HARD STOP: ${agentId} tool calls will be blocked (session: ${sessionKey})`);
+    const epochKey = resolveLoopEpochKey(trackingState) || sessionKey;
+    const loopSignal = trackToolCall(epochKey, toolName, params);
+    if (loopSignal === "warn" || loopSignal === "hard_stop") {
+      const loopWarningTs = Date.now();
+      const startedAt = Number(trackingState?.startTs || trackingState?.startedAt || 0);
+      // trackToolCall runs before t.toolCallTotal++, so the post-call counter is +1.
+      broadcast("loop_warning", {
+        sessionKey,
+        epochKey,
+        agentId,
+        agentRole: getAgentRole(agentId) || null,
+        contractId: trackingState?.contract?.id || null,
+        toolName,
+        level: loopSignal,
+        toolCallTotalAfter: Number((trackingState?.toolCallTotal || 0) + 1),
+        elapsedMs: startedAt > 0 ? Math.max(0, loopWarningTs - startedAt) : null,
+        ts: loopWarningTs,
+      });
+      const [label, logFn] = loopSignal === "warn"
+        ? ["LOOP WARNING: repeated tool call detected", logger.warn]
+        : ["LOOP HARD STOP: tool calls will be blocked", logger.error];
+      logFn(`[watchdog] ${label} — ${agentId} (session: ${sessionKey})`);
     }
+    const traceVerdict = evaluateTrace(sessionKey);
 
     const canonicalCommitInfo = await classifyCanonicalProtocolCommit({
       agentId,
       targetPath: writeTarget,
       sessionKey,
     });
+    const loopHardStopCommitInfo = loopSignal === "hard_stop"
+      ? deriveLoopHardStopCommitInfo({
+          agentId,
+          trackingState,
+          traceVerdict,
+        })
+      : null;
 
     // ── Delivery/Inbox consumption detection ──
-    if (/^(read|Read)$/i.test(toolName)) {
+    if (/^(read|Read)$/i.test(toolName) && !isToolOutcomeError(event)) {
       const readPath = String(params.file_path ?? params.path ?? "").replace(/^~/, HOME);
       if (readPath.includes("deliveries/") && readPath.endsWith(".json")) {
         setTimeout(async () => {
@@ -126,13 +228,33 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     }
 
     // ── Tracking update ──
-    const t = getTrackingState(sessionKey);
+    const t = trackingState;
     if (!t) return;
+    const actorIdentity = getAgentIdentitySnapshot(agentId);
 
     const observedAt = Date.now();
     const activityCursor = buildToolActivityCursor(toolName, params, observedAt);
     t.toolCallTotal++;
-    if (t.toolCalls.length >= MAX_TOOL_CALLS) t.toolCalls.shift();
+    if (/^(read|Read)$/i.test(toolName) && !isToolOutcomeError(event)) {
+      const ownInboxContractPath = agentId
+        ? join(agentWorkspace(agentId), "inbox", "contract.json")
+        : "";
+      const observedReadPath = resolveObservedToolPath(
+        agentId,
+        params.path ?? params.file_path ?? params.filePath ?? "",
+      );
+      if (ownInboxContractPath && observedReadPath === ownInboxContractPath) {
+        t.ownInboxContractReadAt = observedAt;
+      }
+    }
+
+    // executionPolicy.maxToolCalls hard-stop budget. trackingState.executionPolicy
+    // is snapshotted at before_agent_start so the resolve here is a plain lookup.
+    const maxToolCallsBudget = resolveMaxToolCallsFromPolicy(t?.executionPolicy);
+    if (Number(t.toolCallTotal || 0) >= maxToolCallsBudget) {
+      markSessionHardStopped(resolveLoopEpochKey(t) || sessionKey, HARD_STOP_REASON.MAX_TOOL_CALLS);
+    }
+    if (t.toolCalls.length >= TOOL_CALLS_WINDOW_SIZE) t.toolCalls.shift();
     t.toolCalls.push({ tool: toolName, label: activityCursor.label, ts: observedAt });
     if (!Array.isArray(t.recentToolEvents)) {
       t.recentToolEvents = [];
@@ -148,25 +270,87 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
       toolCallId: ctx.toolCallId ?? event.toolCallId ?? null,
       observedAt,
     });
-    if (t.recentToolEvents.length >= MAX_RECENT_TOOL_EVENTS) t.recentToolEvents.shift();
-    t.recentToolEvents.push(toolTimelineEvent);
+    appendToolTimelineEvent(t.recentToolEvents, toolTimelineEvent, {
+      maxEvents: MAX_RECENT_TOOL_EVENTS,
+    });
     t.lastLabel = activityCursor.label;
     t.activityCursor = activityCursor;
 
     await syncTrackingRuntimeStageProgress(t, { observedAt });
     await refreshTrackingProjection(t);
-    const observedStageResultCommit = canonicalCommitInfo
+    const observedRuntimeResultCommit = canonicalCommitInfo
       ? null
-      : await observeCanonicalStageResultCommit({
+      : await observeCanonicalRuntimeResultCommit({
           trackingState: t,
           agentId,
           observedAt,
         });
+    const hardStopReason = getSessionHardStopReason(epochKey);
+    const wrongActorActivation = actorIdentity?.plane === "control_plane" && t?.contract?.id
+      ? { agentId, plane: actorIdentity.plane }
+      : null;
+    const priorIncident = getExecutionIncident({
+      contractId: t?.contract?.id || null,
+      epochKey,
+      sessionKey,
+    });
+    const incidentVerdict = evaluateRuntimeFault({
+      toolLoop: {
+        sameToolSameInputCount: resolveSameToolLoopEvidence(loopSignal, hardStopReason),
+        toolName,
+      },
+      hardStopReason,
+      progress: {
+        hasFormalProgress: Boolean(
+          canonicalCommitInfo
+          || observedRuntimeResultCommit
+          || traceVerdict?.outputCommitted
+          || traceVerdict?.systemActionSeen
+        ),
+      },
+      actor: {
+        agentId,
+        plane: actorIdentity?.plane || "runtime",
+      },
+      wrongActorActivation,
+      priorIncident,
+    });
+    if (incidentVerdict.rootFault) {
+      const incident = upsertExecutionIncident({
+        contractId: t?.contract?.id || null,
+        epochKey,
+        sessionKey,
+        agentId,
+        rootFault: incidentVerdict.rootFault,
+        firstFaultCode: incidentVerdict.firstFaultCode,
+        amplifiers: incidentVerdict.amplifiers,
+        status: incidentVerdict.terminationMode === "terminate_with_diagnosis" ? "fail_fast" : "open",
+        terminationMode: incidentVerdict.terminationMode,
+        terminationReason: resolveIncidentTerminationReason(
+          incidentVerdict,
+          hardStopReason,
+          wrongActorActivation,
+        ),
+      });
+      t.executionIncident = incident;
+    }
+    const hardStopTerminalization = hardStopReason
+      ? await terminalizeHardStoppedRuntimeSession({
+          agentId,
+          sessionKey,
+          trackingState: t,
+          api,
+          logger,
+        })
+      : null;
+    if (hardStopTerminalization?.terminalized) {
+      return;
+    }
     if (t.toolCallTotal % 3 === 0) await writeTaskState(t, logger);
 
     broadcast("track_progress", buildProgressPayload(t));
 
-    const effectiveCommitInfo = canonicalCommitInfo || observedStageResultCommit;
+    const effectiveCommitInfo = canonicalCommitInfo || observedRuntimeResultCommit || loopHardStopCommitInfo;
     if (effectiveCommitInfo) {
       scheduleProtocolCommitReconcile({
         sessionKey,

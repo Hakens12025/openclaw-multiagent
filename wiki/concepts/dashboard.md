@@ -27,6 +27,20 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 **已知问题：**
 - Dashboard 有遗留拓扑假设（硬编码 contractor/worker-d/controller）— 显示问题，不影响运行时真值
 
+## 工作流页（v112）
+
+第二个 dashboard 页 `/watchdog/workflow-view`（前端 `dashboard-workflow.js`），三区联动：
+
+- **右上缩略图**：镜像主页 agent 方框 + graph 连线。
+- **左 workflow 拓扑**：自顶向下，只含该 workflow 成员。
+- **中 session 查看器**：transcript 输入/输出 + 历史下拉。
+
+交互：hover 缩略图 agent → 其工作流成员闪动；click → 左侧出拓扑；SSE `/watchdog/stream` 驱动当前活跃 agent 动态高亮；点拓扑 agent → 中间显其 session（下拉切历史，transcript 内引用文件超链接 → 文件管理器打开）。
+
+**workflow 定义 = agent-graph 连通分量**（`computeAgentWorkflows`，`lib/agent/agent-workflow-grouping.js`），不是注册 loop —— 线性链 planner→worker→worker2 也算一个工作流。
+
+后端可观测全经 [CLI System](cli-system.md) inspect 家族（`inspect.agent_workflows / agent_sessions / session_transcript`），HTTP 投影是 `GET /watchdog/inspect?surface=`。文件可打开走 `POST /watchdog/reveal-file`（严格白名单 + 防逃逸，见 cli-system 页）。会话 transcript 真相见 [Session 管理](session-management.md)。
+
 ## 为什么存在
 
 - 多 Agent 系统需要可视化才能有效监控和调试
@@ -49,7 +63,8 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 3. 03-11：交互式系统（拖拽/CRUD/缩放），dashboard-interactive.js 733 行
 4. 后续：Devtools 面板、隔离测试传输
 5. 前端测试开发者工具系列迭代
+6. v112 (P-WF1~4)：新增「工作流」页 `/watchdog/workflow-view`，缩略图/拓扑/session 三区联动，后端经 inspect 家族可观测。
 
 ## 当前状态
 
-**功能完整。可交互。** 遗留的硬编码拓扑假设需要清理（显示层问题，不影响运行时）。
+**功能完整。可交互。** 主页遗留的硬编码拓扑假设需要清理（显示层问题，不影响运行时）；工作流页为新增第二页。

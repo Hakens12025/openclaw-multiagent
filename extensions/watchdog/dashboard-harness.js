@@ -1,23 +1,29 @@
 import { esc, getToken } from "./dashboard-common.js";
-import { renderAtlasView } from "./dashboard-harness-atlas.js";
-import { renderPlacementView } from "./dashboard-harness-placement.js";
-import { renderRunsView } from "./dashboard-harness-runs.js";
+import { renderProfileFocus } from "./dashboard-harness-atlas.js";
+import { renderRunCard } from "./dashboard-harness-runs.js";
 import {
-  VIEW_MODES,
-  renderPlaceholder,
-  renderViewTabs,
+  renderSummaryCards,
+  formatFamilyLabel,
+  formatMode,
+  formatCount,
+  formatTrust,
+  formatTrustClass,
   tx,
 } from "./dashboard-harness-shared.js";
 import { initDashboardSubpage } from "./dashboard-subpage-init.js";
+
+// 合并视图（profile 为中心，单页，无 tab）：
+//   左 = 塑形方案(profile)清单 + 家族过滤；右 = 选中方案详情 = focus(复用 atlas) +
+//   用到它的落点 agent + 运行历史(按 run.profileId 从各落点 recentRuns 聚合，复用 runRunCard)。
+// 决策：3 视图原为不同主键镜头(profile/agent/run)，无单一外键 → profile 为中心收口，
+// 落点泳道看板降级为详情里的"落点于"。
 
 const state = {
   loading: true,
   error: null,
   payload: null,
-  activeView: VIEW_MODES.ATLAS,
   selectedFamilyId: "all",
   selectedProfileId: null,
-  selectedAutomationId: null,
 };
 
 function tokenParam() {
@@ -40,136 +46,114 @@ async function requestJson(path) {
 }
 
 function getPayload() {
-  return state.payload || {
-    counts: {},
-    catalog: { families: [], profiles: [], modules: [] },
-    placements: [],
-  };
+  return state.payload || { counts: {}, catalog: { families: [], profiles: [], modules: [] }, placements: [] };
 }
-
 function getFamilies() {
   return Array.isArray(getPayload().catalog?.families) ? getPayload().catalog.families : [];
 }
-
 function getProfiles() {
   return Array.isArray(getPayload().catalog?.profiles) ? getPayload().catalog.profiles : [];
 }
-
-function getModules() {
-  return Array.isArray(getPayload().catalog?.modules) ? getPayload().catalog.modules : [];
-}
-
 function getPlacements() {
   return Array.isArray(getPayload().placements) ? getPayload().placements : [];
 }
-
-function hasRunTrack(placement) {
-  return Array.isArray(placement?.recentRuns) && placement.recentRuns.length > 0;
-}
-
-function getRunPlacements() {
-  const placements = getPlacements();
-  const withRuns = placements.filter((placement) => hasRunTrack(placement));
-  return withRuns.length ? withRuns : placements;
-}
-
 function getFilteredProfiles() {
-  const familyId = state.selectedFamilyId;
+  const fam = state.selectedFamilyId;
   const profiles = getProfiles();
-  if (!familyId || familyId === "all") return profiles;
-  return profiles.filter((profile) => profile.family === familyId);
+  return (!fam || fam === "all") ? profiles : profiles.filter((p) => p.family === fam);
 }
-
 function getSelectedProfile() {
-  return getProfiles().find((profile) => profile.id === state.selectedProfileId) || null;
+  return getProfiles().find((p) => p.id === state.selectedProfileId) || null;
 }
 
-function getFilteredModules() {
-  const familyId = state.selectedFamilyId;
-  const selectedProfile = getSelectedProfile();
-  const selectedProfileModules = new Set(Array.isArray(selectedProfile?.moduleRefs) ? selectedProfile.moduleRefs : []);
-  return [...getModules()]
-    .filter((module) => {
-      if (!familyId || familyId === "all") return true;
-      return Array.isArray(module.familyIds) && module.familyIds.includes(familyId);
-    })
-    .sort((left, right) => {
-      const leftInProfile = selectedProfileModules.has(left.id) ? 1 : 0;
-      const rightInProfile = selectedProfileModules.has(right.id) ? 1 : 0;
-      if (rightInProfile !== leftInProfile) return rightInProfile - leftInProfile;
-      if ((right.usageCount || 0) !== (left.usageCount || 0)) return (right.usageCount || 0) - (left.usageCount || 0);
-      return String(left.id || "").localeCompare(String(right.id || ""));
-    });
+// 用到该 profile 的运行：从所有落点的 recentRuns 里按 run.profileId 匹配聚合（profile↔run 是唯一直接链接）。
+function profileRuns(profileId, placements) {
+  const runs = [];
+  for (const placement of placements) {
+    for (const run of (Array.isArray(placement?.recentRuns) ? placement.recentRuns : [])) {
+      if (run?.profileId === profileId) runs.push(run);
+    }
+  }
+  return runs;
+}
+// 用到该 profile 的落点 agent（其 recentRuns 含该 profileId）。
+function profileAgents(profileId, placements) {
+  const agents = new Set();
+  for (const placement of placements) {
+    const used = (Array.isArray(placement?.recentRuns) ? placement.recentRuns : []).some((run) => run?.profileId === profileId);
+    if (used) agents.add(placement.targetAgent || placement.label || placement.id);
+  }
+  return [...agents].filter(Boolean);
 }
 
 function ensureSelection() {
   const families = getFamilies();
   const profiles = getFilteredProfiles();
-  const allPlacements = getPlacements();
-  const placements = state.activeView === VIEW_MODES.RUNS ? getRunPlacements() : allPlacements;
-
-  if (state.selectedFamilyId !== "all" && !families.some((family) => family.id === state.selectedFamilyId)) {
+  if (state.selectedFamilyId !== "all" && !families.some((f) => f.id === state.selectedFamilyId)) {
     state.selectedFamilyId = "all";
   }
-
-  if (!profiles.some((profile) => profile.id === state.selectedProfileId)) {
+  if (!profiles.some((p) => p.id === state.selectedProfileId)) {
     state.selectedProfileId = profiles[0]?.id || getProfiles()[0]?.id || null;
   }
-
-  if (!placements.some((placement) => placement.id === state.selectedAutomationId)) {
-    state.selectedAutomationId = placements[0]?.id || allPlacements[0]?.id || null;
-  }
 }
 
-function buildViewModel() {
-  const allProfiles = getProfiles();
-  const placements = getPlacements();
-  const runPlacements = getRunPlacements();
-  const selectedPlacement = placements.find((placement) => placement.id === state.selectedAutomationId) || null;
-  const selectedRunPlacement = runPlacements.find((placement) => placement.id === state.selectedAutomationId) || runPlacements[0] || null;
-
-  return {
-    counts: getPayload().counts || {},
-    families: getFamilies(),
-    allProfiles,
-    filteredProfiles: getFilteredProfiles(),
-    filteredModules: getFilteredModules(),
-    selectedFamilyId: state.selectedFamilyId,
-    selectedProfileId: state.selectedProfileId,
-    selectedProfile: getSelectedProfile(),
-    placements,
-    runPlacements,
-    selectedAutomationId: state.selectedAutomationId,
-    selectedPlacement,
-    selectedRunPlacement,
-  };
+function renderFamilyFilter(families, selectedFamilyId) {
+  const chip = (id, label, active) =>
+    `<button type="button" class="harness-fam-chip${active ? " is-active" : ""}" data-family-id="${esc(id)}">${esc(label)}</button>`;
+  return `<div class="harness-fam-filter">
+    ${chip("all", tx("all_families"), selectedFamilyId === "all")}
+    ${families.map((f) => chip(f.id, formatFamilyLabel(f.id), selectedFamilyId === f.id)).join("")}
+  </div>`;
 }
 
-function renderBody(model) {
-  switch (state.activeView) {
-    case VIEW_MODES.PLACEMENT:
-      return renderPlacementView(model);
-    case VIEW_MODES.RUNS:
-      return renderRunsView(model);
-    case VIEW_MODES.DRIFT:
-      return renderPlaceholder("drift_reserved_title", "drift_reserved_copy", model.counts);
-    case VIEW_MODES.ATLAS:
-    default:
-      return renderAtlasView(model);
+function renderProfileList(profiles, selectedId) {
+  if (!profiles.length) {
+    return `<div class="harness-empty">${esc(tx("load_empty"))}</div>`;
   }
+  return profiles.map((profile) => `
+    <button type="button" class="harness-card is-clickable${profile.id === selectedId ? " active" : ""}" data-profile-id="${esc(profile.id)}">
+      <div class="harness-card-head">
+        <div>
+          <div class="harness-card-title">${esc(profile.id)}</div>
+          <div class="harness-card-meta">${esc(formatFamilyLabel(profile.family))} · ${esc(formatMode(profile.defaultMode || "freeform"))}</div>
+        </div>
+        <span class="harness-chip ${formatTrustClass(profile.trustLevel)}">${esc(formatTrust(profile.trustLevel))}</span>
+      </div>
+      <div class="harness-card-text">${esc(tx("label_modules"))} ${esc(formatCount(profile.moduleRefs?.length || 0))} · ${esc(tx("tag_usage", { count: formatCount(profile.usageCount) }))}</div>
+    </button>
+  `).join("");
+}
+
+function renderProfileDetail(profile, placements) {
+  if (!profile) {
+    return `<div class="harness-empty">${esc(tx("merged_profile_empty"))}</div>`;
+  }
+  const agents = profileAgents(profile.id, placements);
+  const runs = profileRuns(profile.id, placements);
+  return `
+    ${renderProfileFocus(profile)}
+    <div class="harness-box">
+      <div class="harness-box-title">${esc(tx("merged_placed_title"))}</div>
+      <div class="harness-tag-row">
+        ${agents.length
+          ? agents.map((agent) => `<span class="harness-chip">${esc(agent)}</span>`).join("")
+          : `<span class="harness-empty-inline">${esc(tx("merged_no_placed"))}</span>`}
+      </div>
+    </div>
+    <div class="harness-box">
+      <div class="harness-box-title">${esc(tx("merged_runs_title"))} (${runs.length})</div>
+      <div class="harness-run-list">
+        ${runs.length
+          ? runs.map((run) => renderRunCard(run)).join("")
+          : `<div class="harness-empty">${esc(tx("merged_no_runs"))}</div>`}
+      </div>
+    </div>
+  `;
 }
 
 function bindEvents() {
   const host = document.getElementById("harnessApp");
   if (!host) return;
-
-  host.querySelectorAll("[data-harness-view]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.activeView = button.getAttribute("data-harness-view") || VIEW_MODES.ATLAS;
-      render();
-    });
-  });
-
   host.querySelectorAll("[data-family-id]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedFamilyId = button.getAttribute("data-family-id") || "all";
@@ -178,17 +162,9 @@ function bindEvents() {
       render();
     });
   });
-
   host.querySelectorAll("[data-profile-id]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedProfileId = button.getAttribute("data-profile-id");
-      render();
-    });
-  });
-
-  host.querySelectorAll("[data-automation-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.selectedAutomationId = button.getAttribute("data-automation-id");
       render();
     });
   });
@@ -202,20 +178,30 @@ function render() {
     host.innerHTML = `<div class="harness-empty">${esc(tx("loading"))}</div>`;
     return;
   }
-
   if (state.error) {
     host.innerHTML = `<div class="harness-placeholder"><div class="harness-placeholder-title">${esc(tx("load_failed"))}</div><div class="harness-placeholder-copy">${esc(state.error)}</div></div>`;
     return;
   }
-
   if (!getProfiles().length && !getPlacements().length) {
     host.innerHTML = `<div class="harness-placeholder"><div class="harness-placeholder-title">${esc(tx("label_profiles"))}</div><div class="harness-placeholder-copy">${esc(tx("load_empty"))}</div></div>`;
     return;
   }
 
   ensureSelection();
-  const model = buildViewModel();
-  host.innerHTML = `${renderViewTabs(state.activeView)}${renderBody(model)}`;
+  const counts = getPayload().counts || {};
+  const families = getFamilies();
+  const profiles = getFilteredProfiles();
+  const selectedProfile = getSelectedProfile();
+  const placements = getPlacements();
+
+  host.innerHTML = `
+    ${renderSummaryCards(counts)}
+    ${renderFamilyFilter(families, state.selectedFamilyId)}
+    <div class="harness-merged">
+      <aside class="harness-merged-list">${renderProfileList(profiles, state.selectedProfileId)}</aside>
+      <section class="harness-merged-detail">${renderProfileDetail(selectedProfile, placements)}</section>
+    </div>
+  `;
   bindEvents();
 }
 

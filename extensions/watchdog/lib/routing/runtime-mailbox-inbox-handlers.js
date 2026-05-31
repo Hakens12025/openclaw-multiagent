@@ -6,25 +6,62 @@ import { atomicWriteFile } from "../state.js";
 import {
   cacheContractSnapshot,
   evictContractSnapshotByPath,
-  listSharedContractEntries,
   readCachedContractSnapshotById,
   readContractSnapshotByPath,
 } from "../store/contract-store.js";
+import { getContractPath } from "../contracts.js";
 import {
   getTrackingState,
-  hasOtherRunningTrackingSessionForAgent,
+  hasOtherRunningBoundTrackingSessionForAgent,
+  listOtherRunningTrackingSessionsForAgent,
 } from "../store/tracker-store.js";
+import {
+  getDispatchTargetCurrentContract,
+} from "./dispatch-runtime-state.js";
 import { isDirectRequestEnvelope } from "../protocol-primitives.js";
 import { ensureRuntimeDirectEnvelopeInbox } from "../runtime-direct-envelope-queue.js";
 import { normalizeContractIdentity, normalizeString } from "../core/normalize.js";
 import { isActiveContractStatus } from "../core/runtime-status.js";
+import { resolveWorkspaceContractOutputAliasPath } from "../runtime-contract-output-alias.js";
+
+const TASK_FACING_INBOX_ALLOW_KEYS = Object.freeze([
+  "id",
+  "task",
+  "taskType",
+  "assignee",
+  "output",
+  "outputAlias",
+  "status",
+  "completionCriteria",
+  "codingSpec",
+  "protocol",
+  "stagePlan",
+  "stageRuntime",
+  "runtimeContext",
+  "phases",
+  "total",
+  "pipelineStage",
+  "followUp",
+  "systemActionDelivery",
+  "systemActionDeliveryTicket",
+  "systemAction",
+  "executionObservation",
+  "terminalOutcome",
+  "upstreamPackages",
+]);
+
+function isDispatchOwnedContract(agentId, contractId) {
+  const currentContractId = normalizeContractIdentity(getDispatchTargetCurrentContract(agentId));
+  const normalizedContractId = normalizeContractIdentity(contractId);
+  return Boolean(currentContractId && normalizedContractId && currentContractId === normalizedContractId);
+}
 
 async function removeInboxContractIfExists(inboxDir, logger, agentId) {
   const contractPath = join(inboxDir, "contract.json");
   try {
     const contract = await readContractSnapshotByPath(contractPath, { preferCache: false });
     if (isDirectRequestEnvelope(contract)) {
-      logger.info(`[router] routeInbox(${agentId}): preserved direct_request inbox/contract.json`);
+      logger.info(`[mailbox] routeInbox(${agentId}): preserved direct_request inbox/contract.json`);
       return { removed: false, preserved: "direct_request" };
     }
   } catch {}
@@ -32,7 +69,7 @@ async function removeInboxContractIfExists(inboxDir, logger, agentId) {
   try {
     await unlink(contractPath);
     evictContractSnapshotByPath(contractPath);
-    logger.info(`[router] routeInbox(${agentId}): removed stale inbox/contract.json`);
+    logger.info(`[mailbox] routeInbox(${agentId}): removed stale inbox/contract.json`);
     await ensureRuntimeDirectEnvelopeInbox({ inboxDir, agentId, logger });
     return { removed: true, preserved: null };
   } catch {
@@ -40,15 +77,32 @@ async function removeInboxContractIfExists(inboxDir, logger, agentId) {
   }
 }
 
-function serializeContract(contract) {
-  return JSON.stringify(contract, null, 2);
+function projectTaskFacingInboxContract(contract, agentId = null) {
+  if (!contract || typeof contract !== "object") {
+    return contract;
+  }
+  const projected = {};
+  for (const key of TASK_FACING_INBOX_ALLOW_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(contract, key)) {
+      projected[key] = contract[key];
+    }
+  }
+  const outputAlias = resolveWorkspaceContractOutputAliasPath(agentId, contract.output);
+  if (outputAlias) {
+    projected.outputAlias = outputAlias;
+  }
+  return projected;
+}
+
+function serializeContract(contract, agentId) {
+  return JSON.stringify(projectTaskFacingInboxContract(contract, agentId), null, 2);
 }
 
 async function stageInboxContract(inboxDir, contract, logger, agentId) {
   const dest = join(inboxDir, "contract.json");
-  await atomicWriteFile(dest, serializeContract(contract));
+  await atomicWriteFile(dest, serializeContract(contract, agentId));
   cacheContractSnapshot(dest, contract);
-  logger.info(`[router] routeInbox(${agentId}): ${contract.id}.json → inbox/contract.json`);
+  logger.info(`[mailbox] routeInbox(${agentId}): ${contract.id}.json → inbox/contract.json`);
 }
 
 export async function routeWorkerInbox({
@@ -65,13 +119,7 @@ export async function routeWorkerInbox({
     logger,
   });
   if (directInboxState.active) {
-    logger.info(`[router] routeInbox(${agentId}): preserved direct_request inbox/contract.json`);
-    return;
-  }
-
-  if (hasOtherRunningTrackingSessionForAgent(agentId, sessionKey)) {
-    await removeInboxContractIfExists(inboxDir, logger, agentId);
-    logger.info(`[router] routeInbox(${agentId}): skipped restaging while live worker tracker is active`);
+    logger.info(`[mailbox] routeInbox(${agentId}): preserved direct_request inbox/contract.json`);
     return;
   }
 
@@ -92,6 +140,28 @@ export async function routeWorkerInbox({
   const normalizedContractIdHint = normalizeContractIdentity(contractIdHint);
   const normalizedContractPathHint = normalizeString(contractPathHint);
   const hasExactContractHint = Boolean(normalizedContractIdHint || normalizedContractPathHint);
+  const otherRunningBoundSessions = listOtherRunningTrackingSessionsForAgent(agentId, sessionKey)
+    .filter((entry) => entry.hasContract);
+
+  if (!hasExactContractHint && hasOtherRunningBoundTrackingSessionForAgent(agentId, sessionKey)) {
+    await removeInboxContractIfExists(inboxDir, logger, agentId);
+    logger.info(`[mailbox] routeInbox(${agentId}): skipped scan restaging while another bound tracker is active`);
+    return;
+  }
+
+  if (
+    hasExactContractHint
+    && normalizedContractIdHint
+    && otherRunningBoundSessions.some((entry) => entry.contractId !== normalizedContractIdHint)
+  ) {
+    await removeInboxContractIfExists(inboxDir, logger, agentId);
+    logger.info(
+      `[mailbox] routeInbox(${agentId}): skipped exact staging for ${normalizedContractIdHint} `
+      + "while another bound tracker is active",
+    );
+    return;
+  }
+
   if (normalizedContractPathHint) {
     try {
       const requestedContract = normalizedContractIdHint
@@ -106,6 +176,7 @@ export async function routeWorkerInbox({
         requestedContract
         && isActiveContractStatus(requestedContract.status)
         && requestedContract.assignee === agentId
+        && isDispatchOwnedContract(agentId, requestedContract.id)
         && (
           !normalizedContractIdHint
           || normalizeContractIdentity(requestedContract.id) === normalizedContractIdHint
@@ -116,7 +187,7 @@ export async function routeWorkerInbox({
       }
     } catch (error) {
       logger.warn(
-        `[router] routeInbox(${agentId}): requested worker lookup failed for `
+        `[mailbox] routeInbox(${agentId}): requested worker lookup failed for `
         + `${normalizedContractIdHint || normalizedContractPathHint}: ${error.message}`,
       );
     }
@@ -125,30 +196,32 @@ export async function routeWorkerInbox({
   if (hasExactContractHint) {
     await removeInboxContractIfExists(inboxDir, logger, agentId);
     logger.info(
-      `[router] routeInbox(${agentId}): exact contract `
+      `[mailbox] routeInbox(${agentId}): exact contract `
       + `${normalizedContractIdHint || normalizedContractPathHint} not claimable`,
     );
     return;
   }
 
-  try {
-    const entries = (await listSharedContractEntries())
-      .slice();
-    for (const entry of entries) {
-      try {
-        const contract = entry.contract;
-        if (isActiveContractStatus(contract.status)
-          && contract.assignee === agentId) {
-          await stageInboxContract(inboxDir, contract, logger, agentId);
-          return;
-        }
-      } catch (e) {
-        logger.warn(`[router] routeInbox: failed to read ${entry.path}: ${e.message}`);
+  const dispatchOwnerContractId = normalizeContractIdentity(getDispatchTargetCurrentContract(agentId));
+  if (dispatchOwnerContractId) {
+    try {
+      const contract = await readCachedContractSnapshotById(dispatchOwnerContractId, {
+        contractPathHint: getContractPath(dispatchOwnerContractId),
+        preferCache: false,
+      });
+      if (
+        contract
+        && isActiveContractStatus(contract.status)
+        && contract.assignee === agentId
+      ) {
+        await stageInboxContract(inboxDir, contract, logger, agentId);
+        return;
       }
+    } catch (e) {
+      logger.warn(`[mailbox] routeInbox: failed to read dispatch owner ${dispatchOwnerContractId}: ${e.message}`);
     }
-    await removeInboxContractIfExists(inboxDir, logger, agentId);
-    logger.info(`[router] routeInbox(${agentId}): no pending/running contracts found`);
-  } catch (e) {
-    logger.warn(`[router] routeInbox(${agentId}) error: ${e.message}`);
   }
+
+  await removeInboxContractIfExists(inboxDir, logger, agentId);
+  logger.info(`[mailbox] routeInbox(${agentId}): no dispatch-owned contract found`);
 }

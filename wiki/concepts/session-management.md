@@ -35,17 +35,25 @@ runtimeWakeAgentDetailed(agentId, reason, api, logger, {
 - 支持并发：多个 contract 可以同时执行，需要独立的工作空间
 - 解除 delivery 统一的阻塞：session 级精度让 agent return 不必再伪装成新 contract
 
+## 会话 transcript 真相（v112）
+
+- 会话存于 `agents/<a>/sessions/sessions.json`（updatedAt 倒序）+ `.jsonl` transcript（`lib/agent/agent-session-store.js` / `agent-session-transcript.js`）。
+- **`.jsonl` 已内嵌读/写文件全文（非指针）**，故工作流页回放无需改 session 保存方式；transcript 解析出输入/输出消息 + 引用文件（解析到正本 + persistent 判定），经 `inspect.session_transcript` 暴露。
+- 但测试 `session-clean`（`runtime-admin.js:resetRuntimeState`）会清 `agents/<a>/sessions/` —— 常态运行不清。为补 inbox 过滤副本缺口，`agent_end` 清理前由 `snapshotInboxToTrace`（`lib/lifecycle/workflow-trace-snapshot.js`）快照到 `control-plane/workflow-trace/<contractId>/<agent>/`（try/catch，绝不破坏清理）。
+
 ## 和谁交互
 
 - [Delivery](./delivery.md)：session management 是 delivery 统一的关键阻塞
 - [Contract](./contract.md)：session 为 contract 提供执行空间
 - [Context Isolation](./context-isolation.md)：session 隔离是上下文隔离的实现机制（如已存在）
+- [Dashboard](./dashboard.md)：工作流页的 session 查看器回放 transcript
 
 ## 演化
 
 1. 备忘录99 §二 正式提出 contract 无关的独立 session 设计
 2. v71 确定 deterministic session key 方案
 3. 2026-04-12 命名统一后，runtime wake / dispatch / delivery 全部按同一 session 语义工作
+4. v112 (P-WF)：确认 `.jsonl` transcript 已内嵌文件全文；新增 `snapshotInboxToTrace` 补 session-clean 后的 inbox 副本缺口
 
 ## 当前状态
 

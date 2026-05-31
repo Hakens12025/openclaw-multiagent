@@ -25,28 +25,3 @@ export function parseAgentContractSessionKey(sessionKey) {
 
   return { agentId, contractId };
 }
-
-export function buildPipelineStageSessionKey({
-  targetAgent,
-  pipelineId,
-  loopSessionId = null,
-  round = 1,
-  stageName,
-} = {}) {
-  const normalizedAgentId = normalizeString(targetAgent);
-  const normalizedPipelineId = normalizeString(pipelineId);
-  const normalizedStage = normalizeString(stageName);
-  if (!normalizedAgentId || !normalizedPipelineId || !normalizedStage) return null;
-
-  const segments = [
-    `agent:${normalizedAgentId}`,
-    `pipeline:${normalizedPipelineId}`,
-  ];
-  const normalizedLoopSessionId = normalizeString(loopSessionId);
-  if (normalizedLoopSessionId) {
-    segments.push(`loop_session:${normalizedLoopSessionId}`);
-  }
-  segments.push(`round:${Number.isFinite(round) && round > 0 ? round : 1}`);
-  segments.push(`stage:${normalizedStage}`);
-  return segments.join(":");
-}

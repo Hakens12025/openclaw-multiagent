@@ -4,7 +4,7 @@ import { agentWorkspace, atomicWriteFile, CONTRACTS_DIR, isWorker } from "../sta
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import { readContractSnapshotByPath, updateContractStatus, mutateContractSnapshot } from "../contracts.js";
-import { qqNotify, qqTypingStop, getQQTarget } from "../qq.js";
+import { qqNotify, qqTypingStop, getQQTarget } from "../channel-notify.js";
 import { recordErrorPattern } from "../error-ledger.js";
 import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
 import {
@@ -58,27 +58,27 @@ function buildRecoveryRuntimeDiagnostics(contractSnapshot, trackingState, contra
 const ERROR_HINTS = [
   {
     test: /context.*(length|limit|exceeded|overflow)|token.*(limit|exceeded)/i,
-    hint: "上次因上下文窗口溢出中断。请简化方法：用 grep/glob 精确搜索代替全文阅读，减少单次操作范围，分步完成最关键的输出。",
+    hint: "Use targeted grep/glob searches, keep each operation small, and complete the key output first.",
   },
   {
     test: /timeout|timed?\s*out/i,
-    hint: "上次因执行超时中断。请先完成最关键的输出，避免长时间搜索或复杂的多步操作。",
+    hint: "Complete the key output first, then add supporting detail if time remains.",
   },
   {
     test: /rate.*(limit|exceeded)|429|too many requests/i,
-    hint: "上次因 API 限流中断。请减少 web_search/web_fetch 调用频率，合并查询，优先使用本地工具。",
+    hint: "Batch external queries and prefer local files or tools for the next step.",
   },
   {
     test: /permission|denied|forbidden|403/i,
-    hint: "上次因权限错误中断。请检查文件路径是否在允许的工作目录内，避免访问受限资源。",
+    hint: "Use paths inside the allowed workspace and continue with accessible resources.",
   },
   {
     test: /ENOENT|not found|no such file/i,
-    hint: "上次因文件不存在中断。请先用 glob 确认目标路径，再进行读写操作。",
+    hint: "Confirm the target path with glob before the next read or write.",
   },
   {
     test: /ENOSPC|disk.*full|no space/i,
-    hint: "上次因磁盘空间不足中断。请清理不必要的临时文件后重试。",
+    hint: "Free temporary space, then continue with the current contract.",
   },
 ];
 
@@ -87,7 +87,7 @@ function classifyError(reason) {
   for (const { test, hint } of ERROR_HINTS) {
     if (test.test(text)) return hint;
   }
-  return "上次执行中断，原因不明确。请检查上次的方法是否可行，考虑简化或换一种方式完成任务。";
+  return "Continue with the current contract using the smallest reliable next step.";
 }
 
 function buildRetryHint({ error, trackingState, retryCount, maxRetryCount }) {
@@ -97,20 +97,20 @@ function buildRetryHint({ error, trackingState, retryCount, maxRetryCount }) {
   const task = trackingState?.contract?.task?.slice(0, 100) || "";
 
   const lines = [
-    `## 重试提示 (${retryCount}/${maxRetryCount})`,
+    `## Next retry (${retryCount}/${maxRetryCount})`,
     "",
-    `**错误**: ${reason.slice(0, 200)}`,
+    `**Last error**: ${reason.slice(0, 200)}`,
     "",
     guidance,
   ];
 
   if (task) {
-    lines.push("", `**任务**: ${task}`);
+    lines.push("", `**Task**: ${task}`);
   }
 
   if (toolCalls.length > 0) {
     const recent = toolCalls.slice(-8);
-    lines.push("", "**上次执行的工具调用**:");
+    lines.push("", "**Recent tool calls**:");
     for (const tc of recent) {
       lines.push(`- ${tc.label || tc.tool}`);
     }
@@ -120,8 +120,9 @@ function buildRetryHint({ error, trackingState, retryCount, maxRetryCount }) {
 }
 
 function buildHeartbeatReason({ error, retryCount, maxRetryCount, guidance }) {
-  const reason = String(error || "unknown").slice(0, 150);
-  return `重试 (${retryCount}/${maxRetryCount}): ${reason}\n${guidance}`;
+  void error;
+  void guidance;
+  return `Retry scheduled (${retryCount}/${maxRetryCount}). Read inbox/retry-hint.md and continue the current contract.`;
 }
 
 async function writeRetryHintToInbox(agentId, hint, logger) {

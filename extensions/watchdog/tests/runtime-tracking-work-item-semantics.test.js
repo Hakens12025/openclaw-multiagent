@@ -116,7 +116,6 @@ test("buildRuntimeSummary derives worker counts from canonical dispatch targets 
     currentContract: null,
     lastSeen: Date.now(),
     queue: [{ contractId: "TC-Q-1" }],
-    roundRobinCursor: 0,
   });
   dispatchTargetStateMap.set("worker-a", {
     busy: true,
@@ -125,7 +124,6 @@ test("buildRuntimeSummary derives worker counts from canonical dispatch targets 
     currentContract: "TC-ACTIVE",
     lastSeen: Date.now(),
     queue: [],
-    roundRobinCursor: 0,
   });
   dispatchTargetStateMap.set("worker-b", {
     busy: false,
@@ -134,7 +132,6 @@ test("buildRuntimeSummary derives worker counts from canonical dispatch targets 
     currentContract: "TC-DISPATCH",
     lastSeen: Date.now(),
     queue: [],
-    roundRobinCursor: 0,
   });
 
   const summary = buildRuntimeSummary(10);
@@ -146,8 +143,71 @@ test("buildRuntimeSummary derives worker counts from canonical dispatch targets 
   assert.equal(summary.targets.idle, 2);
   assert.equal(summary.targets.unhealthy, 1);
   assert.equal(summary.targets.dispatching, 1);
+  assert.equal(summary.targets.queued, 1);
+  assert.equal(summary.queueDiagnostics.issueCount, 1);
+  assert.equal(summary.queueDiagnostics.issues[0]?.code, "idle_target_with_pending_queue");
   assert.deepEqual(
     summary.targets.targets.map((entry) => entry.agentId),
     ["planner-a", "worker-a", "worker-b"],
   );
+});
+
+test("buildRuntimeSummary exposes queue split-brain diagnostics for unbound running trackers", () => {
+  const sessionKey = "agent:planner:contract:tc-unclaimed";
+
+  rememberTrackingState(sessionKey, {
+    sessionKey,
+    agentId: "planner",
+    status: "running",
+    startMs: Date.now() - 120000,
+    toolCallTotal: 4,
+    lastLabel: "阅读: contract.json",
+    contract: null,
+  });
+  dispatchTargetStateMap.set("planner", {
+    busy: false,
+    healthy: true,
+    dispatching: false,
+    currentContract: null,
+    lastSeen: Date.now(),
+    queue: [{ contractId: "TC-UNCLAIMED", fromAgent: "controller" }],
+  });
+
+  const summary = buildRuntimeSummary(10);
+
+  assert.equal(summary.tracking.runningWithoutContract, 1);
+  assert.equal(summary.queueDiagnostics.hasSplitBrain, true);
+  assert.equal(summary.queueDiagnostics.issueCount, 2);
+  assert.equal(
+    typeof summary.queueDiagnostics.issues.find((issue) => issue.code === "idle_target_with_pending_queue")?.nextContractId,
+    "string",
+  );
+  assert.deepEqual(
+    summary.queueDiagnostics.issues.map((issue) => issue.code).sort(),
+    ["idle_target_with_pending_queue", "running_tracking_without_contract"],
+  );
+});
+
+test("buildRuntimeSummary excludes hidden control-plane sessions from queue split-brain diagnostics", () => {
+  const sessionKey = "agent:operator:main";
+
+  rememberTrackingState(sessionKey, {
+    sessionKey,
+    agentId: "operator",
+    status: "running",
+    startMs: Date.now() - 60000,
+    toolCallTotal: 1,
+    lastLabel: "operator control-plane inspection",
+    contract: null,
+  });
+
+  const summary = buildRuntimeSummary(10);
+  const operatorEntry = summary.tracking.sessions.find((entry) => entry.sessionKey === sessionKey);
+
+  assert.equal(operatorEntry?.plane, "control_plane");
+  assert.equal(operatorEntry?.mainViewVisible, false);
+  assert.equal(operatorEntry?.formalTimelineVisible, false);
+  assert.equal(summary.tracking.runningWithoutContract, 0);
+  assert.equal(summary.queueDiagnostics.issueCount, 0);
+  assert.equal(summary.queueDiagnostics.hasSplitBrain, false);
 });

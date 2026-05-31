@@ -65,11 +65,11 @@ window.OC = { on(){}, off(){}, emit(){}, state: {}, svg: {}, ux: { editMode: fal
     <div id="workItemList"></div>
   </div>
 
-  <!-- CENTER: GRAPH TOPOLOGY -->
+  <!-- CENTER: RUNTIME GRAPH -->
   <div class="panel-center">
-    <div class="panel-label" data-i18n="panel.dispatch_pipeline">GRAPH TOPOLOGY <span class="pipeline-label-meta"><span class="pipeline-loop-state" id="pipelineLoopState"></span><span class="pipeline-progress-state" id="pipelineProgressState"></span></span></div>
-    <div class="pipeline-wrap">
-      <div class="pipeline-toolbar">
+    <div class="panel-label" data-i18n="panel.runtime_graph">RUNTIME GRAPH <span class="runtime-graph-label-meta"><span class="runtime-graph-loop-state" id="runtimeGraphLoopState"></span><span class="runtime-graph-progress-state" id="runtimeGraphProgressState"></span></span></div>
+    <div class="runtime-graph-wrap">
+      <div class="runtime-graph-toolbar">
         <div class="edit-toolbar">
           <button class="toolbar-btn" onclick="showAddAgentDialog()">+ AGENT</button>
           <button class="toolbar-btn" onclick="resetLayout()">RESET LAYOUT</button>
@@ -77,7 +77,7 @@ window.OC = { on(){}, off(){}, emit(){}, state: {}, svg: {}, ux: { editMode: fal
           <span class="model-select-banner" id="modelSelectBanner" style="display:none">&#9654; SELECT NODE</span>
         </div>
       </div>
-      <svg viewBox="0 0 620 480" class="pipeline-svg" id="pipelineSvg" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 620 480" class="runtime-graph-svg" id="runtimeGraphSvg" xmlns="http://www.w3.org/2000/svg">
         <!-- Generated dynamically -->
       </svg>
     </div>
@@ -90,6 +90,7 @@ window.OC = { on(){}, off(){}, emit(){}, state: {}, svg: {}, ux: { editMode: fal
   </div>
 </div>
 
+<script src="/watchdog/dashboard-surface-display.js"></script>
 <script type="module" src="/watchdog/dashboard-init.js"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@ import {
   normalizeOverrideListInput,
   runAgentAdminWrite,
 } from "./agent-admin-store.js";
-import { uniqueStrings, uniqueTools } from "../core/normalize.js";
+import { uniqueStrings } from "../core/normalize.js";
 
 export async function changeAgentName({
   agentId,
@@ -87,58 +87,6 @@ export async function changeAgentDescription({
       description: profile.description,
       role: profile.role,
       effectiveSkills: profile.effectiveSkills,
-    };
-  });
-}
-
-export async function changeAgentCardTools({
-  agentId,
-  tools,
-  logger = null,
-  onAlert = null,
-}) {
-  return runAgentAdminWrite(async () => {
-    const {
-      config,
-      agent,
-      agentId: normalizedAgentId,
-    } = await loadExistingAgentConfig(agentId);
-    const configuredTools = normalizeOverrideListInput(tools, uniqueTools);
-    const {
-      profile,
-      baseCapabilities,
-    } = await writeExistingAgentCardProfile({
-      config,
-      agent,
-      agentId: normalizedAgentId,
-      capabilitiesPatch: {
-        tools: configuredTools,
-      },
-    });
-    const effectiveTools = Array.isArray(profile.capabilities?.tools) && profile.capabilities.tools.length
-      ? uniqueTools(profile.capabilities.tools)
-      : uniqueTools(agent?.tools?.allow || baseCapabilities.tools);
-
-    logger?.info?.(
-      `[watchdog] agent card tools changed: ${normalizedAgentId} `
-      + `configured=[${(configuredTools || []).join(", ")}] effective=[${effectiveTools.join(", ")}]`,
-    );
-    onAlert?.({
-      type: "agent_card_tools_changed",
-      agentId: normalizedAgentId,
-      configuredTools,
-      effectiveTools,
-      ts: Date.now(),
-    });
-
-    return {
-      ok: true,
-      agentId: normalizedAgentId,
-      configuredTools,
-      effectiveTools,
-      role: profile.role,
-      effectiveSkills: profile.effectiveSkills,
-      capabilities: profile.capabilities,
     };
   });
 }

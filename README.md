@@ -31,6 +31,70 @@ _代码控制流程，LLM 负责内容_
 
 ---
 
+## 🆕 近期更新（What's New）
+
+> 自上一轮文档以来，平台完成了一批围绕「**自治、可观测、可组合**」的重构。下列功能**均已落地到当前代码**（不是路线图），可在仓库里直接对照实现。
+
+### 🔭 CLI System 观测面全族收口
+
+系统的读写统一收敛到 `observe / inspect / apply / verify` 四类表面，**所有观测读路由都经 CLI-system inspect surface**，不再各处直连内部状态——做到「观测读零旁路」，真值唯一。
+→ [`lib/cli-system/cli-surface-catalog.js`](extensions/watchdog/lib/cli-system/cli-surface-catalog.js)
+
+### 🤖 Operator 自演化（Meta-Agent）
+
+Operator 从「硬编码白名单的运维器」升级为「数据驱动的元 agent」：知识覆盖全部表面（无白名单遗漏），能执行 **inspect → apply → verify 闭环**主动校正系统，而不只是被动跑固定动作。
+→ [`lib/operator/operator-brain.js`](extensions/watchdog/lib/operator/operator-brain.js)
+
+### ♻️ 四关节自治回路（Self-Governance Loop）
+
+把「评估 → 改进」从一次性反馈升级成闭环自治，四个关节全部打通：
+
+1. **reworkGuidance** 进入下一轮 entry message（评估意见真的回灌执行）
+2. **apply 边界裁定** —— admin-surface 作为唯一变更源
+3. **verify 强制门** —— 变更提交前必须过验证面
+4. **ProfileLifecycle 渐进硬化** —— 连续通过自动升级 `trustLevel` 并收紧治理快照
+
+晋升链 `unknown → provisional → experimental → stable → (retired)`，每次晋升都要 evidence。
+→ [`lib/automation/profile-lifecycle.js`](extensions/watchdog/lib/automation/profile-lifecycle.js) · [`lib/automation/resolve-governance.js`](extensions/watchdog/lib/automation/resolve-governance.js)
+
+### 🧩 AgentGroup（Graph 空间原语 —— 已实现）
+
+Graph 现在除 **edge**（授权）与 **loop**（时间重复）外，新增 **group**（空间封装）：
+
+- `passthrough` —— 每个成员输出独立传递给下游
+- `aggregate` —— 所有成员输出合并为单一结果
+- `race` —— 第一个完成者胜出，其余取消
+
+与 Loop 正交（group 管"谁在一起"，loop 管"重复多少次"），宏展开为 edges + binding policies，不引入新运行时概念。
+→ [`lib/agent/agent-group-spec.js`](extensions/watchdog/lib/agent/agent-group-spec.js) · [`wiki/concepts/agent-group.md`](wiki/concepts/agent-group.md)
+
+### ⏱️ Loop 自带预算（声明式收敛）
+
+`LoopSpec` 支持声明式 `maxRounds` / `maxExperiments`，超限时**优雅收敛**（强制 `terminalOutcome = COMPLETED`，复用既有预算治理而非新增限流器）。即便 evaluator 从不主动 conclude，回路也能稳定终止。优先级 `DEFAULT < LoopSpec < budget < config`。
+→ [`lib/loop/loop-budget.js`](extensions/watchdog/lib/loop/loop-budget.js)
+
+### 📦 产物整包流转（Artifact Package Flow）
+
+交付物按 `artifacts/<contractId>/<producer>/` 组织，manifest 随 contract 流到下游 `inbox/upstream/<producer>/`，agent 只读自己 inbox —— planner 产简报、worker 据简报产交付物，职责清晰。
+
+### 🖥️ 工作流页 + 系统提示词查看器（Dashboard）
+
+- **工作流页** —— 连通分量缩略图镜像主页，hover 高亮成员、click 看自顶向下拓扑，SSE 动态高亮
+- **Session 查看器** —— 聊天气泡式展开每个 agent 的 输入 → 处理过程 → 输出 transcript
+- **系统提示词查看器** —— 双视图（用户直连 `SOUL` / 系统派工 `agent-awake`）+ 完整装配折叠（框架基础 / 工具 / 技能 / 工作区文件，按真实注入序 + 字数）
+- **产物文件包** —— 工作流末位 agent 的产出文件持久查看
+
+### 🌱 Skill 因果链自动沉淀
+
+当一条经验链满足 `EvaluationResult.verdict` + `score ≥ 阈值` + `streak ≥ 2`（评判来自 evaluator，**非 LLM 自评**），系统自动把它结晶为 `SKILL.md`（When / Pro / Con 各挂 harnessRunId 证据，无证据不造）。
+→ [`lib/automation/automation-skill-precipitation.js`](extensions/watchdog/lib/automation/automation-skill-precipitation.js)
+
+### 📦 插件化打包
+
+整个系统重构为可分发的 `openclaw-multi-agent-system` 插件（[`extensions/watchdog/openclaw.plugin.json`](extensions/watchdog/openclaw.plugin.json)），核心接口（`CLISurface` / `HarnessModule`）冻结中。
+
+---
+
 ## 💡 核心理念
 
 OpenClaw 的所有设计都围绕一条第一原则展开：
@@ -386,7 +450,7 @@ openclaw configure
 # 后台（推荐，含 SSH 隧道 + Gateway）
 bash ~/.openclaw/start.sh
 
-# 前台
+# 手动运行
 openclaw gateway run
 ```
 
@@ -509,16 +573,7 @@ node test-runner.js --suite benchmark
 
 ### 🧩 AgentGroup（Graph 空间原语）
 
-Graph 目前只有 **edge**（授权）与 **loop**（时间重复），缺一个**空间封装原语**：
-
-- `passthrough` — 每个 agent 输出独立传递给下游
-- `aggregate` — 所有 agent 输出合并为单一结果
-- `race` — 第一个完成的 agent 胜出，其余取消
-
-AgentGroup **与 Loop 正交**：group 管"谁在一起"，loop 管"重复多少次"，两者可独立组合。
-本质是 graph 语言的语法糖，展开为 edges + binding policies，不引入新的运行时概念。
-
-详见 [`wiki/concepts/agent-group.md`](wiki/concepts/agent-group.md) — 当前状态：**待实现**。
+> ✅ **已实现** —— 见上方「🆕 近期更新」的 AgentGroup 一节。`passthrough` / `aggregate` / `race` 三种 outputMode 已落地，与 Loop 正交，宏展开为 edges + binding policies。详见 [`wiki/concepts/agent-group.md`](wiki/concepts/agent-group.md)。
 
 ### 🤖 Automation of Automation
 
@@ -536,14 +591,14 @@ unknown → provisional → experimental → stable → (retired)
 
 消费对象：`HarnessRun` + `EvaluationResult` + `AutomationDecision`。每次晋升都需要 evidence。
 
-详见 [`wiki/concepts/automation-of-automation.md`](wiki/concepts/automation-of-automation.md) — 当前状态：**方向稳定、未开工**。
+详见 [`wiki/concepts/automation-of-automation.md`](wiki/concepts/automation-of-automation.md) — 当前状态：**部分落地** —— ProfileLifecycle 渐进硬化、Operator 自演化、Skill 因果链沉淀已跑通（见上方 What's New），完整的「自动化的自动化」长期演化仍在推进。
 
 ### ⏳ 其他排队中的想法
 
 - **WakeEvent** — 运行时状态驱动的控制面唤醒（替代当前部分轮询逻辑）
 - **Session 管理完整化** — 合约独立 session 的 deterministic key 路径未完全打通
 - **零知识验证** — Hook 观测约束下的可验证执行（执行轨迹 + 承诺检测）
-- **CLI System 扩展** — 已有第一版，后续 observe / inspect / apply / verify 的完整面
+- ~~**CLI System 扩展** — observe / inspect / apply / verify 的完整面~~ → ✅ **已完成全族收口**（见上方 What's New）
 
 ---
 

@@ -2,6 +2,20 @@
   const modules = window.OpenClawDevtoolsModules = window.OpenClawDevtoolsModules || {};
 
   modules.createChangeSetView = function createChangeSetView(app) {
+    function buildWorkItemDetailPath(workItemId) {
+      const selectedId = String(workItemId || "").trim();
+      const params = new URLSearchParams();
+      if (selectedId) {
+        params.set("selected", selectedId);
+      }
+      const backHref = `${window.location?.pathname || "/watchdog/devtools"}${window.location?.search || ""}`;
+      if (backHref) {
+        params.set("back", backHref);
+      }
+      const search = params.toString();
+      return `/watchdog/work-items-view${search ? `?${search}` : ""}`;
+    }
+
     function renderVerificationRecord(record, selected) {
       const statusClass = app.normalizeStatusClass(record.verificationStatus || record.status);
       const failedCases = Array.isArray(record.failedCaseIds) ? record.failedCaseIds : [];
@@ -72,7 +86,7 @@
             <span class="devtool-case-id">${app.esc(record.id || "--")}</span>
             <span class="devtool-case-status">${app.esc(record.executionStatus || record.status || "--")}</span>
           </div>
-          <div class="devtool-case-meta">${app.esc(modeLabel)} // ${app.esc(record.surfaceId || "--")}</div>
+          <div class="devtool-case-meta">${app.esc(modeLabel)} // ${app.esc(app.formatKnownSurfaceDisplayId(record.surfaceId, record.surfaceId || "--"))}</div>
           <div class="devtool-case-meta">${app.esc(app.formatTimestamp(record.finishedAt || record.startedAt))} // ${app.esc(app.formatDuration(record.durationMs))}</div>
           <div class="devtool-checkpoint-detail">${app.esc(resultSummary)}</div>
         </button>
@@ -120,7 +134,7 @@
       }
 
       const followUp = action.followUpSurfaceId
-        ? `<div class="devtool-detail-line"><span>FOLLOW UP</span><strong>${app.esc(action.followUpSurfaceId)} ${app.esc(action.followUpMethod || "--")}</strong></div>`
+        ? `<div class="devtool-detail-line"><span>FOLLOW UP</span><strong>${app.esc(app.formatKnownSurfaceDisplayId(action.followUpSurfaceId, action.followUpSurfaceId || "--"))} ${app.esc(action.followUpMethod || "--")}</strong></div>`
         : "";
 
       return `
@@ -129,14 +143,14 @@
             <span>RECOMMENDED NEXT HOP</span>
             <strong>${app.esc(action.label || action.actionId || "--")}</strong>
           </div>
-          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(action.nextSurfaceId || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(app.formatKnownSurfaceDisplayId(action.nextSurfaceId, action.nextSurfaceId || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>METHOD</span><strong>${app.esc(action.nextMethod || "--")}</strong></div>
           ${followUp}
           ${action.summary ? `<div class="devtool-detail-text">${app.esc(action.summary)}</div>` : ""}
           <div class="devtool-inline-actions">
             <button class="devtool-btn compact" data-operator-next-hop="1">
               <span class="devtool-btn-title">${app.esc(action.nextMethod === "GET" ? "OPEN NEXT HOP" : "GO TO NEXT HOP")}</span>
-              <span class="devtool-btn-desc">${app.esc(action.nextPath || action.nextSurfaceId || "--")}</span>
+              <span class="devtool-btn-desc">${app.esc(action.nextPath || app.formatKnownSurfaceDisplayId(action.nextSurfaceId, action.nextSurfaceId || "--"))}</span>
             </button>
           </div>
         </div>
@@ -368,13 +382,13 @@
       return `
         <div class="devtool-summary-head">
           <div>
-            <div class="devtool-run-label">${app.esc(draft.title || draft.surfaceId || draft.id)}</div>
+            <div class="devtool-run-label">${app.esc(draft.title || app.formatKnownSurfaceDisplayId(draft.surfaceId, draft.id || "--"))}</div>
             <div class="devtool-run-id">${app.esc(draft.id)}</div>
           </div>
           <div class="devtool-run-status status-${app.esc(statusClass)}">${app.esc(draft.lastVerificationStatus || draft.status || "draft")}</div>
         </div>
         <div class="devtool-kv-grid">
-          <div><span>SURFACE</span><strong>${app.esc(draft.surfaceId || "--")}</strong></div>
+          <div><span>SURFACE</span><strong>${app.esc(app.formatKnownSurfaceDisplayId(draft.surfaceId, draft.surfaceId || "--"))}</strong></div>
           <div><span>PHASE</span><strong>${app.esc(draft.operatorPhase || "--")}</strong></div>
           <div><span>STAGE</span><strong>${app.esc(draft.stage || "--")}</strong></div>
           <div><span>RISK</span><strong>${app.esc(draft.riskLevel || "--")}</strong></div>
@@ -640,7 +654,7 @@
       );
       const composeSurfaceOptions = authoringSurfaces.map((surface) => `
         <option value="${app.esc(surface.id)}" ${surface.id === app.state.composeSurfaceId ? "selected" : ""}>
-          ${app.esc(surface.id)} :: ${app.esc(surface.risk)}
+          ${app.esc(app.formatSurfaceDisplayId(surface, surface.id || "--"))} :: ${app.esc(surface.risk)}
         </option>
       `).join("");
 
@@ -676,7 +690,7 @@
           <textarea class="devtool-form-control devtool-form-textarea" id="composePayloadInput" spellcheck="false">${app.esc(app.state.composePayloadText)}</textarea>
           <div class="devtool-detail-line"><span>SUBJECT</span><strong>${app.esc(composerContext?.subjectLabel || "--")}</strong></div>
           <div class="devtool-detail-line"><span>TARGET</span><strong>${app.esc(composerContext?.targetLabel || composerContext?.targetId || "--")}</strong></div>
-          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(selectedComposeSurface?.summary || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(app.formatSurfaceDisplayId(selectedComposeSurface, selectedComposeSurface?.summary || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>CONFIRM</span><strong>${app.esc(selectedComposeSurface?.confirmation || "--")}</strong></div>
           <div class="devtool-note">Use structured inputs for the common path, or edit payload JSON directly for extra keys. JSON changes sync back into the structured fields when the editor loses focus.</div>
           <div class="devtool-inline-actions">
@@ -699,7 +713,7 @@
             <span>LINK EVIDENCE</span>
             <strong>${app.esc(selectedDraft?.id || "--")}</strong>
           </div>
-          <div class="devtool-detail-line"><span>DRAFT</span><strong>${app.esc(selectedDraft?.title || selectedDraft?.surfaceId || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>DRAFT</span><strong>${app.esc(selectedDraft?.title || app.formatKnownSurfaceDisplayId(selectedDraft?.surfaceId, selectedDraft?.id || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>RUN</span><strong>${app.esc(preferredEvidenceRun?.id || "--")}</strong></div>
           <div class="devtool-detail-line"><span>RUN STATUS</span><strong>${app.esc(preferredEvidenceRun?.status || "--")}</strong></div>
           <div class="devtool-detail-line"><span>RUN SOURCE</span><strong>${app.esc(preferredEvidenceRun ? evidenceRunSource : "--")}</strong></div>
@@ -741,7 +755,7 @@
             <span>EXECUTE DRAFT</span>
             <strong>${app.esc(selectedDraft?.id || "--")}</strong>
           </div>
-          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(selectedDraft?.surfaceId || "--")}</strong></div>
+          <div class="devtool-detail-line"><span>SURFACE</span><strong>${app.esc(app.formatKnownSurfaceDisplayId(selectedDraft?.surfaceId, selectedDraft?.surfaceId || "--"))}</strong></div>
           <div class="devtool-detail-line"><span>CONFIRM</span><strong>${app.esc(selectedDraft?.confirmation || "--")}</strong></div>
           <div class="devtool-detail-line"><span>STATUS</span><strong>${app.esc(selectedDraft?.status || "--")}</strong></div>
           <div class="devtool-note">Dry run records a preview execution. Apply executes the selected draft. Explicit surfaces will prompt for confirmation.</div>
@@ -902,7 +916,9 @@
         button.addEventListener("click", () => app.openRunInTestRuns(button.getAttribute("data-related-run-id")));
       });
       host.querySelectorAll("[data-open-work-items-for]").forEach((button) => {
-        button.addEventListener("click", () => app.openTokenizedPath("/watchdog/work-items"));
+        button.addEventListener("click", () => {
+          app.openTokenizedPath(buildWorkItemDetailPath(button.getAttribute("data-open-work-items-for")));
+        });
       });
       host.querySelectorAll("[data-open-delivery-tickets-for]").forEach((button) => {
         button.addEventListener("click", () => app.openTokenizedPath("/watchdog/system-action-delivery-tickets"));
@@ -926,14 +942,14 @@
 
       host.innerHTML = historyDrafts.map((draft) => {
         const statusClass = app.normalizeStatusClass(draft.lastVerificationStatus || draft.status);
-        const title = draft.title || draft.surfaceId || draft.id;
+        const title = draft.title || app.formatKnownSurfaceDisplayId(draft.surfaceId, draft.id || "--");
         return `
           <button class="devtool-history-item status-${app.esc(statusClass)} ${app.state.selectedDraftId === draft.id ? "selected" : ""}" data-draft-id="${app.esc(draft.id)}">
             <div class="devtool-history-head">
               <span>${app.esc(title)}</span>
               <span class="status-${app.esc(statusClass)}">${app.esc(draft.lastVerificationStatus || draft.status || "draft")}</span>
             </div>
-            <div class="devtool-history-meta">${app.esc(draft.surfaceId || "--")}</div>
+            <div class="devtool-history-meta">${app.esc(app.formatKnownSurfaceDisplayId(draft.surfaceId, draft.surfaceId || "--"))}</div>
             <div class="devtool-history-meta">${app.esc(draft.recommendedAction?.label || draft.nextAction || "--")}</div>
             <div class="devtool-history-meta">${draft.related?.failedWorkItemCount || 0} fail // ${draft.related?.activeWorkItemCount || 0} active // ${draft.related?.activeRuntimeReturnCount || 0} return // ${app.esc(app.formatTimestamp(draft.updatedAt || draft.lastVerificationAt || draft.lastExecutionAt))}</div>
           </button>

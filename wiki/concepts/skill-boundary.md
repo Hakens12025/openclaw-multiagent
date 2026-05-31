@@ -54,7 +54,8 @@
 3. 备忘录56：正式提出 skill 作为独立概念
 4. 备忘录68：三层语义切分确立，术语冻结
 5. 注册机制实现：role-spec-registry, semantic-skill-registry, agent-card-composer
+6. v120-stable：skill 可从**已验证的成功 HarnessRun 自动沉淀**——因果链结构 When/Pro/Con（Pro 挂 harnessRunId、Con 挂 failureClass，只留验证后的因果边，无证据不造），**用 EvaluationResult 评判而非 LLM 自评**（区别于 Hermes 自评式 skill 进化）。见 [自治闭环](self-governance-loop.md) + `lib/automation/automation-skill-precipitation.js`，决策 `docs/decision-skill-causal-precipitation-2026-05-31.md`
 
 ## 当前状态
 
-**术语已冻结。通过注册机制实现。** 三层切分是系统设计的基础共识，不再变更。
+**术语已冻结。通过注册机制实现。** 三层切分是系统设计的基础共识，不再变更。v120 起 skill 不仅靠人写，也能由系统从验证过的成功运行自动沉淀（因果链 + 证据）。

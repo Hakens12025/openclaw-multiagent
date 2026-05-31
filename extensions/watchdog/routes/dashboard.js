@@ -1,17 +1,100 @@
 // routes/dashboard.js — Dashboard HTML/CSS/JS serving + SSE stream
 
+import { readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OC, cfg } from "../lib/state.js";
 import { addSseClient, buildProgressPayload, removeSseClient } from "../lib/transport/sse.js";
-import { listTrackingStates } from "../lib/store/tracker-store.js";
-import { getRecentTaskHistory } from "../lib/store/task-history-store.js";
+import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 const DASHBOARD_DIR = join(import.meta.dirname || join(OC, "extensions", "watchdog", "routes"), "..");
+const DASHBOARD_NO_STORE_HEADERS = Object.freeze({
+  "Cache-Control": "no-store, must-revalidate",
+});
+const DASHBOARD_BUILD_ID = String(Date.now());
+
+function isDashboardFrontendResource(filename) {
+  return (/^dashboard.*\.(?:js|css)$/u.test(filename) || filename === "protocol-registry.js")
+    && !filename.endsWith(".test.js");
+}
+
+function getDashboardResourceContentType(filename) {
+  if (filename.endsWith(".js")) return "application/javascript; charset=utf-8";
+  if (filename.endsWith(".css")) return "text/css; charset=utf-8";
+  return "text/plain; charset=utf-8";
+}
+
+function getDashboardResourceVersion(filename) {
+  try {
+    const stat = statSync(join(DASHBOARD_DIR, filename));
+    return `${stat.mtimeMs.toFixed(0)}-${stat.size}`;
+  } catch {
+    return DASHBOARD_BUILD_ID;
+  }
+}
+
+function appendDashboardResourceVersion(pathname) {
+  const filename = String(pathname || "").replace(/^\/watchdog\//u, "");
+  if (!isDashboardFrontendResource(filename)) return pathname;
+  return `${pathname}?v=${encodeURIComponent(getDashboardResourceVersion(filename))}`;
+}
+
+function versionDashboardHtml(html) {
+  const buildId = encodeURIComponent(DASHBOARD_BUILD_ID);
+  return String(html || "")
+    .replaceAll(/(href|src)="(\/watchdog\/(?:dashboard[^"]*\.(?:js|css)|protocol-registry\.js))"/gu, (_match, attr, src) => (
+      `${attr}="${appendDashboardResourceVersion(src)}"`
+    ))
+    .replace(/<body(\s[^>]*)?>/u, (match, attrs = "") => {
+      if (/\bdata-dashboard-build=/u.test(attrs)) return match;
+      return `<body${attrs} data-dashboard-build="${buildId}">`;
+    });
+}
+
+function versionDashboardModuleImports(content) {
+  return String(content || "").replaceAll(
+    /(from\s+["']\.\/)(dashboard[^"']*\.js|protocol-registry\.js)(["'])/gu,
+    (match, prefix, filename, suffix) => {
+      if (!isDashboardFrontendResource(filename)) return match;
+      return `${prefix}${filename}?v=${encodeURIComponent(getDashboardResourceVersion(filename))}${suffix}`;
+    },
+  );
+}
+
+function versionDashboardResource(filename, content) {
+  if (filename.endsWith(".js")) return versionDashboardModuleImports(content);
+  return content;
+}
 
 async function getDashboardFile(filename) {
   try { return await readFile(join(DASHBOARD_DIR, filename), "utf8"); }
   catch { return null; }
+}
+
+function listDashboardFrontendResources() {
+  try {
+    return readdirSync(DASHBOARD_DIR)
+      .filter(isDashboardFrontendResource)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function registerDashboardResourceRoute(api, filename) {
+  api.registerHttpRoute({
+    path: `/watchdog/${filename}`, auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      const content = await getDashboardFile(filename);
+      if (!content) { res.writeHead(404); res.end("Not Found"); return true; }
+      res.writeHead(200, {
+        "Content-Type": getDashboardResourceContentType(filename),
+        ...DASHBOARD_NO_STORE_HEADERS,
+      });
+      res.end(versionDashboardResource(filename, content));
+      return true;
+    },
+  });
 }
 
 export function register(api) {
@@ -31,10 +114,17 @@ export function register(api) {
         "Connection": "keep-alive",
         "Access-Control-Allow-Origin": "http://localhost:18789",
       });
-      for (const trackingState of listTrackingStates()) {
-        res.write(`event: track_start\ndata: ${JSON.stringify(buildProgressPayload(trackingState))}\n\n`);
+      // tracking / history 初始快照经 CLI-system inspect surface 读取，不直读 store（收口观测读旁路）。
+      // buildProgressPayload + SSE 推流逻辑（transport）原样保留。
+      for (const trackingState of await inspectCliSystemSurface({ surfaceId: "inspect.tracking_states" })) {
+        const payload = buildProgressPayload(trackingState);
+        if (payload.mainViewVisible === false) continue;
+        res.write(`event: track_start\ndata: ${JSON.stringify(payload)}\n\n`);
       }
-      for (const h of getRecentTaskHistory(10)) res.write(`event: track_end\ndata: ${JSON.stringify(h)}\n\n`);
+      for (const h of await inspectCliSystemSurface({ surfaceId: "inspect.recent_task_history", params: { limit: 10 } })) {
+        if (h?.mainViewVisible === false) continue;
+        res.write(`event: track_end\ndata: ${JSON.stringify(h)}\n\n`);
+      }
       res.write(`event: connected\ndata: {}\n\n`);
       addSseClient(res);
       const hb = setInterval(() => {
@@ -56,7 +146,7 @@ export function register(api) {
       }
       const html = await getDashboardFile("dashboard.html");
       if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(html); return true;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(versionDashboardHtml(html)); return true;
     },
   });
 
@@ -70,7 +160,7 @@ export function register(api) {
       }
       const html = await getDashboardFile("harness.html");
       if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(html); return true;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(html); return true;
     },
   });
 
@@ -84,30 +174,12 @@ export function register(api) {
       }
       const html = await getDashboardFile("devtools.html");
       if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(html); return true;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(html); return true;
     },
   });
 
-  // Dashboard CSS files
-  for (const cssFile of [
-    "dashboard.css",
-    "dashboard-home.css",
-    "dashboard-agents.css",
-    "dashboard-harness.css",
-    "dashboard-devtools.css",
-    "dashboard-subpage.css",
-    "dashboard-coming-soon.css",
-    "dashboard-operator-ui.css",
-    "dashboard-graph.css",
-  ]) {
-    api.registerHttpRoute({
-      path: `/watchdog/${cssFile}`, auth: "plugin", match: "exact",
-      handler: async (req, res) => {
-        const css = await getDashboardFile(cssFile);
-        if (!css) { res.writeHead(404); res.end("Not Found"); return true; }
-        res.writeHead(200, { "Content-Type": "text/css; charset=utf-8" }); res.end(css); return true;
-      },
-    });
+  for (const resourceFile of listDashboardFrontendResources()) {
+    registerDashboardResourceRoute(api, resourceFile);
   }
 
   // Agents page (agents-view to avoid conflict with /watchdog/agents API)
@@ -120,7 +192,21 @@ export function register(api) {
       }
       const html = await getDashboardFile("agents.html");
       if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(html); return true;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(html); return true;
+    },
+  });
+
+  // Workflow page (workflow-view to avoid conflict with future /watchdog/workflow* APIs)
+  api.registerHttpRoute({
+    path: "/watchdog/workflow-view", auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      const url = new URL(req.url, "http://localhost");
+      if (gatewayToken && url.searchParams.get("token") !== gatewayToken) {
+        res.writeHead(401, { "Content-Type": "text/plain" }); res.end("Unauthorized"); return true;
+      }
+      const html = await getDashboardFile("workflow.html");
+      if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(versionDashboardHtml(html)); return true;
     },
   });
 
@@ -134,43 +220,22 @@ export function register(api) {
       }
       const html = await getDashboardFile("work-items.html");
       if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(html); return true;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(html); return true;
     },
   });
 
-  // Dashboard JS files
-  for (const jsFile of [
-    "dashboard-bus.js",
-    "dashboard-i18n.js",
-    "dashboard-common.js",
-    "dashboard-agents.js",
-    "dashboard-nav.js",
-    "dashboard-subpage-init.js",
-    "dashboard.js",
-    "dashboard-svg.js",
-    "dashboard-drag.js",
-    "dashboard-ux.js",
-    "dashboard-pipeline.js",
-    "dashboard-init.js",
-    "dashboard-devtools.js",
-    "dashboard-devtools-test-runs.js",
-    "dashboard-devtools-management.js",
-    "dashboard-devtools-change-sets.js",
-    "dashboard-harness.js",
-    "dashboard-harness-shared.js",
-    "dashboard-harness-atlas.js",
-    "dashboard-harness-placement.js",
-    "dashboard-harness-runs.js",
-    "dashboard-graph.js",
-    "dashboard-operator.js",
-  ]) {
-    api.registerHttpRoute({
-      path: `/watchdog/${jsFile}`, auth: "plugin", match: "exact",
-      handler: async (req, res) => {
-        const js = await getDashboardFile(jsFile);
-        if (!js) { res.writeHead(404); res.end("Not Found"); return true; }
-        res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" }); res.end(js); return true;
-      },
-    });
-  }
+  // ⑤ Operator control plane page (control-plane-view to avoid conflict with /watchdog/control-plane/* API)
+  api.registerHttpRoute({
+    path: "/watchdog/control-plane-view", auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      const url = new URL(req.url, "http://localhost");
+      if (gatewayToken && url.searchParams.get("token") !== gatewayToken) {
+        res.writeHead(401, { "Content-Type": "text/plain" }); res.end("Unauthorized"); return true;
+      }
+      const html = await getDashboardFile("control-plane.html");
+      if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(html); return true;
+    },
+  });
+
 }

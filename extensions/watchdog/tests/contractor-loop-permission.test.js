@@ -6,6 +6,7 @@ import {
   registerRuntimeAgents,
 } from "../lib/agent/agent-identity.js";
 import {
+  buildSystemActionReplyTarget,
   systemActionConsume,
 } from "../lib/system-action/system-action-consumer.js";
 import {
@@ -13,7 +14,7 @@ import {
 } from "../lib/core/runtime-status.js";
 import { LOOP_SESSION_STATE_FILE } from "../lib/loop/loop-session-store.js";
 import { runtimeAgentConfigs } from "../lib/state.js";
-import { runGlobalTestEnvironmentSerial } from "./test-locks.js";
+import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {
   info() {},
@@ -141,4 +142,55 @@ test("ingress loopDispatch metadata does not rescue legacy contractor start_pipe
     assert.equal(result.status, SYSTEM_ACTION_STATUS.UNKNOWN_ACTION);
     assert.equal(result.actionType, "start_pipeline");
   });
+});
+
+test("system action reply target preserves live QQ metadata from the current contract", () => {
+  const replyTo = {
+    agentId: "agent-for-kksl",
+    sessionKey: "agent:agent-for-kksl:main",
+    channel: "qqbot",
+    target: "c2c:live-user",
+    messageId: "msg-1",
+    replyToId: "msg-1",
+    accountId: "default",
+  };
+
+  assert.deepEqual(
+    buildSystemActionReplyTarget({
+      agentId: "agent-for-kksl",
+      sessionKey: "agent:agent-for-kksl:contract:TC-QQ-ACTION",
+      contractData: { replyTo },
+    }),
+    replyTo,
+  );
+});
+
+test("system action reply target does not synthesize QQ delivery target from agent identity", () => {
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+  try {
+    runtimeAgentConfigs.clear();
+    runtimeAgentConfigs.set("agent-for-kksl", {
+      id: "agent-for-kksl",
+      role: "bridge",
+      gateway: true,
+      ingressSource: "qq",
+    });
+
+    assert.deepEqual(
+      buildSystemActionReplyTarget({
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:contract:TC-QQ-ACTION",
+        contractData: { id: "TC-QQ-ACTION" },
+      }),
+      {
+        agentId: "agent-for-kksl",
+        sessionKey: "agent:agent-for-kksl:contract:TC-QQ-ACTION",
+      },
+    );
+  } finally {
+    runtimeAgentConfigs.clear();
+    for (const [agentId, config] of originalRuntimeConfigs.entries()) {
+      runtimeAgentConfigs.set(agentId, config);
+    }
+  }
 });

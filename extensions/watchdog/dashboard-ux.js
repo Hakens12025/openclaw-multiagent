@@ -16,7 +16,7 @@ export let activeTooltipAgent = null;
 // ── Close tooltip on outside click ──
 document.addEventListener('click', (e) => {
   if (OC.ux.editMode) return;
-  if (activeTooltip && !e.target.closest('.node-tooltip') && !e.target.closest('.pipeline-node')) {
+  if (activeTooltip && !e.target.closest('.node-tooltip') && !e.target.closest('.runtime-graph-node')) {
     hideTooltip();
   }
 });
@@ -36,6 +36,7 @@ export function toggleEditMode() {
   if (!OC.ux.editMode) {
     if (typeof OC.graph.clearGraphSelection === 'function') OC.graph.clearGraphSelection({ silent: true });
     exitModelSelectMode();
+    document.getElementById('addAgentDialog')?.remove();
   }
   toast(OC.ux.editMode ? 'EDIT MODE' : 'VIEW MODE', OC.ux.editMode ? 'warn' : 'success');
   emit('editmode:toggled', { editMode: OC.ux.editMode });
@@ -72,7 +73,10 @@ export function showTooltip(agentId) {
   const pos = nodePositions[agentId];
   if (!pos) return;
   const state = agentState[agentId];
-  const svg = document.getElementById('pipelineSvg');
+  const svg = document.getElementById('runtimeGraphSvg');
+  if (!svg || typeof svg.getScreenCTM !== 'function') return;
+  const wrap = document.querySelector('.runtime-graph-wrap');
+  if (!wrap) return;
   const ctm = svg.getScreenCTM();
   const svgRect = svg.getBoundingClientRect();
 
@@ -112,7 +116,6 @@ export function showTooltip(agentId) {
   let left = ctm.e + (pos.x + pos.w + 8) * ctm.a - svgRect.left;
   let top = ctm.f + pos.y * ctm.d - svgRect.top;
 
-  const wrap = document.querySelector('.pipeline-wrap');
   wrap.style.position = 'relative';
   tip.style.left = left + 'px';
   tip.style.top = top + 'px';
@@ -204,7 +207,15 @@ export function openModelPicker(agentId, anchorEl) {
   closeModelPicker();
   if (!allModels.length) { toast('No models loaded', 'error'); return; }
 
-  const svg = document.getElementById('pipelineSvg');
+  const svg = document.getElementById('runtimeGraphSvg');
+  if (!svg || typeof svg.getScreenCTM !== 'function') return;
+  if (
+    !anchorEl
+    || typeof anchorEl.getBBox !== 'function'
+    || typeof anchorEl.getScreenCTM !== 'function'
+  ) return;
+  const wrap = document.querySelector('.runtime-graph-wrap');
+  if (!wrap) return;
   const svgRect = svg.getBoundingClientRect();
   const bbox = anchorEl.getBBox();
   const ctm = anchorEl.getScreenCTM();
@@ -222,7 +233,6 @@ export function openModelPicker(agentId, anchorEl) {
     picker.appendChild(opt);
   }
 
-  const wrap = document.querySelector('.pipeline-wrap');
   wrap.style.position = 'relative';
   wrap.appendChild(picker);
   activeModelPicker = picker;
@@ -278,7 +288,7 @@ export function showAddAgentDialog() {
       <button onclick="document.getElementById('addAgentDialog').remove()">CANCEL</button>
     </div>`;
   document.body.appendChild(d);
-  document.getElementById('newAgentId').focus();
+  document.getElementById('newAgentId')?.focus?.();
 }
 
 export async function createAgent() {

@@ -2,7 +2,7 @@
 // All logic lives in lib/, hooks/, and routes/. This file only does wiring.
 
 import { readdir, readFile, stat, unlink, mkdir } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import {
   OC, CONTRACTS_DIR, HOME,
   cfg, setApiRef, agentWorkspace,
@@ -15,7 +15,7 @@ import { deleteTrackingSession, listTrackingEntries } from "./lib/store/tracker-
 import { pruneDispatchChainOrigins } from "./lib/store/contract-flow-store.js";
 import { broadcast } from "./lib/transport/sse.js";
 import { runtimeWakeAgent } from "./lib/transport/runtime-wake-transport.js";
-import { listQQTypingContracts, qqTypingStop } from "./lib/qq.js";
+import { listQQTypingContracts, qqTypingStop } from "./lib/channel-notify.js";
 import { mutateContractSnapshot } from "./lib/contracts.js";
 import { getContractCacheSize, clearContractStore } from "./lib/store/contract-store.js";
 import { finalizeAgentSession } from "./lib/lifecycle/runtime-lifecycle.js";
@@ -39,14 +39,18 @@ import {
   registerRuntimeAgents,
 } from "./lib/agent/agent-identity.js";
 import { syncAllRuntimeWorkspaceGuidance } from "./lib/workspace-guidance-writer.js";
+import { scanAndRecordWorkspaceGuidanceDrift } from "./lib/agent/agent-guidance-drift.js";
+import { pruneAllWorkspaceGuidanceBackups } from "./lib/agent/agent-guidance-backup.js";
+import { prunePendingSignals } from "./lib/runtime/pending-signal-registry.js";
+import { CONTROL_PLANE_PATHS } from "./lib/control-plane/control-plane-paths.js";
+import { migrateControllerRootedStores } from "./lib/control-plane/control-plane-migrate.js";
+import { migrateOperatorWorkspace } from "./lib/agent/operator-workspace-migrate.js";
+import { rehydrateRuntimeDirectEnvelopePendingSignals } from "./lib/runtime-direct-envelope-queue.js";
+import { rehydrateSystemActionDeliveryPendingSignals } from "./lib/routing/delivery-system-action-ticket.js";
 import { getActiveLoopState } from "./lib/loop/loop-session-store.js";
-import { concludeLoopRound, withLoopRuntimeLock } from "./lib/loop/loop-round-runtime.js";
 import {
   armLateCompletionLease,
-  getLateCompletionLease,
   getLateCompletionLeaseMs,
-  hasActiveLateCompletionLease,
-  isLateCompletionLeaseExpired,
 } from "./lib/late-completion-lease.js";
 import {
   pollDueAutomations,
@@ -54,10 +58,10 @@ import {
 } from "./lib/automation/automation-executor.js";
 import { recoverOrphanedContracts, pruneTerminalContracts } from "./lib/lifecycle/crash-recovery.js";
 import { drainIdleDispatchTargets } from "./lib/routing/dispatch-graph-policy.js";
-import { migrateControllerRuntimeStateToControlPlane } from "./lib/control-plane-migration.js";
 
 // Hooks
 import * as beforeToolCallHook from "./hooks/before-tool-call.js";
+import * as beforePromptBuildHook from "./hooks/before-prompt-build.js";
 import * as beforeAgentStartHook from "./hooks/before-agent-start.js";
 import * as afterToolCallHook from "./hooks/after-tool-call.js";
 import * as agentEndHook from "./hooks/agent-end.js";
@@ -66,17 +70,14 @@ import * as agentEndHook from "./hooks/agent-end.js";
 import * as dashboardRoutes from "./routes/dashboard.js";
 import * as apiRoutes from "./routes/api.js";
 import * as a2aRoutes from "./routes/a2a.js";
-import * as testRunsRoutes from "./routes/test-runs.js";
 
 // ── Agent Card loader ────────────────────────────────────────────────────────
 import {
   NON_RUNNING_TRACKER_RETENTION_MS,
   RUNNING_TRACKER_ABSOLUTE_TIMEOUT_FLOOR_MS,
   RUNNING_TRACKER_STALE_SILENCE_MS,
-  PIPELINE_STAGE_TIMEOUT_MS,
 } from "./lib/state-constants.js";
 const AUTO_TRACKER_TIMEOUT_RECOVERY_ENABLED = false;
-const AUTO_PIPELINE_STAGE_TIMEOUT_ENABLED = false;
 
 function getTrackerLastActivityTs(trackingState) {
   if (!trackingState) return Date.now();
@@ -94,26 +95,26 @@ async function initExecutionLaneTargets(logger) {
   await syncDispatchTargetsFromRuntime(logger);
 }
 
-async function resolveTrackerTimeoutPipelineStage(trackingState) {
+async function resolveTrackerTimeoutLoopStage(trackingState) {
   const trackedStage = trackingState?.contract?.pipelineStage;
   if (trackedStage && typeof trackedStage === "object" && trackedStage.stage) {
     return trackedStage;
   }
 
-  const activePipeline = await getActiveLoopState();
-  if (!activePipeline?.currentStage || activePipeline.currentStage === "concluded") {
+  const activeLoopRuntime = await getActiveLoopState();
+  if (!activeLoopRuntime?.currentStage || activeLoopRuntime.currentStage === "concluded") {
     return null;
   }
-  if (trackingState?.agentId && activePipeline.currentStage !== trackingState.agentId) {
+  if (trackingState?.agentId && activeLoopRuntime.currentStage !== trackingState.agentId) {
     return null;
   }
 
   return {
-    stage: activePipeline.currentStage,
-    pipelineId: activePipeline.pipelineId || null,
-    loopId: activePipeline.loopId || null,
-    loopSessionId: activePipeline.loopSessionId || null,
-    round: Number.isFinite(activePipeline.round) ? activePipeline.round : null,
+    stage: activeLoopRuntime.currentStage,
+    pipelineId: activeLoopRuntime.pipelineId || null,
+    loopId: activeLoopRuntime.loopId || null,
+    loopSessionId: activeLoopRuntime.loopSessionId || null,
+    round: Number.isFinite(activeLoopRuntime.round) ? activeLoopRuntime.round : null,
   };
 }
 
@@ -156,6 +157,16 @@ function pruneStaleCollections(logger, now) {
   }
 }
 
+export async function maintainDispatchQueue({
+  api,
+  logger,
+} = {}) {
+  await reconcileDispatchRuntimeTruth(logger);
+  await syncDispatchTargetsFromRuntime(logger);
+  await drainIdleDispatchTargets(api, logger);
+  await persistDispatchRuntimeState(logger);
+}
+
 export async function cleanupStaleRunningTracker({
   sessionKey,
   trackingState,
@@ -182,12 +193,12 @@ export async function cleanupStaleRunningTracker({
     + `(agent=${trackingState.agentId}, elapsed=${Math.round(elapsedMs / 1000)}s, silence=${Math.round(silenceMs / 1000)}s)`,
   );
 
-  const pipelineStage = await resolveTrackerTimeoutPipelineStage(trackingState);
+  const loopStage = await resolveTrackerTimeoutLoopStage(trackingState);
   const lateCompletionLease = armLateCompletionLease(trackingState, {
     reason: "tracker_timeout",
     diagnostic: timeoutDiagnostic,
     leaseMs: getLateCompletionLeaseMs(),
-    pipelineStage,
+    loopStage,
   });
 
   broadcast("alert", {
@@ -202,8 +213,8 @@ export async function cleanupStaleRunningTracker({
   });
 
   if (trackingState.contract) {
-    if (!trackingState.contract.pipelineStage && pipelineStage) {
-      trackingState.contract.pipelineStage = { ...pipelineStage };
+    if (!trackingState.contract.pipelineStage && loopStage) {
+      trackingState.contract.pipelineStage = { ...loopStage };
     }
     trackingState.contract.runtimeDiagnostics = {
       ...(trackingState.contract.runtimeDiagnostics && typeof trackingState.contract.runtimeDiagnostics === "object"
@@ -224,8 +235,8 @@ export async function cleanupStaleRunningTracker({
         const runtimeDiagnostics = contract.runtimeDiagnostics && typeof contract.runtimeDiagnostics === "object"
           ? contract.runtimeDiagnostics
           : {};
-        if (!contract.pipelineStage && pipelineStage) {
-          contract.pipelineStage = { ...pipelineStage };
+        if (!contract.pipelineStage && loopStage) {
+          contract.pipelineStage = { ...loopStage };
         }
         contract.runtimeDiagnostics = {
           ...runtimeDiagnostics,
@@ -362,6 +373,7 @@ const plugin = {
 
     // ── Register hooks ──
     beforeToolCallHook.register(api, logger);
+    beforePromptBuildHook.register(api, logger);
     beforeAgentStartHook.register(api, logger, deps);
     afterToolCallHook.register(api, logger, deps);
     agentEndHook.register(api, logger, deps);
@@ -370,30 +382,65 @@ const plugin = {
     dashboardRoutes.register(api);
     apiRoutes.register(api, logger, deps);
     a2aRoutes.register(api, logger, deps);
-    testRunsRoutes.register(api, logger, deps);
 
     // ── Gateway start ──
     api.on("gateway_start", async (event) => {
       logger.info(`[watchdog] ===== GATEWAY STARTED on port ${event.port} =====`);
       logger.info(`[watchdog] dashboard → http://localhost:${event.port}/watchdog/progress`);
 
-      const migration = await migrateControllerRuntimeStateToControlPlane({ logger });
-      if (migration.conflicts.length > 0) {
-        logger.warn(`[control-plane] ${migration.conflicts.length} legacy runtime state migration conflict(s) preserved`);
-      }
-
       await initExecutionLaneTargets(logger);
       setApiRef(api);
       const wIds = listDispatchTargetIds();
 
+      try {
+        await migrateControllerRootedStores({ logger });
+      } catch (error) {
+        logger?.warn?.(`[watchdog] control-plane migration check failed: ${error?.message || error}`);
+      }
+      try {
+        await migrateOperatorWorkspace({ logger });
+      } catch (error) {
+        logger?.warn?.(`[watchdog] operator workspace migration check failed: ${error?.message || error}`);
+      }
       await mkdir(CONTRACTS_DIR, { recursive: true });
-      await mkdir(join(OC, "workspaces", "controller", "output"), { recursive: true });
+      await mkdir(CONTROL_PLANE_PATHS.outputDir, { recursive: true });
       for (const gatewayAgentId of listGatewayAgentIds()) {
         await mkdir(join(agentWorkspace(gatewayAgentId), "deliveries"), { recursive: true });
       }
       await ensureRouterDirs(logger, wIds);
 
+      try {
+        const preScan = await scanAndRecordWorkspaceGuidanceDrift({ label: "pre-sync", scanSource: "startup" });
+        logger?.info?.(`[watchdog] GUIDANCE_DRIFT/pre-sync: ${preScan.scan.driftCount}`);
+      } catch (error) {
+        logger?.warn?.(`[watchdog] guidance drift pre-sync scan failed: ${error?.message || error}`);
+      }
       await syncAllRuntimeWorkspaceGuidance(config, logger);
+      try {
+        const postScan = await scanAndRecordWorkspaceGuidanceDrift({ label: "post-sync", scanSource: "startup" });
+        logger?.info?.(`[watchdog] GUIDANCE_DRIFT/post-sync: ${postScan.scan.driftCount}`);
+      } catch (error) {
+        logger?.warn?.(`[watchdog] guidance drift post-sync scan failed: ${error?.message || error}`);
+      }
+      try {
+        await pruneAllWorkspaceGuidanceBackups({ logger });
+      } catch (error) {
+        logger?.warn?.(`[watchdog] guidance backup prune failed: ${error?.message || error}`);
+      }
+
+      // Pending-signal registry boot-time rehydrate. Reconstruct actionable
+      // signals from durable sources so heartbeat gate decisions reflect
+      // persistent truth immediately after restart. Sources are independent.
+      try {
+        const [direct, delivery] = await Promise.all([
+          rehydrateRuntimeDirectEnvelopePendingSignals({ logger }),
+          rehydrateSystemActionDeliveryPendingSignals({ logger }),
+        ]);
+        logger?.info?.(`[watchdog] pending-signal rehydrate: direct=${direct.registered} delivery=${delivery.registered}`);
+      } catch (error) {
+        logger?.warn?.(`[watchdog] pending-signal rehydrate failed: ${error?.message || error}`);
+      }
+
       await loadAgentCards(logger);
       await loadState(logger);
       await loadDispatchRuntimeState(logger);
@@ -428,6 +475,11 @@ const plugin = {
       // Periodic maintenance
       intervalHandles.push(
         setInterval(() => cleanStaleLocks(logger), 15 * 60_000),
+        setInterval(() => prunePendingSignals(), 5 * 60_000),
+        setInterval(() => {
+          scanAndRecordWorkspaceGuidanceDrift({ label: "maintenance", scanSource: "interval" })
+            .catch((error) => logger?.warn?.(`[watchdog] periodic drift scan failed: ${error?.message || error}`));
+        }, 15 * 60_000),
 
         setInterval(() => {
           const now = Date.now();
@@ -462,6 +514,7 @@ const plugin = {
             logger,
             now,
           });
+          void maintainDispatchQueue({ api, logger });
           // Periodic memory cleanup: prune stale entries from unbounded collections
           pruneStaleCollections(logger, now);
         }, 5 * 60_000),
@@ -477,117 +530,6 @@ const plugin = {
             }
           }
         }, 3 * 60_000),
-
-        // Pipeline timeout monitor (60 sec)
-        setInterval(async () => {
-          if (!AUTO_PIPELINE_STAGE_TIMEOUT_ENABLED) {
-            return;
-          }
-          try {
-            await withLoopRuntimeLock(async () => {
-              const pipeline = await getActiveLoopState();
-              if (!pipeline || !pipeline.currentStage || pipeline.currentStage === "concluded") return;
-
-              // PIPELINE_STAGE_TIMEOUT_MS imported from state-constants
-              const now = Date.now();
-              const updatedAt = pipeline._updatedAt || pipeline.startedAt || now;
-              const elapsed = now - updatedAt;
-              const stageRecoveryEntry = listTrackingEntries().find(([, trackingState]) => {
-                if (!trackingState?.agentId || trackingState.agentId !== pipeline.currentStage) return false;
-                if (!hasActiveLateCompletionLease(trackingState, now) && !isLateCompletionLeaseExpired(trackingState, now)) {
-                  return false;
-                }
-                const trackedPipelineId = trackingState?.contract?.pipelineStage?.pipelineId
-                  || getLateCompletionLease(trackingState)?.pipelineId
-                  || null;
-                return !trackedPipelineId || trackedPipelineId === pipeline.pipelineId;
-              });
-
-              if (stageRecoveryEntry) {
-                const [sessionKey, trackingState] = stageRecoveryEntry;
-                const lateCompletionLease = getLateCompletionLease(trackingState);
-                if (isLateCompletionLeaseExpired(trackingState, now)) {
-                  logger.warn(
-                    `[pipeline] late completion grace expired: `
-                    + `stage=${pipeline.currentStage}, session=${sessionKey}`,
-                  );
-                  broadcast("alert", {
-                    type: "pipeline_stage_timeout_grace_expired",
-                    pipelineId: pipeline.pipelineId,
-                    loopId: pipeline.loopId || null,
-                    loopSessionId: pipeline.loopSessionId || null,
-                    stage: pipeline.currentStage,
-                    sessionKey,
-                    contractId: trackingState?.contract?.id || lateCompletionLease?.contractId || null,
-                    expiresAt: lateCompletionLease?.expiresAt || null,
-                    ts: now,
-                  });
-                  trackingState.status = "failed";
-                  trackingState.lastLabel = "迟到收口窗口已过期";
-                  trackingState.lateCompletionLease = null;
-                  await finalizeAgentSession({
-                    agentId: trackingState.agentId,
-                    sessionKey,
-                    trackingState,
-                    api,
-                    logger,
-                  });
-                  await concludeLoopRound(
-                    `stage_timeout: ${pipeline.currentStage}: late_completion_grace_expired`,
-                    logger,
-                    { skipLock: true },
-                  );
-                }
-                return;
-              }
-
-              if (elapsed > PIPELINE_STAGE_TIMEOUT_MS) {
-                logger.warn(`[pipeline] timeout: stage=${pipeline.currentStage}, elapsed=${Math.round(elapsed / 1000)}s`);
-                broadcast("alert", {
-                  type: "pipeline_stage_timeout",
-                  pipelineId: pipeline.pipelineId,
-                  stage: pipeline.currentStage,
-                  elapsed,
-                  ts: now,
-                });
-
-                const stageTrackerEntry = listTrackingEntries().find(([, trackingState]) => {
-                  if (trackingState?.status !== "running") return false;
-                  if (trackingState?.agentId !== pipeline.currentStage) return false;
-                  const trackedPipelineId = trackingState?.contract?.pipelineStage?.pipelineId || null;
-                  return !trackedPipelineId || trackedPipelineId === pipeline.pipelineId;
-                });
-
-                if (!stageTrackerEntry) {
-                  return;
-                }
-
-                const [sessionKey, trackingState] = stageTrackerEntry;
-                const silenceMs = now - getTrackerLastActivityTs(trackingState);
-
-                if (silenceMs > PIPELINE_STAGE_TIMEOUT_MS) {
-                  logger.warn(
-                    `[pipeline] timeout cleanup: stage=${pipeline.currentStage}, `
-                    + `session=${sessionKey}, silence=${Math.round(silenceMs / 1000)}s`,
-                  );
-                  await cleanupStaleRunningTracker({
-                    sessionKey,
-                    trackingState,
-                    api,
-                    logger,
-                  });
-                  return;
-                }
-
-                try {
-                  void runtimeWakeAgent(trackingState.agentId, "pipeline stage timeout", api, logger);
-                } catch {}
-              }
-            });
-          } catch (e) {
-            logger.warn(`[pipeline] timeout check error: ${e.message}`);
-          }
-        }, 60_000),
 
         setInterval(async () => {
           try {

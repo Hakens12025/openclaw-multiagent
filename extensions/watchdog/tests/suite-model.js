@@ -1,4 +1,4 @@
-// tests/suite-model.js — Model comparison test infrastructure + report
+// Model comparison test infrastructure + report
 
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,8 +7,8 @@ import {
   readStoredAgentBinding,
   writeStoredAgentBinding,
 } from "../lib/agent/agent-binding-store.js";
-import { OC, CONFIG_FILE, PORT, fetchJSON, sleep } from "./infra.js";
-import { summarizeTestDiagnosis } from "./suite-single.js";
+import { OC, CONFIG_FILE, PORT, fetchJSON, sleep } from "../lib/formal-runtime/infra.js";
+import { summarizeTestDiagnosis } from "../lib/formal-runtime/suite-single.js";
 
 export const MODEL_PROFILES = [
   { provider: "ark-openai", modelId: "minimax-m2.5", label: "MiniMax M2.5 (ARK)" },
@@ -206,9 +206,9 @@ export function generateModelComparisonReport(allModelResults, totalDuration, st
 
     for (const br of mr.benchResults) {
       const { testResult, benchScore, testCase } = br;
-      const complexityLabel = testCase.complexity === "simple" ? "SIMPLE" : "COMPLEX";
+      const pathLabel = testCase.complexity === "simple" ? "SIMPLE" : "COMPLEX";
       const result = testResult.pass ? "PASS" : "FAIL";
-      lines.push(`│  ${testCase.id}: ${result} | ${complexityLabel} | ${testResult.duration}s | ${benchScore.total}/${benchScore.max} (${Math.round(benchScore.total/benchScore.max*100)}%)`);
+      lines.push(`│  ${testCase.id}: ${result} | ${pathLabel} | ${testResult.duration}s | ${benchScore.total}/${benchScore.max} (${Math.round(benchScore.total/benchScore.max*100)}%)`);
 
       if (!testResult.pass && testResult.results) {
         const diagnosis = summarizeTestDiagnosis(testResult);

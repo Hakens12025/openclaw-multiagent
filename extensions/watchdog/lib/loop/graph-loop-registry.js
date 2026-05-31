@@ -2,9 +2,11 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { detectCycles, hasDirectedEdge, loadGraph } from "../agent/agent-graph.js";
-import { normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
-import { GRAPH_LOOP_FILE, atomicWriteFile, withLock } from "../state.js";
+import { normalizePositiveInteger, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
+import { atomicWriteFile, withLock } from "../state.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 
+const GRAPH_LOOP_FILE = CONTROL_PLANE_PATHS.graphLoopRegistryFile;
 const GRAPH_LOOP_LOCK_KEY = "graph-loop-registry";
 const DEFAULT_LOOP_KIND = "cycle-loop";
 const DEFAULT_CONTINUE_SIGNAL = "continue";
@@ -45,6 +47,10 @@ function normalizeLoopSpecEntry(value) {
   const entryAgentId = normalizeString(source.entryAgentId);
   const phaseOrder = uniqueStrings(source.phaseOrder);
   const metadata = normalizeRecord(source.metadata, null);
+  // 环自带 limit: optional declarative structural caps. Omitted when undeclared
+  // (keeps registry JSON clean); runtime falls through to loop-budget DEFAULTs.
+  const maxRounds = normalizePositiveInteger(source.maxRounds, null);
+  const maxExperiments = normalizePositiveInteger(source.maxExperiments, null);
 
   return {
     id: normalizeString(source.id) || buildLoopId(nodes),
@@ -55,6 +61,8 @@ function normalizeLoopSpecEntry(value) {
     ...(phaseOrder.length > 0 ? { phaseOrder } : {}),
     continueSignal: normalizeString(source.continueSignal) || DEFAULT_CONTINUE_SIGNAL,
     concludeSignal: normalizeString(source.concludeSignal) || DEFAULT_CONCLUDE_SIGNAL,
+    ...(maxRounds ? { maxRounds } : {}),
+    ...(maxExperiments ? { maxExperiments } : {}),
     ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
 }
@@ -89,6 +97,8 @@ export function composeLoopSpecFromAgents(agentIds, opts = {}) {
     phaseOrder: opts.phaseOrder,
     continueSignal: opts.continueSignal || DEFAULT_CONTINUE_SIGNAL,
     concludeSignal: opts.concludeSignal || DEFAULT_CONCLUDE_SIGNAL,
+    maxRounds: opts.maxRounds,
+    maxExperiments: opts.maxExperiments,
     metadata: {
       ...(metadata || {}),
       semanticStageMode: normalizeString(metadata?.semanticStageMode) || "task_stage_truth",
@@ -179,6 +189,23 @@ export async function upsertGraphLoopSpec(loopSpec) {
     await mkdir(dirname(GRAPH_LOOP_FILE), { recursive: true });
     await atomicWriteFile(GRAPH_LOOP_FILE, JSON.stringify({ loops: nextLoops }, null, 2));
     return normalized;
+  });
+}
+
+export async function removeGraphLoopSpec(loopId) {
+  const id = normalizeString(loopId);
+  if (!id) {
+    throw new Error("removeGraphLoopSpec requires loopId");
+  }
+  return withLock(GRAPH_LOOP_LOCK_KEY, async () => {
+    const registry = await loadGraphLoopRegistry();
+    const nextLoops = registry.loops.filter((entry) => entry.id !== id);
+    const removed = registry.loops.length - nextLoops.length;
+    if (removed > 0) {
+      await mkdir(dirname(GRAPH_LOOP_FILE), { recursive: true });
+      await atomicWriteFile(GRAPH_LOOP_FILE, JSON.stringify({ loops: nextLoops }, null, 2));
+    }
+    return { loopId: id, removed };
   });
 }
 

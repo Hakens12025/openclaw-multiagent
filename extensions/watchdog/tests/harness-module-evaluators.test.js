@@ -22,6 +22,7 @@ test("buildFinalModuleRun final-only branches consume canonical finalize evidenc
         stage: "review",
         metadata: {
           schemaValid: true,
+          stageSchemaValid: true,
           schema: "review_finding_v1",
         },
       },

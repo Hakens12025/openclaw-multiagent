@@ -1,15 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const WATCHDOG_ROOT = join(TEST_DIR, "..");
 
 test("runtime consumers use loop-round-runtime api instead of importing loop-engine directly", async () => {
   const files = [
-    join(process.cwd(), "lib", "system-action", "system-action-consumer.js"),
-    join(process.cwd(), "lib", "automation", "automation-executor.js"),
-    join(process.cwd(), "lib", "admin", "admin-surface-loop-operations.js"),
-    join(process.cwd(), "lib", "admin", "admin-surface-operations.js"),
-    join(process.cwd(), "lib", "admin", "runtime-admin.js"),
+    join(WATCHDOG_ROOT, "lib", "system-action", "system-action-consumer.js"),
+    join(WATCHDOG_ROOT, "lib", "automation", "automation-start.js"),
+    join(WATCHDOG_ROOT, "lib", "automation", "automation-reconcile.js"),
+    join(WATCHDOG_ROOT, "lib", "admin", "admin-surface-loop-operations.js"),
+    join(WATCHDOG_ROOT, "lib", "admin", "admin-surface-operations.js"),
+    join(WATCHDOG_ROOT, "lib", "admin", "runtime-admin.js"),
   ];
 
   for (const filePath of files) {
@@ -20,7 +25,7 @@ test("runtime consumers use loop-round-runtime api instead of importing loop-eng
 });
 
 test("loop-round-runtime owns active round reads instead of proxying through loop-session-store", async () => {
-  const filePath = join(process.cwd(), "lib", "loop", "loop-round-runtime.js");
+  const filePath = join(WATCHDOG_ROOT, "lib", "loop", "loop-round-runtime.js");
   const content = await readFile(filePath, "utf8");
 
   assert.doesNotMatch(content, /PIPELINE_STATE_FILE/, "loop-round-runtime should not expose pipeline state files");
@@ -33,7 +38,7 @@ test("loop-round-runtime owns active round reads instead of proxying through loo
 });
 
 test("loop-session-store no longer carries round runtime proxy exports", async () => {
-  const filePath = join(process.cwd(), "lib", "loop", "loop-session-store.js");
+  const filePath = join(WATCHDOG_ROOT, "lib", "loop", "loop-session-store.js");
   const content = await readFile(filePath, "utf8");
 
   assert.doesNotMatch(content, /await import\("\.\/loop-engine\.js"\)/, "loop-session-store still imports loop-engine");
@@ -46,9 +51,41 @@ test("loop-session-store no longer carries round runtime proxy exports", async (
 });
 
 test("loop-engine file has been retired as a runtime owner", async () => {
-  const filePath = join(process.cwd(), "lib", "loop", "loop-engine.js");
+  const filePath = join(WATCHDOG_ROOT, "lib", "loop", "loop-engine.js");
   await assert.rejects(
     readFile(filePath, "utf8"),
     { code: "ENOENT" },
+  );
+});
+
+test("loop start consumers delegate role-aware wake to dispatch runtime instead of embedding generic wake text", async () => {
+  const adminSurfacePath = join(WATCHDOG_ROOT, "lib", "admin", "admin-surface-loop-operations.js");
+  const systemActionPath = join(WATCHDOG_ROOT, "lib", "system-action", "system-action-consumer.js");
+
+  const [adminSurfaceContent, systemActionContent] = await Promise.all([
+    readFile(adminSurfacePath, "utf8"),
+    readFile(systemActionPath, "utf8"),
+  ]);
+
+  assert.doesNotMatch(
+    adminSurfaceContent,
+    /loop 控制唤醒: 请读取 inbox\/contract\.json 并执行当前阶段/,
+    "runtime.loop.start should not embed a generic loop wake prompt",
+  );
+  assert.match(
+    adminSurfaceContent,
+    /runtimeApi:\s*runtimeContext(?:\?\.|\.)api/,
+    "runtime.loop.start should pass runtimeApi into startLoopRound",
+  );
+
+  assert.doesNotMatch(
+    systemActionContent,
+    /loop 启动: 请读取 inbox\/contract\.json 并执行当前合同/,
+    "system_action start_loop should not embed a generic loop wake prompt",
+  );
+  assert.match(
+    systemActionContent,
+    /runtimeApi:\s*api/,
+    "system_action start_loop should pass runtimeApi into startLoopRound",
   );
 });

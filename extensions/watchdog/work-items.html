@@ -6,9 +6,9 @@
 <title>OPENCLAW // WORK ITEMS</title>
 <link rel="stylesheet" href="/watchdog/dashboard.css">
 <link rel="stylesheet" href="/watchdog/dashboard-subpage.css">
-<link rel="stylesheet" href="/watchdog/dashboard-coming-soon.css">
+<link rel="stylesheet" href="/watchdog/dashboard-work-items.css">
 </head>
-<body>
+<body data-watchdog-page="work-items">
 
 <header class="mission-header">
   <div class="mission-badge">
@@ -28,17 +28,15 @@
 
 <section id="pageChrome"></section>
 
-<div class="coming-soon-page">
-  <div class="coming-soon-badge">
-    <div class="coming-soon-icon"></div>
-    <div class="coming-soon-title" data-i18n="page.coming_soon">COMING SOON</div>
-    <div class="coming-soon-desc" data-i18n="page.under_construction">This module is under construction.</div>
-  </div>
-</div>
+<main class="work-items-page">
+  <section class="work-items-topline" id="workItemsSummary"></section>
+  <section class="work-items-toolbar" id="workItemsToolbar"></section>
+  <section class="work-items-layout">
+    <aside class="work-items-list" id="workItemsList"></aside>
+    <article class="work-items-detail" id="workItemsDetail"></article>
+  </section>
+</main>
 
-<script type="module">
-  import { initDashboardSubpage } from '/watchdog/dashboard-subpage-init.js';
-  initDashboardSubpage({ page: 'work-items' });
-</script>
+<script type="module" src="/watchdog/dashboard-work-items.js"></script>
 </body>
 </html>

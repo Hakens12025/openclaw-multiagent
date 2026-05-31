@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { recordHarnessRun, getHarnessRun } from "../lib/harness/harness-run-store.js";
+import { resolveAgentEndHarnessAutomationId } from "../lib/lifecycle/agent-end-terminal.js";
 
 const HARNESS_RUNS_DIR = join(homedir(), ".openclaw", "research-lab", "harness-runs");
 function runPath(runId) {
@@ -66,6 +67,46 @@ test("syntheticAutomationId 'loop_session:xxx' passes validation", async () => {
   } finally {
     await unlink(runPath(run.id)).catch(() => {});
   }
+});
+
+test("syntheticAutomationId 'loop:xxx' passes validation", async () => {
+  const run = await recordHarnessRun({
+    id: `harness:dedup-loop-scope:${Date.now()}`,
+    automationId: "loop:loop-1234",
+    round: 3,
+    trigger: "agent_end_terminal",
+    enabled: true,
+    executionMode: "freeform",
+    agentId: "worker-gamma",
+    contractId: "TC-DEDUP-LOOP-SCOPE",
+    sessionKey: "agent:worker-gamma:dedup-loop-scope",
+    status: "completed",
+    executor: { kind: "agent", agentId: "worker-gamma" },
+    toolUsage: { totalCalls: 4 },
+    diagnostics: { traceId: "trace-loop-scope", warnings: [], error: null },
+  });
+
+  try {
+    assert.ok(run.id);
+    assert.equal(run.automationId, "loop:loop-1234");
+    assert.equal(run.round, 3);
+  } finally {
+    await unlink(runPath(run.id)).catch(() => {});
+  }
+});
+
+test("agent-end harness scope uses loop naming for contract stage fallback", () => {
+  assert.equal(
+    resolveAgentEndHarnessAutomationId({
+      agentId: "worker-delta",
+      contractStage: {
+        pipelineId: "loop-without-session",
+        round: 1,
+        stage: "worker-delta",
+      },
+    }),
+    "loop:loop-without-session",
+  );
 });
 
 test("loop_detected warning persisted in diagnostics.warnings", async () => {

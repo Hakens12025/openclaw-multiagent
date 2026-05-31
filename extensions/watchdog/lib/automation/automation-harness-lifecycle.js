@@ -1,12 +1,10 @@
 import {
   buildHarnessSpec,
-  finalizeHarnessRun,
   normalizeHarnessRun,
   normalizeHarnessSpec,
   startHarnessRun,
 } from "../harness/harness-run.js";
 import {
-  finalizeHarnessRunModules,
   initializeHarnessRunModules,
 } from "../harness/harness-module-runner.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
@@ -46,8 +44,8 @@ export function buildAutomationContext(spec, round, trigger, ts, {
   };
 }
 
-export function isPipelineActive(pipeline) {
-  return Boolean(pipeline?.currentStage && pipeline.currentStage !== "concluded");
+export function isLoopRuntimeActive(loopRuntime) {
+  return Boolean(loopRuntime?.currentStage && loopRuntime.currentStage !== "concluded");
 }
 
 export function resolveAutomationIdFromContext(value) {
@@ -209,18 +207,18 @@ export function classifyStartResult(triggerResult) {
   const pipelineId = normalizeString(source.pipelineId) || null;
   const loopId = normalizeString(source.loopId) || null;
   const loopSessionId = normalizeString(source.loopSessionId) || null;
-  const pipelineAction = normalizeString(source.pipelineAction || source.action)?.toLowerCase() || null;
-  const started = Boolean(contractId || pipelineId || pipelineAction === "started");
-  const busy = pipelineAction === "busy" || source.reason === "pipeline_busy";
+  const loopAction = normalizeString(source.loopAction || source.action)?.toLowerCase() || null;
+  const started = Boolean(contractId || pipelineId || loopAction === "started");
+  const busy = loopAction === "busy" || source.reason === "loop_busy";
   return {
     started,
     busy,
-    reason: busy ? "pipeline_busy" : (source.reason || pipelineAction || "not_started"),
+    reason: busy ? "loop_busy" : (source.reason || loopAction || "not_started"),
     contractId,
     pipelineId,
     loopId,
     loopSessionId,
-    pipelineAction,
+    loopAction,
   };
 }
 

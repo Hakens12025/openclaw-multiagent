@@ -1,8 +1,7 @@
 // lib/runtime-mailbox-outbox-reviewer-verdict.js — reviewer verdict normalization
 
 import {
-  isResearcherAgent,
-  isSpecializedExecutor,
+  canAgentReceiveRework,
   resolvePreferredExecutorAgentId,
 } from "../agent/agent-identity.js";
 
@@ -42,7 +41,8 @@ export function normalizeReviewerDecision(parsed) {
     .filter((f) => f.message);
 
   let reworkTarget = parsed?.rework_target || parsed?.reworkTarget || null;
-  if (reworkTarget && !isSpecializedExecutor(reworkTarget) && !isResearcherAgent(reworkTarget)) {
+  // P6-Phase1: 能否当 rework 目标改由 policy 判定（缺省等价于 specialized-executor||researcher）。
+  if (reworkTarget && !canAgentReceiveRework(reworkTarget)) {
     reworkTarget = resolvePreferredExecutorAgentId();
   }
 

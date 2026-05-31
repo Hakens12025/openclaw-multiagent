@@ -9,12 +9,22 @@ import {
   normalizeStageCompletion,
   normalizeStageRunResult,
 } from "../stage-results.js";
+import {
+  extractUserFacingResultFromArtifact,
+  isInternalDeliveryReason,
+} from "./delivery-result-extract.js";
+
+export { isInternalDeliveryReason } from "./delivery-result-extract.js";
 
 export function buildRuntimeDeliveryResultSource({
   trackingState = null,
   contractData = null,
 } = {}) {
   const contract = contractData || trackingState?.contract || null;
+  const ioObservation = trackingState?.ioObservation
+    || contractData?.runtimeDiagnostics?.ioObservation
+    || trackingState?.contract?.runtimeDiagnostics?.ioObservation
+    || null;
   const executionObservation = normalizeExecutionObservation(
     contractData?.executionObservation || trackingState?.contract?.executionObservation || null,
     {
@@ -32,13 +42,14 @@ export function buildRuntimeDeliveryResultSource({
         stageRunResult?.completion || {},
       )
     : null;
-  const terminalOutcome = normalizeTerminalOutcome(
+const terminalOutcome = normalizeTerminalOutcome(
     contractData?.terminalOutcome || trackingState?.contract?.terminalOutcome || null,
     { terminalStatus: contract?.status || null },
   );
 
   return {
     executionObservation,
+    ioObservation,
     stageRunResult,
     stageCompletion,
     terminalOutcome,
@@ -64,61 +75,82 @@ function resolveTerminalOutcomeArtifactPath(terminalOutcome) {
   return null;
 }
 
+function normalizeSourceForOutputPath(source) {
+  // If source has already-normalized fields (from buildRuntimeDeliveryResultSource), use them directly.
+  if (source?.executionObservation && typeof source.executionObservation === "object"
+    && source?.terminalOutcome !== undefined && source?.stageRunResult !== undefined) {
+    return {
+      executionObservation: source.executionObservation,
+      terminalOutcome: source.terminalOutcome,
+      stageRunResult: source.stageRunResult,
+    };
+  }
+  const executionObservation = normalizeExecutionObservation(
+    source?.executionObservation || source?.contract?.executionObservation || null,
+    {
+      contractId: source?.contract?.id || source?.contractId || null,
+      fallbackPrimaryOutputPath: source?.contract?.output || source?.output || null,
+    },
+  );
+  return {
+    executionObservation,
+    terminalOutcome: normalizeTerminalOutcome(
+      source?.terminalOutcome || source?.contract?.terminalOutcome || null,
+      { terminalStatus: source?.contract?.status || null },
+    ),
+    stageRunResult: normalizeStageRunResult(executionObservation.stageRunResult || null),
+  };
+}
+
 export function resolveRuntimeResultOutputPath(source) {
   if (!source) return null;
   if (typeof source === "string") {
     return normalizeRuntimePath(source);
   }
 
-  const executionObservation = normalizeExecutionObservation(
-    source?.executionObservation || source?.contract?.executionObservation || null,
-    {
-      contractId: source?.contract?.id || source?.contractId || null,
-      fallbackPrimaryOutputPath: source?.contract?.output || source?.output || null,
-    },
-  );
-  const terminalOutcome = normalizeTerminalOutcome(
-    source?.terminalOutcome || source?.contract?.terminalOutcome || null,
-    { terminalStatus: source?.contract?.status || null },
-  );
-  const stageRunResult = normalizeStageRunResult(
-    executionObservation.stageRunResult || null,
-  );
+  const { executionObservation, terminalOutcome, stageRunResult } = normalizeSourceForOutputPath(source);
   const terminalArtifactPath = resolveTerminalOutcomeArtifactPath(terminalOutcome);
-  const stageArtifactPath = terminalArtifactPath
+  return terminalArtifactPath
     || normalizeRuntimePath(stageRunResult?.primaryArtifactPath)
     || listStageArtifactPaths(stageRunResult).map(normalizeRuntimePath).find(Boolean)
     || normalizeRuntimePath(executionObservation.primaryOutputPath)
     || executionObservation.artifactPaths.map(normalizeRuntimePath).find(Boolean)
     || normalizeRuntimePath(source?.primaryOutputPath)
-    || (Array.isArray(source?.artifactPaths) ? source.artifactPaths.map(normalizeRuntimePath).find(Boolean) : null);
-
-  return stageArtifactPath;
+    || (Array.isArray(source?.artifactPaths) ? source.artifactPaths.map(normalizeRuntimePath).find(Boolean) : null)
+    || null;
 }
 
 function resolveRuntimeResultFallbackText(source) {
   if (!source || typeof source === "string") return "";
-  const executionObservation = normalizeExecutionObservation(
-    source?.executionObservation || source?.contract?.executionObservation || null,
-    {
-      contractId: source?.contract?.id || source?.contractId || null,
-      fallbackPrimaryOutputPath: source?.contract?.output || source?.output || null,
-    },
-  );
-  const terminalOutcome = normalizeTerminalOutcome(
-    source?.terminalOutcome || source?.contract?.terminalOutcome || null,
-    { terminalStatus: source?.contract?.status || null },
-  );
-  const stageRunResult = normalizeStageRunResult(
-    executionObservation.stageRunResult || null,
-  );
-  const stageCompletionSource = executionObservation.stageCompletion || null;
-  const stageCompletion = stageCompletionSource || stageRunResult?.completion
-    ? normalizeStageCompletion(
-        stageCompletionSource,
-        stageRunResult?.completion || {},
-      )
-    : null;
+  // If source has already-normalized fields (from buildRuntimeDeliveryResultSource), use them directly.
+  const alreadyNormalized = source?.executionObservation && typeof source.executionObservation === "object"
+    && source?.terminalOutcome !== undefined && source?.stageRunResult !== undefined;
+  const executionObservation = alreadyNormalized
+    ? source.executionObservation
+    : normalizeExecutionObservation(
+        source?.contract?.executionObservation || null,
+        {
+          contractId: source?.contract?.id || null,
+          fallbackPrimaryOutputPath: source?.contract?.output || null,
+        },
+      );
+  const terminalOutcome = alreadyNormalized
+    ? source.terminalOutcome
+    : normalizeTerminalOutcome(
+        source?.contract?.terminalOutcome || null,
+        { terminalStatus: source?.contract?.status || null },
+      );
+  const stageRunResult = alreadyNormalized
+    ? source.stageRunResult
+    : normalizeStageRunResult(executionObservation.stageRunResult || null);
+  const stageCompletion = alreadyNormalized
+    ? source.stageCompletion
+    : (() => {
+        const stageCompletionSource = executionObservation.stageCompletion || null;
+        return stageCompletionSource || stageRunResult?.completion
+          ? normalizeStageCompletion(stageCompletionSource, stageRunResult?.completion || {})
+          : null;
+      })();
   return terminalOutcome?.summary
     || terminalOutcome?.clarification
     || terminalOutcome?.reason
@@ -126,6 +158,28 @@ function resolveRuntimeResultFallbackText(source) {
     || stageRunResult?.summary
     || stageRunResult?.feedback
     || "";
+}
+
+function isCompletedTerminalSource(source) {
+  if (!source || typeof source === "string") return false;
+  const contractStatus = source?.contract?.status || source?.status || null;
+  const terminalOutcome = normalizeTerminalOutcome(
+    source?.terminalOutcome || source?.contract?.terminalOutcome || null,
+    { terminalStatus: contractStatus },
+  );
+  return terminalOutcome?.status === CONTRACT_STATUS.COMPLETED
+    || contractStatus === CONTRACT_STATUS.COMPLETED;
+}
+
+function resolveIoObservationPreview(source) {
+  if (!source || typeof source === "string") return "";
+  const ioObservation = source?.ioObservation
+    || source?.runtimeDiagnostics?.ioObservation
+    || source?.contract?.runtimeDiagnostics?.ioObservation
+    || null;
+  return typeof ioObservation?.output?.textPreview === "string"
+    ? ioObservation.output.textPreview
+    : "";
 }
 
 export async function readRuntimeResultContent(source) {
@@ -138,8 +192,27 @@ export async function readRuntimeResultContent(source) {
   }
 }
 
-export async function readDeliveryResultContent(outputPath) {
-  return readRuntimeResultContent(outputPath);
+export async function resolveTerminalUserFacingResultContent(source) {
+  const outputPath = resolveRuntimeResultOutputPath(source);
+  if (outputPath) {
+    try {
+      const artifactText = await readFile(outputPath, "utf8");
+      const extracted = extractUserFacingResultFromArtifact(artifactText);
+      if (extracted) return summarizeDeliveryResult(extracted);
+    } catch {}
+  }
+
+  const previewText = resolveIoObservationPreview(source);
+  if (previewText) {
+    const extracted = extractUserFacingResultFromArtifact(previewText);
+    if (extracted) return summarizeDeliveryResult(extracted);
+  }
+
+  if (isCompletedTerminalSource(source)) {
+    return "";
+  }
+
+  return resolveRuntimeResultFallbackText(source);
 }
 
 export function summarizeDeliveryResult(text, limit = 1200) {
@@ -221,7 +294,7 @@ export function buildSystemActionDeliveryResult({
   return result;
 }
 
-export function buildContractResultDeliveryTask({
+export function buildRuntimeResultDeliveryTask({
   header,
   successInstruction,
   awaitingInputInstruction,
@@ -234,6 +307,9 @@ export function buildContractResultDeliveryTask({
   resultContentLabel = "结果内容",
   resultReasonLabel = "结果说明",
 } = {}) {
+  const statusText = terminalStatus === CONTRACT_STATUS.AWAITING_INPUT
+    ? "awaiting_input"
+    : (terminalStatus || "unknown");
   if (terminalStatus === CONTRACT_STATUS.COMPLETED) {
     return [
       header,
@@ -243,7 +319,7 @@ export function buildContractResultDeliveryTask({
       "",
       resultContent
         ? `${resultContentLabel}:\n${summarizeDeliveryResult(resultContent)}`
-        : `${resultReasonLabel}: ${outcome?.reason || "子流程已完成"}`,
+        : `${resultReasonLabel}: 子流程已完成`,
     ].filter(Boolean).join("\n");
   }
 
@@ -256,7 +332,9 @@ export function buildContractResultDeliveryTask({
     statusLine,
     "",
     `${taskLabel}: ${taskSummary || "未知任务"}`,
-    `状态: ${terminalStatus}`,
-    `原因: ${outcome?.clarification || outcome?.reason || "未提供"}`,
+    `状态: ${statusText}`,
+    resultContent
+      ? `${resultContentLabel}:\n${summarizeDeliveryResult(resultContent)}`
+      : `${resultReasonLabel}: 子流程已收口`,
   ].filter(Boolean).join("\n");
 }

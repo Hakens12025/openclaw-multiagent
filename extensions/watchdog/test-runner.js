@@ -12,7 +12,10 @@ import { homedir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { pathToFileURL } from "node:url";
 import {
+  estimateCliRunTimeoutMs,
   findCliPreset,
+  parseCliRunArgs,
+  normalizeCliRunTarget,
   resolveCliRunExitCode,
   waitForCliRunCompletion,
 } from "./lib/test-runner-cli-client.js";
@@ -78,10 +81,10 @@ async function fetchPresetSurface() {
   return requestJSON("/watchdog/test-runs");
 }
 
-async function startFormalRun(presetId) {
+async function startFormalRun(payload) {
   return requestJSON("/watchdog/test-runs/start", {
     method: "POST",
-    body: JSON.stringify({ presetId }),
+    body: JSON.stringify(payload),
     timeout: 30000,
   });
 }
@@ -95,16 +98,8 @@ function printProgress(detail) {
   console.log(`[${status}] case=${currentCaseId} pass=${passedCases} fail=${failedCases} blocked=${blockedCases}`);
 }
 
-function parseArgs(argv) {
-  const args = argv.slice(2);
-  const presetFlag = args.indexOf("--preset");
-  return {
-    presetId: presetFlag >= 0 ? args[presetFlag + 1] : "single",
-  };
-}
-
 export async function main(argv = process.argv) {
-  const { presetId } = parseArgs(argv);
+  const runTarget = normalizeCliRunTarget(parseCliRunArgs(argv));
 
   await loadConfig();
 
@@ -117,30 +112,53 @@ export async function main(argv = process.argv) {
     return 1;
   }
 
-  const presetSurface = await fetchPresetSurface();
-  const preset = findCliPreset(presetSurface, presetId);
-  if (!preset) {
-    const available = (presetSurface?.presets || []).map((entry) => entry.id).join(", ");
-    console.error(`Unknown preset: ${presetId}. Available: ${available}`);
-    return 1;
+  let timeoutPreset = null;
+  let startPayload = null;
+  if (runTarget.mode === "preset") {
+    const presetSurface = await fetchPresetSurface();
+    const preset = findCliPreset(presetSurface, runTarget.presetId);
+    if (!preset) {
+      const available = (presetSurface?.presets || []).map((entry) => entry.id).join(", ");
+      console.error(`Unknown preset: ${runTarget.presetId}. Available: ${available}`);
+      return 1;
+    }
+    timeoutPreset = preset;
+    startPayload = { presetId: preset.id };
+    console.log(`Preset: ${preset.id} (${preset.label})`);
+    console.log(`Suite: ${preset.suite}`);
+    console.log(`Description: ${preset.description || "--"}`);
+  } else {
+    startPayload = {
+      caseId: runTarget.caseId,
+    };
+    console.log(`Case: ${runTarget.caseId}`);
+    console.log("Mode: ad hoc single-case run");
   }
 
-  console.log(`Preset: ${preset.id} (${preset.label})`);
-  console.log(`Suite: ${preset.suite}`);
-  console.log(`Description: ${preset.description || "--"}`);
-
-  const startResult = await startFormalRun(preset.id);
+  const startResult = await startFormalRun(startPayload);
   if (startResult?.ok !== true || !startResult?.run?.id) {
-    console.error(`FATAL: failed to start preset ${preset.id}: ${startResult?.error || "unknown error"}`);
+    const runLabel = runTarget.mode === "preset" ? runTarget.presetId : runTarget.caseId;
+    console.error(`FATAL: failed to start ${runTarget.mode} ${runLabel}: ${startResult?.error || "unknown error"}`);
     return 1;
   }
 
   console.log(`Run: ${startResult.run.id}`);
 
+  if (!timeoutPreset) {
+    timeoutPreset = {
+      suite: startResult.run?.suite || "single",
+      caseIds: [runTarget.caseId],
+      resetBetweenCases: false,
+    };
+    console.log(`Suite: ${timeoutPreset.suite}`);
+    console.log(`Description: ${startResult.run?.description || "--"}`);
+  }
+
   const detail = await waitForCliRunCompletion({
     runId: startResult.run.id,
     requestJSON,
     sleep,
+    timeoutMs: estimateCliRunTimeoutMs(timeoutPreset),
     onProgress: printProgress,
   });
 

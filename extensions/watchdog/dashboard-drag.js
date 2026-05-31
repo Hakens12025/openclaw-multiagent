@@ -1,6 +1,6 @@
 // dashboard-drag.js — Drag nodes (edit mode), pan viewport, scroll-wheel zoom, localStorage
-import { SVG_W, NODE_W, nodePositions, savedPositions, snap, buildPipelineSVG } from './dashboard-svg.js';
-import { updatePipeline } from './dashboard-pipeline.js';
+import { SVG_W, NODE_W, nodePositions, savedPositions, snap, buildRuntimeGraphSVG, rebuildActiveFlowElements } from './dashboard-svg.js';
+import { updateRuntimeGraph } from './dashboard-runtime-graph.js';
 import { toast } from './dashboard-common.js';
 
 // ── Zoom / Pan state ──
@@ -33,11 +33,11 @@ function saveZoomPan() {
 // DRAG NODES + PAN + ZOOM
 // ══════════════════════════════════════════════════════════════════════════════
 
-function getPipelineInteractionState() {
-  if (!window.__openclawPipelineInteractionState) {
-    window.__openclawPipelineInteractionState = { mode: null };
+function getRuntimeGraphInteractionState() {
+  if (!window.__openclawRuntimeGraphInteractionState) {
+    window.__openclawRuntimeGraphInteractionState = { mode: null };
   }
-  return window.__openclawPipelineInteractionState;
+  return window.__openclawRuntimeGraphInteractionState;
 }
 
 export function initDrag(svg) {
@@ -46,7 +46,7 @@ export function initDrag(svg) {
 
   let dragging = null, offset = null;
   let panning = null;
-  const interaction = getPipelineInteractionState();
+  const interaction = getRuntimeGraphInteractionState();
 
   function pt(e) {
     const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
@@ -54,12 +54,12 @@ export function initDrag(svg) {
   }
 
   svg.addEventListener('mousedown', (e) => {
-    const g = e.target.closest('.pipeline-node');
+    const g = e.target.closest('.runtime-graph-node');
 
-    // Drag: edit mode + on a real agent node
+    // Drag: edit mode + on a node
     if (OC.ux.editMode && g && !e.target.closest('.clickable')) {
       const id = g.getAttribute('data-agent');
-      if (id && !String(id).startsWith('_') && nodePositions[id]) {
+      if (id && nodePositions[id]) {
         const p = pt(e), pos = nodePositions[id];
         if (interaction.mode) return;
         dragging = { id, g, origX: pos.x, origY: pos.y, moved: false };
@@ -117,8 +117,9 @@ export function initDrag(svg) {
       interaction.mode = null;
       if (didMove) {
         window.__openclawSuppressNodeClickUntil = Date.now() + 250;
-        if (window._lastAgentData) buildPipelineSVG(window._lastAgentData);
-        updatePipeline();
+        if (window._lastAgentData) buildRuntimeGraphSVG(window._lastAgentData);
+        rebuildActiveFlowElements();
+        updateRuntimeGraph();
       }
     }
     if (panning) {
@@ -157,7 +158,8 @@ export function resetLayout() {
   viewBox.x = 0; viewBox.y = 0;
   try { localStorage.removeItem('openclaw-node-layout'); } catch {}
   try { localStorage.removeItem('openclaw-zoom-pan'); } catch {}
-  if (window._lastAgentData) buildPipelineSVG(window._lastAgentData);
-  updatePipeline();
+  if (window._lastAgentData) buildRuntimeGraphSVG(window._lastAgentData);
+  rebuildActiveFlowElements();
+  updateRuntimeGraph();
   toast('Layout reset', 'info');
 }

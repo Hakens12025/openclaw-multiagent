@@ -131,6 +131,41 @@ test("bindPendingWorkerContract prefers dispatch owner currentContract over shar
   }
 }));
 
+test("bindPendingWorkerContract does not bind shared contracts without dispatch ownership", async () => withTempExecutor(async ({ agentId }) => {
+  const orphanContractId = `TC-ORPHAN-${Date.now()}`;
+
+  await persistContractSnapshot(
+    getContractPath(orphanContractId),
+    buildExecutionContract({
+      contractId: orphanContractId,
+      assignee: agentId,
+      createdAt: Date.now(),
+    }),
+    logger,
+  );
+
+  const trackingState = createTrackingState({
+    sessionKey: `agent:${agentId}:main`,
+    agentId,
+    parentSession: null,
+  });
+
+  try {
+    const bound = await bindPendingWorkerContract({
+      agentId,
+      sessionKey: trackingState.sessionKey,
+      trackingState,
+      logger,
+      logContext: "orphan session",
+    });
+
+    assert.equal(bound, null);
+    assert.equal(trackingState.contract, null);
+  } finally {
+    await removeContractSnapshot(orphanContractId);
+  }
+}));
+
 test("routeInbox exact contract sessions clear stale inbox instead of falling back to another active contract", async () => withTempExecutor(async ({
   agentId,
   inboxPath,
@@ -164,6 +199,35 @@ test("routeInbox exact contract sessions clear stale inbox instead of falling ba
   }
 }));
 
+test("routeInbox without exact dispatch ownership clears shared assignee residue", async () => withTempExecutor(async ({
+  agentId,
+  inboxPath,
+}) => {
+  const orphanContractId = `TC-INBOX-ORPHAN-${Date.now()}`;
+  const orphanContract = buildExecutionContract({
+    contractId: orphanContractId,
+    assignee: agentId,
+    createdAt: Date.now(),
+  });
+
+  await persistContractSnapshot(getContractPath(orphanContractId), orphanContract, logger);
+  await writeFile(inboxPath, JSON.stringify(orphanContract, null, 2), "utf8");
+
+  try {
+    await routeInbox(agentId, logger, {
+      sessionKey: `agent:${agentId}:main`,
+    });
+
+    await assert.rejects(
+      readFile(inboxPath, "utf8"),
+      /ENOENT/,
+      "agent start should not claim a shared contract only because assignee matches",
+    );
+  } finally {
+    await removeContractSnapshot(orphanContractId);
+  }
+}));
+
 test("exact contract hints still bind when runtime session key casing drifts from stored contract id", async () => withTempExecutor(async ({
   agentId,
   inboxPath,
@@ -177,6 +241,14 @@ test("exact contract hints still bind when runtime session key casing drifts fro
   });
 
   await persistContractSnapshot(getContractPath(contractId), contract, logger);
+  dispatchTargetStateMap.set(agentId, {
+    busy: true,
+    healthy: true,
+    dispatching: false,
+    lastSeen: Date.now(),
+    currentContract: contractId,
+    queue: [],
+  });
 
   const trackingState = createTrackingState({
     sessionKey: `agent:${agentId}:contract:${hintedContractId}`,
@@ -204,6 +276,51 @@ test("exact contract hints still bind when runtime session key casing drifts fro
 
     assert.equal(bound?.contract?.id, contractId);
     assert.equal(trackingState.contract?.id, contractId);
+  } finally {
+    await removeContractSnapshot(contractId);
+  }
+}));
+
+test("exact contract hints do not bind shared contracts without dispatch currentContract ownership", async () => withTempExecutor(async ({
+  agentId,
+  inboxPath,
+}) => {
+  const contractId = `TC-HINT-ORPHAN-${Date.now()}`;
+  const hintedContractId = contractId.toLowerCase();
+  const contract = buildExecutionContract({
+    contractId,
+    assignee: agentId,
+    createdAt: Date.now(),
+  });
+
+  await persistContractSnapshot(getContractPath(contractId), contract, logger);
+  await writeFile(inboxPath, JSON.stringify(contract, null, 2), "utf8");
+
+  const trackingState = createTrackingState({
+    sessionKey: `agent:${agentId}:contract:${hintedContractId}`,
+    agentId,
+    parentSession: null,
+  });
+
+  try {
+    await routeInbox(agentId, logger, {
+      sessionKey: trackingState.sessionKey,
+      contractIdHint: hintedContractId,
+      contractPathHint: getContractPath(hintedContractId),
+    });
+
+    await assert.rejects(readFile(inboxPath, "utf8"), /ENOENT/);
+
+    const bound = await bindInboxContractEnvelope({
+      agentId,
+      trackingState,
+      logger,
+      allowNonDirectRequest: true,
+      requiredContractId: hintedContractId,
+    });
+
+    assert.equal(bound, null);
+    assert.equal(trackingState.contract, null);
   } finally {
     await removeContractSnapshot(contractId);
   }

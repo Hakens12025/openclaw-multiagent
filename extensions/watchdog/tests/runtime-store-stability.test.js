@@ -6,16 +6,17 @@ import { homedir } from "node:os";
 
 import { recordErrorPattern } from "../lib/error-ledger.js";
 import { loadConversation, recordRound } from "../lib/conversations.js";
-import { ADMIN_CHANGE_SET_DIR } from "../lib/state-paths.js";
 import {
   attachAdminChangeSetVerification,
   getAdminChangeSetDetails,
   recordAdminChangeSetExecution,
   saveAdminChangeSetDraft,
 } from "../lib/admin/admin-change-sets.js";
+import { CONTROL_PLANE_PATHS } from "../lib/control-plane/control-plane-paths.js";
 
 const OC = join(homedir(), ".openclaw");
 const ERROR_LEDGER_FILE = join(OC, "extensions", "watchdog", "data", "error-ledger.json");
+const ADMIN_CHANGE_SET_DIR = CONTROL_PLANE_PATHS.adminChangeSetsDir;
 const TEST_REPORTS_DIR = join(OC, "test-reports");
 
 function getPatternCount(ledger, errorType) {

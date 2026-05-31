@@ -4,9 +4,10 @@ import { eid, svgEl, nodePositions, calcEdgePath } from './dashboard-svg.js';
 import { toast } from './dashboard-common.js';
 import {
   workItems,
-  describePipelineProgression,
-  getWorkItemPipelineProgression,
-  getPipelineAgentId,
+  describeGraphRouteProgression,
+  getWorkItemGraphRouteProgression,
+  getRuntimeGraphAgentId,
+  isVisibleRuntimeGraphAgentId,
 } from './dashboard.js';
 import { closeContextMenu } from './dashboard-ux.js';
 
@@ -24,8 +25,17 @@ function graphEdgeKey(edge) {
   return `${edge.from}\u2192${edge.to}`;
 }
 
+function publishGraphEdges(edges) {
+  graphEdges = Array.isArray(edges) ? edges : [];
+  window.__graphEdges = graphEdges.slice();
+  const oc = window.OC || globalThis.OC || null;
+  if (oc?.graph) {
+    oc.graph.graphEdges = window.__graphEdges;
+  }
+}
+
 function getGraphDisplayAgentId(agentId) {
-  return getPipelineAgentId(agentId);
+  return getRuntimeGraphAgentId(agentId);
 }
 
 function normalizeGraphEdgeList(edges) {
@@ -42,6 +52,12 @@ function normalizeGraphEdgeList(edges) {
     uniqueEdges.push(nextEdge);
   }
   return uniqueEdges;
+}
+
+function visibleGraphEdgeList(edges) {
+  return normalizeGraphEdgeList(edges).filter((edge) => (
+    isVisibleRuntimeGraphAgentId(edge.from) && isVisibleRuntimeGraphAgentId(edge.to)
+  ));
 }
 
 function normalizeGraphCycles(cycles) {
@@ -63,10 +79,10 @@ function normalizeGraphCycles(cycles) {
 
 function renderGraphSourceSelection() {
   // Clear previous armed/candidate states
-  document.querySelectorAll('.pipeline-node .svg-node-box.link-armed').forEach((el) => {
+  document.querySelectorAll('.runtime-graph-node .svg-node-box.link-armed').forEach((el) => {
     el.classList.remove('link-armed');
   });
-  document.querySelectorAll('.pipeline-node .svg-node-box.link-target-candidate').forEach((el) => {
+  document.querySelectorAll('.runtime-graph-node .svg-node-box.link-target-candidate').forEach((el) => {
     el.classList.remove('link-target-candidate');
   });
   document.body.classList.remove('link-armed-mode');
@@ -82,7 +98,7 @@ function renderGraphSourceSelection() {
   if (box) box.classList.add('link-armed');
 
   // Mark all other visible nodes as target candidates
-  const visibleIds = window._visiblePipelineAgentIds || [];
+  const visibleIds = window._visibleRuntimeGraphAgentIds || [];
   for (const id of visibleIds) {
     if (id === selectedGraphSourceAgent) continue;
     const candidateBox = document.getElementById(eid(id).nb);
@@ -93,7 +109,7 @@ function renderGraphSourceSelection() {
   document.body.classList.add('link-armed-mode');
 
   // Create preview line element
-  const svg = document.getElementById('pipelineSvg');
+  const svg = document.getElementById('runtimeGraphSvg');
   if (svg) {
     svgEl('path', { id: 'graphEdgePreview', className: 'graph-edge-preview', d: 'M0,0' }, svg);
   }
@@ -124,7 +140,7 @@ export function clearGraphSelection({ silent = false } = {}) {
 }
 
 export async function handleGraphNodePrimaryAction(agentId) {
-  if (!OC.ux.editMode || !agentId || String(agentId).startsWith('_')) return false;
+  if (!OC.ux.editMode || !agentId) return false;
   if (!selectedGraphSourceAgent) {
     selectedGraphSourceAgent = agentId;
     renderGraphSourceSelection();
@@ -157,8 +173,7 @@ export async function loadGraph() {
     const r = await fetch(`/watchdog/graph?token=${encodeURIComponent(token)}`);
     if (!r.ok) return;
     const data = await r.json();
-    graphEdges = normalizeGraphEdgeList(data.edges);
-    window.__graphEdges = (data.edges || []).slice();
+    publishGraphEdges(normalizeGraphEdgeList(data.edges));
     graphCycles = normalizeGraphCycles(data.cycles);
     graphLoops = data.loops || [];
     graphLoopSessions = data.loopSessions || [];
@@ -173,10 +188,10 @@ export async function loadGraph() {
 }
 
 function renderLoopState() {
-  const el = document.getElementById('pipelineLoopState');
+  const el = document.getElementById('runtimeGraphLoopState');
   if (!el) return;
 
-  el.className = 'pipeline-loop-state';
+  el.className = 'runtime-graph-loop-state';
   const activeRegisteredLoops = Array.isArray(graphLoops)
     ? graphLoops.filter(loop => loop?.active === true)
     : [];
@@ -192,7 +207,7 @@ function renderLoopState() {
     el.title = activeGraphLoopSession.loopId
       ? `${activeGraphLoopSession.loopId} @ ${stage}`
       : `Active loop session @ ${stage}`;
-    renderPipelineProgressState();
+    renderRuntimeGraphProgressState();
     return;
   }
 
@@ -200,7 +215,7 @@ function renderLoopState() {
     el.textContent = `LOOP READY // ${activeRegisteredLoops.length}`;
     el.classList.add('visible', 'ready');
     el.title = activeRegisteredLoops.map(loop => loop.id).join(', ');
-    renderPipelineProgressState();
+    renderRuntimeGraphProgressState();
     return;
   }
 
@@ -210,7 +225,7 @@ function renderLoopState() {
     el.title = graphLoops.map(loop => loop.id).join(', ');
   }
 
-  renderPipelineProgressState();
+  renderRuntimeGraphProgressState();
 }
 
 function progressionSortValue(contract, progression) {
@@ -228,11 +243,11 @@ function progressionMatchesActiveSession(progression) {
   return false;
 }
 
-function selectLatestPipelineProgression() {
+function selectLatestGraphRouteProgression() {
   const candidates = Object.values(workItems)
     .map((contract) => ({
       contract,
-      progression: getWorkItemPipelineProgression(contract),
+      progression: getWorkItemGraphRouteProgression(contract),
     }))
     .filter(({ progression }) => progression)
     .sort((left, right) => progressionSortValue(right.contract, right.progression) - progressionSortValue(left.contract, left.progression));
@@ -242,18 +257,18 @@ function selectLatestPipelineProgression() {
   return matching[0] || candidates[0] || null;
 }
 
-function renderPipelineProgressState() {
-  const el = document.getElementById('pipelineProgressState');
+function renderRuntimeGraphProgressState() {
+  const el = document.getElementById('runtimeGraphProgressState');
   if (!el) return;
 
-  el.className = 'pipeline-progress-state';
+  el.className = 'runtime-graph-progress-state';
   el.textContent = '';
   el.title = '';
 
-  const latest = selectLatestPipelineProgression();
+  const latest = selectLatestGraphRouteProgression();
   if (!latest) return;
 
-  const ui = describePipelineProgression(latest.progression);
+  const ui = describeGraphRouteProgression(latest.progression);
   if (!ui) return;
 
   el.textContent = ui.text;
@@ -270,22 +285,62 @@ function renderPipelineProgressState() {
 // RENDER PERSISTENT GRAPH EDGES
 // ══════════════════════════════════════════════════════════════════════════════
 
-function renderGraphEdges() {
-  // Clear old persistent edges
-  for (const [key, el] of graphEdgeElements) {
-    if (el.parentNode) el.remove();
-  }
-  graphEdgeElements.clear();
-
-  const svg = document.getElementById('pipelineSvg');
+export function renderGraphEdges() {
+  const svg = document.getElementById('runtimeGraphSvg');
   if (!svg) return;
 
   ensureGraphDefs(svg);
 
-  for (const edge of normalizeGraphEdgeList(graphEdges)) {
-    const el = createGraphEdge(svg, edge);
-    if (el) graphEdgeElements.set(graphEdgeKey(edge), el);
+  const visibleEdges = visibleGraphEdgeList(graphEdges);
+  const hasMissingGeometry = visibleEdges.some((edge) => !canRenderGraphEdge(edge));
+  if (
+    hasMissingGeometry
+    && visibleEdges.every((edge) => graphEdgeElements.get(graphEdgeKey(edge))?.parentNode)
+  ) {
+    for (const edge of visibleEdges) {
+      const el = graphEdgeElements.get(graphEdgeKey(edge));
+      if (el?.style) el.style.opacity = '1';
+    }
+    return;
   }
+
+  const nextElements = new Map();
+  let skippedForGeometry = false;
+  for (const edge of visibleEdges) {
+    const key = graphEdgeKey(edge);
+    const existing = graphEdgeElements.get(key);
+    if (hasMissingGeometry && existing?.parentNode) {
+      nextElements.set(key, existing);
+      continue;
+    }
+    const el = createGraphEdge(svg, edge);
+    if (el) {
+      nextElements.set(key, el);
+      continue;
+    }
+    skippedForGeometry = true;
+    if (existing?.parentNode) {
+      nextElements.set(key, existing);
+    }
+  }
+
+  if (skippedForGeometry && nextElements.size === graphEdgeElements.size) {
+    for (const [key, el] of nextElements) {
+      if (!graphEdgeElements.has(key) && el?.parentNode) el.remove();
+    }
+    for (const el of nextElements.values()) {
+      if (el?.style) {
+        el.style.opacity = '1';
+      }
+    }
+    return;
+  }
+
+  for (const [key, el] of graphEdgeElements) {
+    const nextEl = nextElements.get(key) || null;
+    if (el !== nextEl && el.parentNode) el.remove();
+  }
+  graphEdgeElements = nextElements;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -293,9 +348,9 @@ function renderGraphEdges() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function createGraphEdge(svg, edge) {
+  if (!canRenderGraphEdge(edge)) return null;
   const pFrom = nodePositions[edge.from];
   const pTo = nodePositions[edge.to];
-  if (!pFrom || !pTo) return null;
 
   // Check if this edge is part of a cycle
   const inCycle = graphCycles.some(cycle => {
@@ -351,6 +406,10 @@ function createGraphEdge(svg, edge) {
   return g;
 }
 
+function canRenderGraphEdge(edge) {
+  return Boolean(edge?.from && edge?.to && nodePositions[edge.from] && nodePositions[edge.to]);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // SVG DEFS: ARROWHEAD MARKERS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -398,7 +457,7 @@ function initGraphEdgeDrawing(svg) {
 
   svg.addEventListener('click', (e) => {
     if (!OC.ux.editMode) return;
-    if (e.target.closest('.pipeline-node')) return;
+    if (e.target.closest('.runtime-graph-node')) return;
     if (selectedGraphSourceAgent) clearGraphSelection({ silent: true });
   });
 
@@ -438,14 +497,14 @@ async function addGraphEdge(from, to) {
   const token = new URLSearchParams(window.location.search).get('token') || '';
   pendingGraphEdgeOps.add(`add:${key}`);
   try {
-    const r = await fetch(`/watchdog/graph/edge?token=${encodeURIComponent(token)}`, {
+    const r = await fetch(`/watchdog/graph/edge/add?token=${encodeURIComponent(token)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to }),
     });
     if (r.ok) {
       const data = await r.json();
-      graphEdges = normalizeGraphEdgeList(data.graph.edges);
+      publishGraphEdges(normalizeGraphEdgeList(data.graph.edges));
       graphCycles = normalizeGraphCycles(data.cycles);
       graphLoops = data.loops || graphLoops;
       renderGraphEdges();
@@ -477,14 +536,14 @@ async function deleteGraphEdge(from, to) {
   const token = new URLSearchParams(window.location.search).get('token') || '';
   pendingGraphEdgeOps.add(`delete:${key}`);
   try {
-    const r = await fetch(`/watchdog/graph/edge?token=${encodeURIComponent(token)}`, {
-      method: 'DELETE',
+    const r = await fetch(`/watchdog/graph/edge/delete?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to }),
     });
     if (r.ok) {
       const data = await r.json();
-      graphEdges = normalizeGraphEdgeList(data.graph.edges);
+      publishGraphEdges(normalizeGraphEdgeList(data.graph.edges));
       graphCycles = normalizeGraphCycles(data.cycles);
       graphLoops = data.loops || graphLoops;
       renderGraphEdges();
@@ -541,7 +600,10 @@ function showEdgeContextMenu(e, edge) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function highlightCycles() {
-  document.querySelectorAll('.pipeline-node .svg-node-box.in-cycle').forEach(el => {
+  // Always reconcile the register button (it removes itself when no unregistered cycle remains).
+  renderCycleRegistrationButton();
+
+  document.querySelectorAll('.runtime-graph-node .svg-node-box.in-cycle').forEach(el => {
     el.classList.remove('in-cycle');
   });
 
@@ -556,11 +618,169 @@ function highlightCycles() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// REGISTER CYCLE AS LOOP — a detected cycle is just transport authorization until
+// it carries a LoopSpec (entry + signals + 环自带 limit). This surfaces a button
+// when an UNREGISTERED cycle exists and composes it via graph.loop.compose.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Mirror of backend cyclesMatchNodes (graph-loop-registry.js): rotation-equal comparison.
+function cyclesMatchNodesClient(nodes, cycle) {
+  const a = (Array.isArray(nodes) ? nodes : []).filter(Boolean);
+  const b = (Array.isArray(cycle) ? cycle : []).filter(Boolean);
+  if (a.length === 0 || a.length !== b.length) return false;
+  for (let i = 0; i < b.length; i += 1) {
+    const rotated = [...b.slice(i), ...b.slice(0, i)];
+    if (rotated.every((id, idx) => id === a[idx])) return true;
+  }
+  return false;
+}
+
+function getUnregisteredCycles() {
+  return graphCycles.filter(
+    (cycle) => !graphLoops.some((loop) => cyclesMatchNodesClient(loop.nodes, cycle)),
+  );
+}
+
+function renderCycleRegistrationButton() {
+  const existing = document.getElementById('graphCycleRegisterBtn');
+  if (existing) existing.remove();
+
+  const unregistered = getUnregisteredCycles();
+  if (unregistered.length === 0) return;
+
+  const toolbar = document.querySelector('.runtime-graph-toolbar');
+  if (!toolbar) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'graphCycleRegisterBtn';
+  btn.className = 'graph-cycle-register-btn';
+  btn.textContent = unregistered.length > 1
+    ? `REGISTER CYCLE AS LOOP (${unregistered.length})`
+    : 'REGISTER CYCLE AS LOOP';
+  btn.title = unregistered.map((c) => c.join(' → ')).join('\n');
+  btn.addEventListener('click', () => openCycleRegisterModal(unregistered[0]));
+  toolbar.appendChild(btn);
+}
+
+function openCycleRegisterModal(cycle) {
+  closeContextMenu();
+  document.getElementById('graphCycleRegisterModal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'graphCycleRegisterModal';
+  overlay.className = 'graph-loop-modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'graph-loop-modal';
+
+  const title = document.createElement('div');
+  title.className = 'graph-loop-modal-title';
+  title.textContent = 'REGISTER CYCLE AS LOOP';
+  modal.appendChild(title);
+
+  const cyclePath = document.createElement('div');
+  cyclePath.className = 'graph-loop-modal-cycle';
+  cyclePath.textContent = `${cycle.join(' → ')} → ${cycle[0]}`;
+  modal.appendChild(cyclePath);
+
+  const addField = (labelText, inputEl) => {
+    const label = document.createElement('label');
+    label.className = 'graph-loop-modal-label';
+    label.textContent = labelText;
+    modal.appendChild(label);
+    inputEl.classList.add('graph-loop-modal-input');
+    modal.appendChild(inputEl);
+  };
+
+  const entrySelect = document.createElement('select');
+  for (const agentId of cycle) {
+    const opt = document.createElement('option');
+    opt.value = agentId;
+    opt.textContent = agentId;
+    entrySelect.appendChild(opt);
+  }
+  entrySelect.value = cycle[0];
+  addField('ENTRY AGENT', entrySelect);
+
+  const concludeInput = document.createElement('input');
+  concludeInput.type = 'text';
+  concludeInput.placeholder = 'conclude (default)';
+  addField('CONCLUDE SIGNAL (optional)', concludeInput);
+
+  const maxRoundsInput = document.createElement('input');
+  maxRoundsInput.type = 'text';
+  maxRoundsInput.inputMode = 'numeric';
+  maxRoundsInput.placeholder = 'default 3 · force-conclude cap';
+  addField('MAX ROUNDS (optional · 环自带 limit)', maxRoundsInput);
+
+  const labelInput = document.createElement('input');
+  labelInput.type = 'text';
+  labelInput.placeholder = 'review_loop';
+  addField('LABEL (optional)', labelInput);
+
+  const actions = document.createElement('div');
+  actions.className = 'graph-loop-modal-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'graph-loop-modal-btn';
+  cancelBtn.textContent = 'CANCEL';
+  cancelBtn.addEventListener('click', () => overlay.remove());
+  actions.appendChild(cancelBtn);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'graph-loop-modal-btn primary';
+  submitBtn.textContent = 'REGISTER';
+  submitBtn.addEventListener('click', () => submitCycleRegistration({ cycle, entrySelect, concludeInput, maxRoundsInput, labelInput, overlay, submitBtn }));
+  actions.appendChild(submitBtn);
+
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function submitCycleRegistration({ cycle, entrySelect, concludeInput, maxRoundsInput, labelInput, overlay, submitBtn }) {
+  const concludeSignal = concludeInput.value.trim();
+  const maxRoundsRaw = maxRoundsInput.value.trim();
+  const label = labelInput.value.trim();
+  const maxRounds = Number(maxRoundsRaw);
+  const body = {
+    agents: [...cycle],
+    entryAgentId: entrySelect.value,
+    ...(concludeSignal ? { concludeSignal } : {}),
+    ...(maxRoundsRaw && Number.isFinite(maxRounds) && maxRounds > 0 ? { maxRounds } : {}),
+    ...(label ? { label } : {}),
+  };
+
+  submitBtn.disabled = true;
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  try {
+    const r = await fetch(`/watchdog/graph/loop/compose?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      toast(`LOOP REGISTERED: ${body.entryAgentId}`, 'success');
+      overlay.remove();
+      await loadGraph(); // re-pulls loops+cycles; the now-registered cycle drops the button
+    } else {
+      toast('REGISTER FAILED: ' + (data.error || 'unknown'), 'warn');
+      submitBtn.disabled = false;
+    }
+  } catch (e) {
+    toast('REGISTER FAILED: ' + e.message, 'error');
+    submitBtn.disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // INIT VIA EVENT BUS (replaces monkey patches)
 // ══════════════════════════════════════════════════════════════════════════════
 
-on('pipeline:rebuilt', () => {
-  const svg = document.getElementById('pipelineSvg');
+on('runtime-graph:rebuilt', () => {
+  const svg = document.getElementById('runtimeGraphSvg');
   if (svg) {
     initGraphEdgeDrawing(svg);
     renderGraphEdges();
@@ -577,7 +797,7 @@ on('editmode:toggled', ({ editMode: mode }) => {
     hint.id = 'graphEditHint';
     hint.className = 'graph-edit-hint';
     hint.textContent = 'CLICK SOURCE \u00B7 CLICK TARGET';
-    const toolbar = document.querySelector('.pipeline-toolbar');
+    const toolbar = document.querySelector('.runtime-graph-toolbar');
     if (toolbar) toolbar.appendChild(hint);
   }
   if (!mode && selectedGraphSourceAgent) clearGraphSelection({ silent: true });
@@ -591,13 +811,13 @@ on('event:added', ({ type, data }) => {
 });
 
 on('work-items:updated', () => {
-  renderPipelineProgressState();
+  renderRuntimeGraphProgressState();
 });
 
-// Auto-init fallback: if pipeline:rebuilt fires before this module loads (unlikely), retry a few times
+// Auto-init fallback: if runtime-graph:rebuilt fires before this module loads (unlikely), retry a few times
 let _tryInitCount = 0;
 function tryInit() {
-  const svg = document.getElementById('pipelineSvg');
+  const svg = document.getElementById('runtimeGraphSvg');
   if (svg && svg.childNodes.length > 0) {
     initGraphEdgeDrawing(svg);
     loadGraph();

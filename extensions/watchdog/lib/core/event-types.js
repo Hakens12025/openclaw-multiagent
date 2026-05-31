@@ -37,6 +37,7 @@ export const EVENT_TYPE = Object.freeze({
   AUTOMATION_UPDATED: "automation_updated",
   AUTOMATION_ROUND_STARTED: "automation_round_started",
   AUTOMATION_ROUND_CONCLUDED: "automation_round_concluded",
+  SKILL_PRECIPITATED: "skill_precipitated",
 
   // Schedule
   SCHEDULE_TRIGGER: "schedule_trigger",
@@ -64,8 +65,8 @@ export const EVENT_TYPE = Object.freeze({
   // QQ
   QQ_NOTIFY: "qq_notify",
 
-  // Direct session
-  DIRECT_SESSION: "direct_session",
+  // Direct intake
+  DIRECT_INTAKE_BLOCKED: "direct_intake_blocked",
 
   // Graph
   GRAPH_UPDATED: "graph_updated",
@@ -76,7 +77,7 @@ export const EVENT_TYPE = Object.freeze({
   CODE_REVIEW_REQUESTED: "code_review_requested",
 
   // Bridge returns
-  SYSTEM_ACTION_CONTRACT_RESULT_DELIVERED: "system_action_contract_result_delivered",
+  SYSTEM_ACTION_RUNTIME_RESULT_DELIVERED: "system_action_runtime_result_delivered",
   SYSTEM_ACTION_ASSIGN_TASK_RESULT_DELIVERED: "system_action_assign_task_result_delivered",
   SYSTEM_ACTION_REVIEW_VERDICT_DELIVERED: "system_action_review_verdict_delivered",
 

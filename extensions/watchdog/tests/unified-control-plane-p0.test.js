@@ -21,7 +21,7 @@ import { INTENT_TYPES, normalizeSystemIntent } from "../lib/protocol-primitives.
 import { getSemanticSkillSpec } from "../lib/semantic-skill-registry.js";
 import { materializeTaskStagePlan } from "../lib/task-stage-plan.js";
 import { deriveDelegationIntentForEarlyCheck } from "../hooks/after-tool-call.js";
-import { runContractorInboxTestSerial } from "./test-locks.js";
+import { runContractorInboxTestSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {
   info() {},
@@ -51,6 +51,27 @@ async function restoreFile(filePath, snapshot) {
   await writeFile(filePath, snapshot);
 }
 
+function setDispatchOwner(agentId, contractId) {
+  const previous = dispatchTargetStateMap.has(agentId)
+    ? { ...dispatchTargetStateMap.get(agentId) }
+    : null;
+  dispatchTargetStateMap.set(agentId, {
+    busy: true,
+    healthy: true,
+    dispatching: false,
+    lastSeen: Date.now(),
+    currentContract: contractId,
+    queue: [],
+  });
+  return () => {
+    if (previous) {
+      dispatchTargetStateMap.set(agentId, previous);
+    } else {
+      dispatchTargetStateMap.delete(agentId);
+    }
+  };
+}
+
 async function findRuntimeDirectInboxContract(inboxDir, predicate) {
   const activePath = join(inboxDir, "contract.json");
   try {
@@ -64,7 +85,7 @@ async function findRuntimeDirectInboxContract(inboxDir, predicate) {
     }
   } catch {}
 
-  const queueDir = join(inboxDir, ".runtime-direct-queue");
+  const queueDir = join(inboxDir, ".runtime-direct-envelope-queue");
   try {
     const names = (await readdir(queueDir))
       .filter((name) => /^contract-.*\.json$/i.test(name))
@@ -115,6 +136,7 @@ test("contractor inbox pending execution contract binds into tracking state", as
   const inboxDir = join(agentWorkspace("contractor"), "inbox");
   const contractPath = join(inboxDir, "contract.json");
   const original = await snapshotFile(contractPath);
+  let restoreDispatchOwner = null;
 
   await mkdir(inboxDir, { recursive: true });
 
@@ -135,6 +157,7 @@ test("contractor inbox pending execution contract binds into tracking state", as
       },
     };
     await writeFile(contractPath, JSON.stringify(contract, null, 2), "utf8");
+    restoreDispatchOwner = setDispatchOwner("contractor", contract.id);
 
     const trackingState = createTrackingState({
       sessionKey: `agent:contractor:test:${Date.now()}`,
@@ -153,6 +176,7 @@ test("contractor inbox pending execution contract binds into tracking state", as
     assert.equal(trackingState.contract?.id, contract.id);
     assert.equal(trackingState.contract?.status, CONTRACT_STATUS.PENDING);
   } finally {
+    restoreDispatchOwner?.();
     await restoreFile(contractPath, original);
   }
 }));
@@ -166,6 +190,7 @@ test("planner shared execution contract bind promotes canonical contract status 
   const contractId = `TC-P0-PLANNER-SHARED-${Date.now()}`;
   const sharedContractPath = getContractPath(contractId);
   const sharedOriginal = await snapshotFile(sharedContractPath);
+  let restoreDispatchOwner = null;
 
   await mkdir(inboxDir, { recursive: true });
 
@@ -188,6 +213,7 @@ test("planner shared execution contract bind promotes canonical contract status 
 
     await persistContractSnapshot(sharedContractPath, contract, logger);
     await writeFile(inboxContractPath, JSON.stringify(contract, null, 2), "utf8");
+    restoreDispatchOwner = setDispatchOwner("planner", contractId);
 
     const trackingState = createTrackingState({
       sessionKey: `agent:planner:contract:${contractId}`,
@@ -210,6 +236,7 @@ test("planner shared execution contract bind promotes canonical contract status 
     assert.equal(trackingState.contract?.status, CONTRACT_STATUS.RUNNING);
     assert.equal(persisted.status, CONTRACT_STATUS.RUNNING);
   } finally {
+    restoreDispatchOwner?.();
     evictContractSnapshotByPath(sharedContractPath);
     await restoreFile(inboxContractPath, inboxOriginal);
     await restoreFile(sharedContractPath, sharedOriginal);
@@ -309,7 +336,7 @@ test("bindInboxContractEnvelope does not bind a different active inbox contract 
 
 test("findRuntimeDirectInboxContract can locate queued stage contract when active inbox is occupied", async () => {
   const inboxDir = join(tmpdir(), `openclaw-p0-runtime-inbox-${Date.now()}`);
-  const queueDir = join(inboxDir, ".runtime-direct-queue");
+  const queueDir = join(inboxDir, ".runtime-direct-envelope-queue");
 
   await mkdir(queueDir, { recursive: true });
 
@@ -439,7 +466,7 @@ test("commitSemanticTerminalState persists canonical completed stageRuntime for 
   }
 });
 
-test("commitSemanticTerminalState leaves dispatch ownership to lifecycle finalization", async () => {
+test("commitSemanticTerminalState releases dispatch runtime ownership for terminal contracts", async () => {
   const contractId = `TC-P0-TERMINAL-DISPATCH-${Date.now()}`;
   const contractPath = getContractPath(contractId);
 
@@ -466,7 +493,6 @@ test("commitSemanticTerminalState leaves dispatch ownership to lifecycle finaliz
       lastSeen: Date.now(),
       currentContract: contractId,
       queue: [],
-      roundRobinCursor: 0,
     });
 
     const trackingState = createTrackingState({
@@ -497,9 +523,9 @@ test("commitSemanticTerminalState leaves dispatch ownership to lifecycle finaliz
     });
 
     assert.equal(commitResult.committed, true);
-    assert.equal(dispatchTargetStateMap.get("worker")?.busy, true);
+    assert.equal(dispatchTargetStateMap.get("worker")?.busy, false);
     assert.equal(dispatchTargetStateMap.get("worker")?.dispatching, false);
-    assert.equal(dispatchTargetStateMap.get("worker")?.currentContract, contractId);
+    assert.equal(dispatchTargetStateMap.get("worker")?.currentContract, null);
   } finally {
     dispatchTargetStateMap.clear();
     await unlink(contractPath).catch(() => {});
@@ -564,6 +590,7 @@ test("contractor terminal commit updates shared root contract instead of inbox c
   const inboxDir = join(agentWorkspace("contractor"), "inbox");
   const inboxPath = join(inboxDir, "contract.json");
   const originalInbox = await snapshotFile(inboxPath);
+  let restoreDispatchOwner = null;
 
   await mkdir(inboxDir, { recursive: true });
 
@@ -585,6 +612,7 @@ test("contractor terminal commit updates shared root contract instead of inbox c
     };
     await persistContractSnapshot(contractPath, contract, logger);
     await writeFile(inboxPath, JSON.stringify(contract, null, 2), "utf8");
+    restoreDispatchOwner = setDispatchOwner("contractor", contractId);
 
     const trackingState = createTrackingState({
       sessionKey: `agent:contractor:test:${Date.now()}`,
@@ -626,6 +654,7 @@ test("contractor terminal commit updates shared root contract instead of inbox c
     assert.equal(sharedContract.systemAction?.type, INTENT_TYPES.START_LOOP);
     assert.equal(inboxContract.status, CONTRACT_STATUS.PENDING);
   } finally {
+    restoreDispatchOwner?.();
     await unlink(contractPath).catch(() => {});
     await restoreFile(inboxPath, originalInbox);
   }

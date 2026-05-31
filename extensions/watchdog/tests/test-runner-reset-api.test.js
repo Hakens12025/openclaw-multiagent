@@ -1,10 +1,48 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 
-test("test-runner resetGateway uses explicitConfirm canonical payload", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/test-runner.js", "utf8");
+import {
+  buildFullResetRequestBody,
+  requestRuntimeReset,
+  resolveFormalRuntimeConfig,
+} from "../lib/formal-runtime/infra.js";
 
-  assert.match(source, /explicitConfirm:\s*true/);
-  assert.doesNotMatch(source, /confirm:\s*true/);
+test("test infra reset helper sends canonical explicitConfirm payload", () => {
+  assert.deepEqual(JSON.parse(buildFullResetRequestBody()), {
+    explicitConfirm: true,
+  });
+});
+
+test("requestRuntimeReset rejects non-2xx reset responses", async () => {
+  await assert.rejects(
+    () => requestRuntimeReset({
+      fetchImpl: async () => ({
+        status: 403,
+        body: JSON.stringify({ error: "explicit confirmation required" }),
+      }),
+    }),
+    /runtime reset failed: HTTP 403/,
+  );
+});
+
+test("requestRuntimeReset rejects malformed reset payloads", async () => {
+  await assert.rejects(
+    () => requestRuntimeReset({
+      fetchImpl: async () => ({
+        status: 200,
+        body: JSON.stringify({ ok: true }),
+      }),
+    }),
+    /runtime reset returned malformed response/,
+  );
+});
+
+test("resolveFormalRuntimeConfig rejects configs without registered runtime agents", () => {
+  assert.throws(
+    () => resolveFormalRuntimeConfig({
+      agents: { list: [] },
+      bindings: [],
+    }),
+    /formal runtime requires registered runtime agents/i,
+  );
 });

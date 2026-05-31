@@ -18,12 +18,16 @@ export const isWorker = (agentId) => {
   return normalizedAgentId.startsWith("worker-");
 };
 
+export function defaultAgentWorkspace(agentId) {
+  const dir = AGENT_WORKSPACE_OVERRIDES[agentId] || `workspaces/${agentId}`;
+  return join(HOME, ".openclaw", dir);
+}
+
 export function agentWorkspace(agentId) {
   const configuredWorkspace = expandHomePath(runtimeAgentConfigs.get(agentId)?.workspace);
   if (configuredWorkspace) {
     return resolve(configuredWorkspace);
   }
 
-  const dir = AGENT_WORKSPACE_OVERRIDES[agentId] || `workspaces/${agentId}`;
-  return join(HOME, ".openclaw", dir);
+  return defaultAgentWorkspace(agentId);
 }

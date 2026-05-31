@@ -13,6 +13,7 @@ import {
   buildModelManagementTarget,
 } from "./capability/capability-management-targets.js";
 import { normalizeRecord, normalizeString } from "./core/normalize.js";
+import { ACTOR_PLANE } from "./agent/agent-plane-policy.js";
 
 const MANAGEMENT_LABELS = Object.freeze({
   admin_change_set: "Admin Change Sets",
@@ -93,6 +94,13 @@ function createManagementSurfaceRef(surface) {
     selectorKey: normalizeString(subject.selectorKey) || null,
     aspect: normalizeString(subject.aspect) || null,
   };
+}
+
+function isManageableRuntimeAgent(agent) {
+  if (!agent || typeof agent !== "object") return false;
+  if (agent.mainViewVisible === false) return false;
+  const plane = normalizeString(agent.plane)?.toLowerCase() || ACTOR_PLANE.RUNTIME;
+  return plane === ACTOR_PLANE.RUNTIME;
 }
 
 function finalizeManagementSubject(group, activity = null) {
@@ -201,7 +209,9 @@ export function buildManagementRegistry({
 } = {}) {
   const baseManagement = buildManagementRegistrySkeleton(activity);
   const agentSubject = baseManagement.subjects.find((subject) => subject.kind === "agent") || null;
-  const managedAgents = (Array.isArray(agents) ? agents : []).map((agent) => ({
+  const managedAgents = (Array.isArray(agents) ? agents : [])
+    .filter((agent) => isManageableRuntimeAgent(agent))
+    .map((agent) => ({
     ...agent,
     management: buildAgentManagement(
       agent.id,

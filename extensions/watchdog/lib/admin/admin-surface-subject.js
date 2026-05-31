@@ -55,6 +55,14 @@ export function buildAdminSurfaceSubject(surface) {
   if (surfaceId === "schedules.list") {
     return { kind: "schedule", scope: "catalog", selectorKey: null, aspect: "registry" };
   }
+  if (surfaceId.startsWith("schedules.")) {
+    return {
+      kind: "schedule",
+      scope: "instance",
+      selectorKey: "scheduleId",
+      aspect: surfaceId.slice("schedules.".length),
+    };
+  }
   if (surfaceId === "automations.list") {
     return { kind: "automation", scope: "catalog", selectorKey: null, aspect: "registry" };
   }

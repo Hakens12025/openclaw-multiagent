@@ -5,6 +5,7 @@ import {
   normalizeProfileTrustLevel,
 } from "../harness/harness-registry.js";
 import { normalizeHarnessRun, normalizeHarnessSpec } from "../harness/harness-run.js";
+import { buildRunShapeMap } from "../harness/run-shape-map.js";
 import { normalizeCount, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
 
 function summarizeCoverageCounts(coverage) {
@@ -36,6 +37,8 @@ export function projectAutomationHarnessSummary({
     harnessModuleCount: uniqueStrings(selection.moduleRefs || []).length,
     harnessCoverage: coverage,
     harnessCoverageCounts: summarizeCoverageCounts(coverage),
+    // Run-Shape Map：本轮执行塑形覆盖图（coverage 正式对象化），dashboard 投影读取点。
+    harnessRunShapeMap: buildRunShapeMap(coverage),
     activeHarnessStatus: normalizeString(activeHarnessRun?.status)?.toLowerCase() || null,
     activeHarnessRound: Number.isFinite(activeHarnessRun?.round)
       ? activeHarnessRun.round

@@ -3,19 +3,11 @@
 import {
   cfg,
 } from "../lib/state.js";
-import { getTaskHistoryCount } from "../lib/store/task-history-store.js";
-import {
-  getDispatchChainSize,
-} from "../lib/store/contract-flow-store.js";
-import {
-  snapshotTrackingSessions,
-} from "../lib/store/tracker-store.js";
 import { broadcast, getSseClientCount } from "../lib/transport/sse.js";
 import { EVENT_TYPE } from "../lib/core/event-types.js";
-import { loadGraph, addEdge, removeEdge, detectCycles } from "../lib/agent/agent-graph.js";
+import { detectCycles } from "../lib/agent/agent-graph.js";
 import { getRuntimeAgentConfig, listRuntimeAgentIds } from "../lib/agent/agent-identity.js";
-import { listResolvedGraphLoops } from "../lib/loop/graph-loop-registry.js";
-import { getActiveResolvedLoopSession, listResolvedLoopSessions } from "../lib/loop/loop-session-store.js";
+import { getCliSystemSurface, inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
 import {
   buildOperatorPlan,
@@ -24,10 +16,14 @@ import {
 import { writeLocalAgentGuidanceContent } from "../lib/agent/agent-enrollment-guidance.js";
 import { syncAllRuntimeWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import { register as registerAdminChangeSetRoutes } from "./admin-change-sets.js";
+import { register as registerControlPlaneRoutes } from "./control-plane.js";
 import { register as registerOperatorCatalogRoutes } from "./operator-catalog.js";
-import { buildDispatchRuntimeSnapshot } from "../lib/routing/dispatch-runtime-state.js";
+import { register as registerTestRunsRoutes } from "./test-runs.js";
+import { terminalizeContractForTestRunner } from "../lib/test-runner-terminalize.js";
+import { revealFileInFinder } from "../lib/agent/agent-reveal-file.js";
 
-export function register(api, logger, { enqueueFn, wakePlanner }) {
+export function register(api, logger, deps) {
+  const { enqueueFn, wakePlanner } = deps;
   const { gatewayToken } = cfg;
   const JSON_HEADERS = {
     "Content-Type": "application/json",
@@ -152,6 +148,86 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     },
   });
 
+  // ── Reveal File（macOS Finder 定位，严格白名单 + execFile）──────────────────
+  api.registerHttpRoute({
+    path: "/watchdog/reveal-file", auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      if (!checkAuth(req, res)) return true;
+      if (req.method !== "POST") {
+        res.writeHead(405, { "Content-Type": "text/plain" });
+        res.end("POST only");
+        return true;
+      }
+      let payload;
+      try {
+        payload = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid JSON body" });
+        return true;
+      }
+      const path = typeof payload?.path === "string" ? payload.path.trim() : "";
+      if (!path) {
+        sendJson(res, 400, { ok: false, error: "path required" });
+        return true;
+      }
+      try {
+        const result = await revealFileInFinder(path);
+        sendJson(res, 200, { ok: true, resolvedPath: result.resolvedPath });
+      } catch (error) {
+        // 白名单外 / .. 逃逸 → 403；其它（open 失败等）→ 400
+        const status = error?.message === "path not allowed" ? 403 : 400;
+        sendJson(res, status, { ok: false, error: error.message });
+      }
+      return true;
+    },
+  });
+
+  // ── Inspect Surface（前端只读观测 HTTP 面，只放行 inspect 家族）─────────────
+  // query: surface（必填）+ 透传其余 query 作 params（如 agentId/sessionId）。
+  // 红线：不允许经此调 apply/admin —— 取到 surface 后校验 family==="inspect"，否则 403。
+  api.registerHttpRoute({
+    path: "/watchdog/inspect", auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      if (!checkAuth(req, res)) return true;
+      const url = new URL(req.url, "http://localhost");
+      const surfaceId = (url.searchParams.get("surface") || "").trim();
+      if (!surfaceId) {
+        sendJson(res, 400, { error: "surface required" });
+        return true;
+      }
+      const surface = getCliSystemSurface(surfaceId);
+      if (!surface) {
+        sendJson(res, 403, { error: `unknown surface: ${surfaceId}` });
+        return true;
+      }
+      if (surface.family !== "inspect") {
+        sendJson(res, 403, { error: `surface is not inspect family: ${surfaceId}` });
+        return true;
+      }
+      // 透传除 surface/token 外的其余 query 作 params（agentId/sessionId/limit…）。
+      const params = {};
+      for (const [key, value] of url.searchParams.entries()) {
+        if (key === "surface" || key === "token") continue;
+        params[key] = value;
+      }
+      try {
+        const data = await inspectCliSystemSurface({ surfaceId, params });
+        sendJson(res, 200, data);
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
+      return true;
+    },
+  });
+
+  registerPostActionRoute("/watchdog/tests/terminalize", async (payload) => terminalizeContractForTestRunner({
+    ...payload,
+    source: payload.source || "test_runner",
+    reason: payload.reason || "test_terminalize",
+    logger,
+    api,
+  }));
+
   registerOperatorCatalogRoutes(api, {
     checkAuth,
     sendJson,
@@ -166,29 +242,42 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     buildRuntimeContext: buildChangeSetRuntimeContext,
   });
 
+  registerControlPlaneRoutes(api, logger, {
+    checkAuth,
+    readJsonBody,
+    sendJson,
+  });
+
+  registerTestRunsRoutes(api, logger, { ...deps, checkAuth });
+
   // ── Runtime Summary ────────────────────────────────────────────────────────
   api.registerHttpRoute({
     path: "/watchdog/runtime", auth: "plugin", match: "exact",
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
-      const dispatchRuntimeSnapshot = buildDispatchRuntimeSnapshot();
+      // dispatch runtime + tracking + history/chain 计数经 CLI-system inspect surface 读取，
+      // 不直读 store（收口旁路）。sseClientCount 是 transport 连接计数（非 store），留在 route。
+      const runtimeState = await inspectCliSystemSurface({ surfaceId: "inspect.runtime_state" });
+      const dispatchRuntimeSnapshot = runtimeState.dispatchRuntime || {};
+      const dispatchQueueEntries = Array.isArray(dispatchRuntimeSnapshot.queue)
+        ? dispatchRuntimeSnapshot.queue
+        : [];
       const state = {
-        trackingSessions: snapshotTrackingSessions(),
-        historyCount: getTaskHistoryCount(),
+        trackingSessions: runtimeState.trackingSessions,
+        historyCount: runtimeState.historyCount,
         sseClientCount: getSseClientCount(),
-        dispatchChainSize: getDispatchChainSize(),
+        dispatchChainSize: runtimeState.dispatchChainSize,
         dispatchQueue: {
-          contractIds: dispatchRuntimeSnapshot.queue,
+          entries: dispatchQueueEntries,
+          contractIds: dispatchQueueEntries
+            .map((entry) => typeof entry === "string" ? entry : entry?.contractId)
+            .filter((contractId) => typeof contractId === "string" && contractId.trim()),
         },
         dispatchRuntime: {
-          targets: Object.fromEntries(
-            Object.entries(dispatchRuntimeSnapshot.targets).map(([id, s]) => [id, {
-              busy: s.busy,
-              healthy: s.healthy,
-              dispatching: s.dispatching,
-              currentContractId: s.currentContract,
-            }]),
-          ),
+          targets: dispatchRuntimeSnapshot.targets,
+          outgoingBySource: dispatchRuntimeSnapshot.outgoingBySource,
+          contractFlow: dispatchRuntimeSnapshot.contractFlow,
+          ts: dispatchRuntimeSnapshot.ts,
         },
       };
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(state, null, 2));
@@ -232,7 +321,7 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
   registerAdminSurfacePostRoute("/watchdog/agents/constraints", "agents.constraints");
   registerAdminSurfacePostRoute("/watchdog/agents/name", "agents.name");
   registerAdminSurfacePostRoute("/watchdog/agents/description", "agents.description");
-  registerAdminSurfacePostRoute("/watchdog/agents/card/tools", "agents.card.tools", {
+  registerAdminSurfacePostRoute("/watchdog/agents/tools", "agents.tools", {
     mapPayload: (payload) => ({
       ...payload,
       tools: payload.tools ?? payload.toolsText,
@@ -254,20 +343,9 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
   });
   registerAdminSurfacePostRoute("/watchdog/agent-joins/create", "agent_joins.create");
   registerAdminSurfacePostRoute("/watchdog/agent-joins/update", "agent_joins.update");
-  registerAdminSurfacePostRoute("/watchdog/agent-joins/enable", "agent_joins.enable", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
-  registerAdminSurfacePostRoute("/watchdog/agent-joins/disable", "agent_joins.disable", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
+  registerAdminSurfacePostRoute("/watchdog/agent-joins/enable", "agent_joins.enable");
+  registerAdminSurfacePostRoute("/watchdog/agent-joins/disable", "agent_joins.disable");
   registerAdminSurfacePostRoute("/watchdog/agent-joins/delete", "agent_joins.delete", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
     requireExplicitConfirm: true,
   });
   registerAdminSurfacePostRoute("/watchdog/graph/edge/add", "graph.edge.add");
@@ -278,63 +356,29 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
       agents: payload.agents ?? payload.agentsText,
     }),
   });
-  registerAdminSurfacePostRoute("/watchdog/graph/loop/repair", "graph.loop.repair", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
+  registerAdminSurfacePostRoute("/watchdog/graph/loop/delete", "graph.loop.delete");
+  registerAdminSurfacePostRoute("/watchdog/graph/loop/repair", "graph.loop.repair");
+  registerAdminSurfacePostRoute("/watchdog/skills/create", "skills.create");
   registerAdminSurfacePostRoute("/watchdog/schedules/create", "schedules.create");
   registerAdminSurfacePostRoute("/watchdog/schedules/update", "schedules.update");
-  registerAdminSurfacePostRoute("/watchdog/schedules/enable", "schedules.enable", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
-  registerAdminSurfacePostRoute("/watchdog/schedules/disable", "schedules.disable", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
-  registerAdminSurfacePostRoute("/watchdog/schedules/delete", "schedules.delete", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
+  registerAdminSurfacePostRoute("/watchdog/schedules/enable", "schedules.enable");
+  registerAdminSurfacePostRoute("/watchdog/schedules/disable", "schedules.disable");
+  registerAdminSurfacePostRoute("/watchdog/schedules/delete", "schedules.delete");
   registerAdminSurfacePostRoute("/watchdog/automations/create", "automations.create");
   registerAdminSurfacePostRoute("/watchdog/automations/update", "automations.update");
-  registerAdminSurfacePostRoute("/watchdog/automations/enable", "automations.enable", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
-  registerAdminSurfacePostRoute("/watchdog/automations/disable", "automations.disable", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
-  registerAdminSurfacePostRoute("/watchdog/automations/run", "automations.run", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
-  });
+  registerAdminSurfacePostRoute("/watchdog/automations/enable", "automations.enable");
+  registerAdminSurfacePostRoute("/watchdog/automations/disable", "automations.disable");
+  registerAdminSurfacePostRoute("/watchdog/automations/run", "automations.run");
+  registerAdminSurfacePostRoute("/watchdog/automations/governance", "automations.governance");
   registerAdminSurfacePostRoute("/watchdog/automations/delete", "automations.delete", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
     requireExplicitConfirm: true,
   });
 
   // ── Delete agent ───────────────────────────────────────────────────────────
   registerAdminSurfacePostRoute("/watchdog/agents/delete", "agents.delete", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
     requireExplicitConfirm: true,
   });
   registerAdminSurfacePostRoute("/watchdog/agents/hard-delete", "agents.hard_delete", {
-    mapPayload: (payload) => ({
-      ...payload,
-    }),
     requireExplicitConfirm: true,
   });
 
@@ -383,11 +427,13 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     path: "/watchdog/graph", auth: "plugin", match: "exact",
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
-      const graph = await loadGraph();
+      // graph / loops / loop-sessions / active-session 经 CLI-system inspect surface 读取，
+      // 不直读 store（收口旁路）。detectCycles 是纯拓扑算法，留在 route。
+      const graph = await inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" });
       const cycles = detectCycles(graph);
-      const loops = await listResolvedGraphLoops({ graph });
-      const loopSessions = await listResolvedLoopSessions({ loops });
-      const activeLoopSession = await getActiveResolvedLoopSession({ loops });
+      const loops = await inspectCliSystemSurface({ surfaceId: "inspect.graph_loops", params: { graph } });
+      const loopSessions = await inspectCliSystemSurface({ surfaceId: "inspect.loop_sessions", params: { loops } });
+      const activeLoopSession = await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } });
       const nodes = listRuntimeAgentIds().map((id) => {
         const runtimeConfig = getRuntimeAgentConfig(id);
         return {
@@ -408,49 +454,18 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     },
   });
 
-  // POST /watchdog/graph/edge — add or delete edge
-  api.registerHttpRoute({
-    path: "/watchdog/graph/edge", auth: "plugin", match: "exact",
-    handler: async (req, res) => {
-      if (!checkAuth(req, res)) return true;
-      if (req.method === "POST") {
-        const body = await readJsonBody(req);
-        if (!body.from || !body.to) { sendJson(res, 400, { ok: false, error: "from and to required" }); return true; }
-        const graph = await addEdge(body.from, body.to, {
-          label: body.label, gates: body.gates, metadata: body.metadata,
-        });
-        const cycles = detectCycles(graph);
-        const loops = await listResolvedGraphLoops({ graph });
-        await syncAllRuntimeWorkspaceGuidance(api.config, logger);
-        broadcast("alert", { type: EVENT_TYPE.GRAPH_UPDATED, action: "edge_added", from: body.from, to: body.to, loops, cycles, ts: Date.now() });
-        sendJson(res, 200, { ok: true, graph, loops, cycles });
-      } else if (req.method === "DELETE") {
-        const body = await readJsonBody(req);
-        if (!body.from || !body.to) { sendJson(res, 400, { ok: false, error: "from and to required" }); return true; }
-        const graph = await removeEdge(body.from, body.to);
-        const cycles = detectCycles(graph);
-        const loops = await listResolvedGraphLoops({ graph });
-        await syncAllRuntimeWorkspaceGuidance(api.config, logger);
-        broadcast("alert", { type: EVENT_TYPE.GRAPH_UPDATED, action: "edge_removed", from: body.from, to: body.to, loops, cycles, ts: Date.now() });
-        sendJson(res, 200, { ok: true, graph, loops, cycles });
-      } else {
-        res.writeHead(405, { "Content-Type": "text/plain" }); res.end("POST or DELETE");
-      }
-      return true;
-    },
-  });
-
   // GET /watchdog/graph/loops — registered LoopSpec + detected cycles
   api.registerHttpRoute({
     path: "/watchdog/graph/loops", auth: "plugin", match: "exact",
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
-      const graph = await loadGraph();
-      const loops = await listResolvedGraphLoops({ graph });
+      // graph / loops / loop-sessions / active-session 经 CLI-system inspect surface 读取（收口旁路）。
+      const graph = await inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" });
+      const loops = await inspectCliSystemSurface({ surfaceId: "inspect.graph_loops", params: { graph } });
       sendJson(res, 200, {
         loops,
-        loopSessions: await listResolvedLoopSessions({ loops }),
-        activeLoopSession: await getActiveResolvedLoopSession({ loops }),
+        loopSessions: await inspectCliSystemSurface({ surfaceId: "inspect.loop_sessions", params: { loops } }),
+        activeLoopSession: await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } }),
         cycles: detectCycles(graph),
       });
       return true;
@@ -461,11 +476,12 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
     path: "/watchdog/graph/loop-sessions", auth: "plugin", match: "exact",
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
-      const graph = await loadGraph();
-      const loops = await listResolvedGraphLoops({ graph });
+      // graph / loops / active-session / sessions 经 CLI-system inspect surface 读取（收口旁路）。
+      const graph = await inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" });
+      const loops = await inspectCliSystemSurface({ surfaceId: "inspect.graph_loops", params: { graph } });
       sendJson(res, 200, {
-        activeSession: await getActiveResolvedLoopSession({ loops }),
-        sessions: await listResolvedLoopSessions({ loops }),
+        activeSession: await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } }),
+        sessions: await inspectCliSystemSurface({ surfaceId: "inspect.loop_sessions", params: { loops } }),
       });
       return true;
     },

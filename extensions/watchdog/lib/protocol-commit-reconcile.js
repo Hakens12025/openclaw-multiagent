@@ -1,4 +1,4 @@
-import { access, readFile, realpath } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   getTrackingState,
@@ -7,9 +7,9 @@ import {
   isRunningTrackingStatus,
   isTerminalContractStatus,
 } from "./core/runtime-status.js";
-import { runAgentEndPipeline } from "./lifecycle/agent-end-pipeline.js";
-import { normalizeStageRunResult } from "./stage-results.js";
+import { runAgentEndLifecycle } from "./lifecycle/agent-end-lifecycle.js";
 import { agentWorkspace } from "./state.js";
+import { RUNTIME_RESULT_FILE } from "./protocol-primitives.js";
 import {
   hasDispatchTarget,
   isDispatchTargetBusy,
@@ -74,43 +74,6 @@ function isPathInsideDir(filePath, dirPath) {
   const normalizedDirPath = resolve(dirPath);
   return normalizedFilePath === normalizedDirPath
     || normalizedFilePath.startsWith(`${normalizedDirPath}${sep}`);
-}
-
-async function ensureCanonicalCommitArtifactsReady(commitInfo) {
-  if (commitInfo?.type !== "stage_result" || !commitInfo?.commitPath) {
-    return { ready: true, missingArtifacts: [] };
-  }
-
-  try {
-    const raw = await readFile(commitInfo.commitPath, "utf8");
-    const stageResult = normalizeStageRunResult(JSON.parse(raw));
-    if (!stageResult) {
-      return { ready: true, missingArtifacts: [] };
-    }
-
-    const missingArtifacts = [];
-    for (const artifact of stageResult.artifacts) {
-      if (artifact?.required === false || typeof artifact?.path !== "string" || !artifact.path.trim()) {
-        continue;
-      }
-
-      const artifactPath = artifact.path.trim();
-      const resolvedPath = artifactPath.startsWith("/")
-        ? artifactPath
-        : join(dirname(commitInfo.commitPath), basename(artifactPath));
-
-      if (!await fileExists(resolvedPath)) {
-        missingArtifacts.push(artifactPath);
-      }
-    }
-
-    return {
-      ready: missingArtifacts.length === 0,
-      missingArtifacts,
-    };
-  } catch {
-    return { ready: true, missingArtifacts: [] };
-  }
 }
 
 function clearPendingTimer(sessionKey) {
@@ -214,6 +177,13 @@ export function clearProtocolCommitReconcileState() {
   pendingProtocolCommitDeferredReleases.clear();
 }
 
+export function getProtocolCommitReconcileStateCounts() {
+  return {
+    pendingReconcileTimers: pendingProtocolCommitTimers.size,
+    pendingDeferredReleases: pendingProtocolCommitDeferredReleases.size,
+  };
+}
+
 export async function flushProtocolCommitDeferredRelease(sessionKey) {
   const pending = clearPendingDeferredRelease(sessionKey);
   if (!pending) {
@@ -230,29 +200,14 @@ export async function classifyCanonicalProtocolCommit({ agentId, targetPath, ses
   if (
     canonicalTargetPath
     && canonicalOutboxDir
-    && basename(canonicalTargetPath) === "stage_result.json"
+    && basename(canonicalTargetPath) === RUNTIME_RESULT_FILE
     && isPathInsideDir(canonicalTargetPath, canonicalOutboxDir)
   ) {
     return {
-      type: "stage_result",
-      fileName: "stage_result.json",
+      type: "runtime_result",
+      fileName: RUNTIME_RESULT_FILE,
       commitPath: canonicalTargetPath,
     };
-  }
-
-  // Unified output_commit detection — any agent writing to contract.output
-  // is also a natural completion signal.
-  const tracking = sessionKey ? getTrackingState(sessionKey) : null;
-  const contractOutput = tracking?.contract?.output;
-  if (contractOutput && typeof contractOutput === "string") {
-    const canonicalContractOutput = await canonicalizePath(contractOutput);
-    if (canonicalTargetPath && canonicalContractOutput && canonicalTargetPath === canonicalContractOutput) {
-      return {
-        type: "output_commit",
-        fileName: basename(canonicalContractOutput),
-        commitPath: canonicalTargetPath,
-      };
-    }
   }
 
   return null;
@@ -287,27 +242,8 @@ async function runProtocolCommitReconcileNow({
   if (isTerminalContractStatus(trackingState.contract?.status)) {
     return { reconciled: false, reason: "contract_already_terminal" };
   }
-  if (!await fileExists(commitInfo.commitPath)) {
+  if (commitInfo.allowMissing !== true && !await fileExists(commitInfo.commitPath)) {
     return { reconciled: false, reason: "commit_file_missing" };
-  }
-
-  const artifactReadiness = await ensureCanonicalCommitArtifactsReady(commitInfo);
-  if (!artifactReadiness.ready) {
-    scheduleProtocolCommitReconcile({
-      sessionKey: normalizedSessionKey,
-      agentId,
-      api,
-      logger,
-      enqueueFn,
-      wakePlanner,
-      commitInfo,
-      observedAt: Date.now(),
-    });
-    return {
-      reconciled: false,
-      reason: "commit_artifacts_pending",
-      missingArtifacts: artifactReadiness.missingArtifacts,
-    };
   }
 
   logger?.info?.(
@@ -315,7 +251,7 @@ async function runProtocolCommitReconcileNow({
     + `(${commitInfo.type || "unknown"} @ ${commitInfo.fileName || "unknown"})`,
   );
 
-  await runAgentEndPipeline({
+  await runAgentEndLifecycle({
     event: {
       success: true,
       synthetic: true,
@@ -342,7 +278,7 @@ async function runProtocolCommitReconcileNow({
 
   return {
     reconciled: true,
-    reason: "agent_end_pipeline_completed",
+    reason: "agent_end_lifecycle_completed",
   };
 }
 

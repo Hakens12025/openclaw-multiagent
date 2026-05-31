@@ -1,10 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 
-test("test-runner no longer derives contract terminal status from track_end residue", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/test-runner.js", "utf8");
+import { waitForCliRunCompletion } from "../lib/test-runner-cli-client.js";
 
-  assert.match(source, /\bwaitForTerminalContractStatus\b/);
-  assert.doesNotMatch(source, /contractStatus = statusEvent\.data\?\.status \|\| "completed"/);
+test("test-runner completion waits for formal run status, not contract status residue", async () => {
+  const details = [
+    {
+      status: "running",
+      currentCaseId: "simple-01",
+      contractRuntime: { contractStatus: "completed" },
+      terminalOutcome: { status: "completed" },
+    },
+    {
+      status: "completed",
+      currentCaseId: null,
+      passedCases: 1,
+      failedCases: 0,
+      blockedCases: 0,
+    },
+  ];
+  let polls = 0;
+
+  const result = await waitForCliRunCompletion({
+    runId: "TR-residue",
+    requestJSON: async () => {
+      polls += 1;
+      return details.shift();
+    },
+    sleep: async () => {},
+    pollIntervalMs: 1,
+    timeoutMs: 100,
+  });
+
+  assert.equal(polls, 2);
+  assert.equal(result.status, "completed");
 });

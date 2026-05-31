@@ -10,7 +10,8 @@ import {
   hardDeleteAgentDefinition,
 } from "../lib/agent/agent-admin-agent-operations.js";
 import { saveConfig } from "../lib/agent/agent-admin-store.js";
-import { loadGraph, saveGraph } from "../lib/agent/agent-graph.js";
+import { loadGraph } from "../lib/agent/agent-graph.js";
+import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
 import { listDispatchTargetIds } from "../lib/routing/dispatch-runtime-state.js";
 import {
   loadGraphLoopRegistry,
@@ -25,7 +26,7 @@ import {
   buildAgentCard,
   syncAgentWorkspaceGuidance,
 } from "../lib/workspace-guidance-writer.js";
-import { runGlobalTestEnvironmentSerial } from "./test-locks.js";
+import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {
   info() {},

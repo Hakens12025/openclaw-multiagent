@@ -1,26 +1,29 @@
-// lib/delivery.js — Result delivery to gateway agents
+// lib/routing/delivery-terminal.js — Terminal result delivery to gateway agents
 
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  OC,
-  RESULT_SUMMARY_MAX_CHARS,
   agentWorkspace,
   atomicWriteFile,
   isPathWithin,
 } from "../state.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 import { getDeliveryDir, readContractSnapshotByPath } from "../contracts.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
 import {
   buildRuntimeDeliveryResultSource,
+  isInternalDeliveryReason,
+  resolveTerminalUserFacingResultContent,
   resolveRuntimeResultOutputPath,
-  summarizeDeliveryResultPayload,
 } from "../routing/delivery-result.js";
 import { normalizeExecutionObservation } from "../execution-observation.js";
 import { normalizeTerminalOutcome } from "../terminal-outcome.js";
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
+import {
+  RUNTIME_WAKE_SEMANTICS,
+  runtimeWakeAgentDetailed,
+} from "../transport/runtime-wake-transport.js";
 import { isGatewayAgent } from "../agent/agent-identity.js";
 import { buildAgentContractSessionKey } from "../session-keys.js";
 import { applyTerminalDeliverySemantics } from "./delivery-protocols.js";
@@ -31,7 +34,7 @@ function isResumeSessionDirectServiceContract(contract) {
 }
 
 function resolveAllowedOutputDirs(contract) {
-  const dirs = [join(OC, "workspaces", "controller", "output")];
+  const dirs = [CONTROL_PLANE_PATHS.outputDir];
   const assignee = typeof contract?.assignee === "string" && contract.assignee.trim()
     ? contract.assignee.trim()
     : null;
@@ -39,6 +42,17 @@ function resolveAllowedOutputDirs(contract) {
     dirs.push(join(agentWorkspace(assignee), "output"));
   }
   return dirs;
+}
+
+function buildNonSuccessResultSummary(resultStatus, trackingState, terminalOutcome) {
+  if (resultStatus === CONTRACT_STATUS.AWAITING_INPUT) {
+    const clarification = terminalOutcome?.clarification || terminalOutcome?.reason || trackingState?.lastLabel || "";
+    const safeClarification = clarification && !isInternalDeliveryReason(clarification)
+      ? clarification
+      : "请补充必要输入。";
+    return `⚠️ 需要补充信息\n${safeClarification}`;
+  }
+  return "❌ 任务失败\n任务未完成。";
 }
 
 async function resolveReplyTarget(trackingState, contractDataOverride, logger) {
@@ -136,20 +150,19 @@ export async function deliveryRunTerminal(trackingState, api, logger, contractDa
     runtimeResultSource.terminalOutcome,
     { terminalStatus: resultStatus },
   );
+  const userFacingResult = await resolveTerminalUserFacingResultContent(runtimeResultSource);
   let resultSummary = isNonSuccess
-    ? `${resultStatus === CONTRACT_STATUS.AWAITING_INPUT ? "⚠️ 需要补充信息" : "❌ 任务失败"}\n${trackingState.lastLabel || "未满足 contract 完成条件"}`
-    : "(产出文件未找到)";
+    ? buildNonSuccessResultSummary(resultStatus, trackingState, terminalOutcome)
+    : userFacingResult || "(任务完成)";
   const outputPath = resolveRuntimeResultOutputPath(runtimeResultSource);
-  if (!outputPath) {
-    const fallbackSummary = summarizeDeliveryResultPayload({
-      outcome: terminalOutcome,
-      source: runtimeResultSource,
-      limit: RESULT_SUMMARY_MAX_CHARS,
-    });
-    if (fallbackSummary) {
-      resultSummary = fallbackSummary;
-    }
+  const fallbackSummary = userFacingResult || await resolveTerminalUserFacingResultContent({
+    ...runtimeResultSource,
+    terminalOutcome,
+  });
+  if (fallbackSummary && !isNonSuccess) {
+    resultSummary = fallbackSummary;
   }
+  let safeOutputPath = outputPath || c.output || "";
   if (outputPath) {
     const allowedOutputDirs = resolveAllowedOutputDirs(c);
 
@@ -158,24 +171,7 @@ export async function deliveryRunTerminal(trackingState, api, logger, contractDa
         `[watchdog] deliveryRunTerminal: PATH TRAVERSAL BLOCKED — output path "${outputPath}" `
         + `is outside ${allowedOutputDirs.join(", ")}`,
       );
-      resultSummary = "(安全策略：产出路径非法，已拦截)";
-    } else {
-      try {
-        const raw = await readFile(outputPath, "utf8");
-        resultSummary = raw.length > RESULT_SUMMARY_MAX_CHARS
-          ? raw.slice(0, RESULT_SUMMARY_MAX_CHARS) + `\n\n... (共 ${raw.length} 字符，已截断)`
-          : raw;
-        logger.info(`[watchdog] deliveryRunTerminal: read output ${outputPath} (${raw.length} chars)`);
-      } catch (e) {
-        logger.warn(`[watchdog] deliveryRunTerminal: output file read failed: ${e.message}`);
-        resultSummary = isNonSuccess
-          ? `${resultStatus === CONTRACT_STATUS.AWAITING_INPUT ? "⚠️ 需要补充信息" : "❌ 任务失败"}\n${trackingState.lastLabel || ""}\n(产出文件读取失败: ${outputPath})`
-          : (summarizeDeliveryResultPayload({
-            outcome: terminalOutcome,
-            source: runtimeResultSource,
-            limit: RESULT_SUMMARY_MAX_CHARS,
-          }) || `(产出文件读取失败: ${outputPath})`);
-      }
+      safeOutputPath = "";
     }
   }
 
@@ -204,7 +200,7 @@ export async function deliveryRunTerminal(trackingState, api, logger, contractDa
     status: "pending",
     resultStatus,
     resultSummary,
-    outputPath: outputPath || c.output || "",
+    outputPath: safeOutputPath,
     replyTo,
     toolCallCount: trackingState.toolCallTotal,
     elapsedMs: Date.now() - trackingState.startMs,
@@ -244,8 +240,11 @@ export async function deliveryRunTerminal(trackingState, api, logger, contractDa
     // Non-gateway agents need wake to consume delivery for their workflow.
     const skipWake = isGatewayAgent(replyTo.agentId);
     if (!skipWake) {
-      await runtimeWakeAgentDetailed(replyTo.agentId, `delivery ready: ${deliveryId}`, api, logger, {
+      await runtimeWakeAgentDetailed(replyTo.agentId, null, api, logger, {
         sessionKey: buildAgentContractSessionKey(replyTo.agentId, c.id),
+        wakeSemantic: RUNTIME_WAKE_SEMANTICS.TERMINAL_DELIVERY_READY,
+        contractId: c.id,
+        deliveryId,
       });
       logger.info(`[watchdog] DELIVERY HEARTBEAT: ${replyTo.agentId}`);
     } else {

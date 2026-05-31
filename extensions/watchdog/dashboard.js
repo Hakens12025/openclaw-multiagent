@@ -1,5 +1,5 @@
 // dashboard.js — Core: globals, clock, metadata, work items, events, SSE
-import { esc, shortModel, getToken, toast } from './dashboard-common.js';
+import { esc, shortModel } from './dashboard-common.js';
 import { emit } from './dashboard-bus.js';
 import {
   normalizeFlowToken,
@@ -7,11 +7,18 @@ import {
   resolveFlowVisualType,
   resolveSystemActionDeliveryAlertFlow,
 } from './dashboard-flow-visuals.js';
+import {
+  isFoldedGatewayBridgeRecord,
+  isRuntimeOperatorRecord,
+  isSystemControlSurfaceRecord,
+  PRIMARY_DASHBOARD_BRIDGE_AGENT_ID,
+  shouldDisplayDashboardAgentRecord,
+} from './dashboard-agent-visibility.js';
 import { PROTOCOL_ID } from './protocol-registry.js';
 
 // Late-bound imports (circular deps — safe because only used inside functions)
-import { buildPipelineSVG, createFlowLine, removeFlowLine, dynamicWorkers } from './dashboard-svg.js';
-import { updatePipeline, truncLabel } from './dashboard-pipeline.js';
+import { buildRuntimeGraphSVG, createFlowLine, removeFlowLine } from './dashboard-svg.js';
+import { pulseContractFlow, updateRuntimeGraph, truncLabel } from './dashboard-runtime-graph.js';
 import { loadModels } from './dashboard-ux.js';
 
 // Static seed for executor ids before the live agent roster arrives from /watchdog/agents.
@@ -24,14 +31,32 @@ export const workItems = {};
 export const agentMeta = {};
 export const agentEvents = {};
 export const dispatchRuntimeState = {};
-export let dispatchQueueState = [];
 export let eventCount = 0;
 export let connectedAt = null;
 export const DEFAULT_OFFLINE_MS = 30 * 60 * 1000;
-export const PRIMARY_DASHBOARD_BRIDGE_AGENT_ID = 'controller';
+const WORK_ITEM_SNAPSHOT_DELETE_GRACE_MS = 60_000;
 
 // ── Active Flows — data-driven flow line tracking ──
 export const activeFlows = new Map(); // flowKey → { from, to, label, type, workItemId, ts, element }
+
+function closeTransientDashboardOverlays() {
+  document.getElementById('addAgentDialog')?.remove();
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(value ?? '');
+}
+
+function setHtml(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = String(value ?? '');
+}
+
+function setClassToken(id, token, on) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle(token, on);
+}
 
 function getDashboardAgentRecord(agentId) {
   if (!agentId || String(agentId).startsWith('_')) return null;
@@ -41,12 +66,10 @@ function getDashboardAgentRecord(agentId) {
   return (window._lastAgentData || []).find((agent) => agent?.id === agentId) || null;
 }
 
-function isFoldedGatewayBridgeRecord(agent) {
-  if (!agent || typeof agent !== 'object') return false;
-  const agentId = typeof agent.id === 'string' ? agent.id : null;
-  if (!agentId || agentId === PRIMARY_DASHBOARD_BRIDGE_AGENT_ID) return false;
-  if (agentId === 'agent-for-kksl') return true;
-  return agent.role === 'bridge' && agent.gateway === true;
+function shouldFoldDashboardEventToSystem(agentId) {
+  if (!agentId) return true;
+  const record = getDashboardAgentRecord(agentId) || { id: agentId };
+  return isRuntimeOperatorRecord(record) || isSystemControlSurfaceRecord(record);
 }
 
 export function isFoldedDashboardAgent(agentId) {
@@ -54,20 +77,67 @@ export function isFoldedDashboardAgent(agentId) {
   return isFoldedGatewayBridgeRecord(getDashboardAgentRecord(agentId));
 }
 
-export function shouldDisplayDashboardAgentRecord(agent) {
-  return !isFoldedGatewayBridgeRecord(agent);
-}
-
 export function isBridgeAgent(agentId) {
   if (!agentId) return false;
-  if (agentId === 'controller' || agentId === 'agent-for-kksl') return true;
   if (agentMeta[agentId]?.role === 'bridge') return true;
   return (window._lastAgentData || []).some((agent) => agent?.id === agentId && agent?.role === 'bridge');
 }
 
-export function getPipelineAgentId(agentId) {
+export function getRuntimeGraphAgentId(agentId) {
   if (!agentId || String(agentId).startsWith('_')) return agentId;
   return isFoldedDashboardAgent(agentId) ? PRIMARY_DASHBOARD_BRIDGE_AGENT_ID : agentId;
+}
+
+export function isVisibleRuntimeGraphAgentId(agentId) {
+  const graphAgentId = getRuntimeGraphAgentId(agentId);
+  return Boolean(
+    graphAgentId
+    && Array.isArray(window._visibleRuntimeGraphAgentIds)
+    && window._visibleRuntimeGraphAgentIds.includes(graphAgentId)
+  );
+}
+
+function normalizeDispatchRuntimeTarget(runtime) {
+  const { outgoingQueue: _outgoingQueue, ...rest } = (runtime && typeof runtime === 'object') ? runtime : {};
+  return {
+    ...rest,
+    currentContract: typeof runtime?.currentContract === 'string'
+      ? runtime.currentContract
+      : (typeof runtime?.currentContractId === 'string' ? runtime.currentContractId : null),
+  };
+}
+
+function normalizeOutgoingRuntimeQueue(sourceId, queue) {
+  if (!Array.isArray(queue)) return [];
+  return queue.map((entry) => {
+    const contractId = typeof entry === 'string' ? entry : entry?.contractId;
+    if (!contractId) return null;
+    return {
+      ...(entry && typeof entry === 'object' ? entry : {}),
+      contractId: String(contractId),
+      fromAgent: entry?.fromAgent || sourceId,
+      sourceId,
+    };
+  }).filter(Boolean);
+}
+
+function applyDispatchRuntimeSnapshot({ targets = {}, outgoingBySource = {} } = {}) {
+  const targetIds = new Set(Object.keys(targets || {}));
+  const outgoingSourceIds = new Set(Object.keys(outgoingBySource || {}));
+  const nextIds = new Set([...targetIds, ...outgoingSourceIds]);
+  for (const id of Object.keys(dispatchRuntimeState)) {
+    if (!nextIds.has(id)) delete dispatchRuntimeState[id];
+  }
+  for (const id of targetIds) {
+    dispatchRuntimeState[id] = normalizeDispatchRuntimeTarget(targets[id]);
+  }
+  for (const sourceId of outgoingSourceIds) {
+    const existing = dispatchRuntimeState[sourceId] || normalizeDispatchRuntimeTarget({});
+    dispatchRuntimeState[sourceId] = {
+      ...existing,
+      outgoingQueue: normalizeOutgoingRuntimeQueue(sourceId, outgoingBySource[sourceId]),
+    };
+  }
 }
 
 export function getBridgeAggregateAgentIds() {
@@ -78,26 +148,26 @@ export function getBridgeAggregateAgentIds() {
       ...((window._lastAgentData || []).map((agent) => agent?.id).filter(Boolean)),
     ]
       .filter((id) => isBridgeAgent(id))
-      .map((id) => getPipelineAgentId(id))
+      .map((id) => getRuntimeGraphAgentId(id))
       .filter(Boolean),
   )];
 }
 
-export function getPipelineAggregateAgentIds(agentId) {
-  const pipelineAgentId = getPipelineAgentId(agentId);
-  if (!pipelineAgentId) return [];
+export function getRuntimeGraphAggregateAgentIds(agentId) {
+  const graphAgentId = getRuntimeGraphAgentId(agentId);
+  if (!graphAgentId) return [];
   const candidateIds = new Set([
-    pipelineAgentId,
+    graphAgentId,
     ...Object.keys(agentMeta),
     ...Object.keys(agentState),
     ...((window._lastAgentData || []).map((agent) => agent?.id).filter(Boolean)),
   ]);
-  return [...candidateIds].filter((candidateId) => getPipelineAgentId(candidateId) === pipelineAgentId);
+  return [...candidateIds].filter((candidateId) => getRuntimeGraphAgentId(candidateId) === graphAgentId);
 }
 
 export function normalizeDashboardAgentKey(agentId) {
   if (!agentId || String(agentId).startsWith('_')) return agentId || '_system';
-  return getPipelineAgentId(agentId);
+  return getRuntimeGraphAgentId(agentId);
 }
 
 export function normalizeDashboardText(value) {
@@ -118,31 +188,31 @@ function progressDisplayToken(value) {
   return normalized ? String(normalized).toUpperCase() : null;
 }
 
-export function getWorkItemPipelineProgression(workItem) {
-  const progression = workItem?.runtimeDiagnostics?.pipelineProgression;
+export function getWorkItemGraphRouteProgression(workItem) {
+  const progression = workItem?.runtimeDiagnostics?.graphRouteProgression;
   return progression && typeof progression === 'object' ? progression : null;
 }
 
-export function humanizePipelineProgressReason(reason) {
+export function humanizeGraphRouteProgressReason(reason) {
   const normalized = String(reason || '').trim();
   if (!normalized) return null;
   const labels = {
     system_action_owned: 'explicit system action owns progression',
     missing_structured_outbox_signal: 'no structured outbox signal',
-    no_active_pipeline: 'no active pipeline',
+    no_active_pipeline: 'no active graph route',
     no_allowed_transition: 'no legal next stage',
     ambiguous_runtime_transition: 'multiple legal next stages',
   };
   return labels[normalized] || normalized.replaceAll('_', ' ');
 }
 
-export function describePipelineProgression(progression) {
+export function describeGraphRouteProgression(progression) {
   if (!progression || typeof progression !== 'object') return null;
 
   const from = progressDisplayToken(progression.from || progression.stage);
   const to = progressDisplayToken(progression.to || progression.targetAgent);
   const round = Number.isFinite(progression.round) ? ` // R${progression.round}` : '';
-  const reason = humanizePipelineProgressReason(progression.reason);
+  const reason = humanizeGraphRouteProgressReason(progression.reason);
 
   if (progression.reason === 'system_action_owned') {
     return {
@@ -216,13 +286,13 @@ export function mergeAgentEventBlocks(fromKey, toKey) {
 }
 
 export function getDashboardTrackedAgentIds() {
-  if (Array.isArray(window._visiblePipelineAgentIds) && window._visiblePipelineAgentIds.length > 0) {
-    return window._visiblePipelineAgentIds;
+  if (Array.isArray(window._visibleRuntimeGraphAgentIds) && window._visibleRuntimeGraphAgentIds.length > 0) {
+    return window._visibleRuntimeGraphAgentIds;
   }
   return [...new Set(
     Object.keys(agentState)
       .filter((agentId) => agentId && !String(agentId).startsWith('_'))
-      .map((agentId) => getPipelineAgentId(agentId)),
+      .map((agentId) => getRuntimeGraphAgentId(agentId)),
   )];
 }
 
@@ -236,18 +306,17 @@ export function updateActiveStat() {
 }
 
 export function addActiveFlow(from, to, label, opts = {}) {
-  const sourceId = getPipelineAgentId(from);
-  const targetId = getPipelineAgentId(to);
+  const sourceId = getRuntimeGraphAgentId(from);
+  const targetId = getRuntimeGraphAgentId(to);
   if (!sourceId || !targetId || sourceId === targetId) return;
   const key = `${sourceId}\u2192${targetId}`;
   if (activeFlows.has(key)) return;
   const el = createFlowLine(sourceId, targetId, label, opts.type || 'route');
-  if (!el) return; // node not on screen
   activeFlows.set(key, { from: sourceId, to: targetId, label, ...opts, element: el, ts: Date.now() });
 }
 
 export function removeActiveFlowsFor(agentId) {
-  const targetId = getPipelineAgentId(agentId);
+  const targetId = getRuntimeGraphAgentId(agentId);
   for (const [key, flow] of activeFlows) {
     if (flow.to === targetId) {
       removeFlowLine(flow.element);
@@ -258,7 +327,7 @@ export function removeActiveFlowsFor(agentId) {
 
 export function clearAllFlows() {
   for (const [, flow] of activeFlows) {
-    removeFlowLine(flow.element);
+    if (flow.element?.parentNode) flow.element.remove();
   }
   activeFlows.clear();
 }
@@ -271,9 +340,9 @@ export function hasMeaningfulValue(value) {
 }
 
 function resolveTerminalDeliveryDiagnostic(data, workItemId = null) {
-  const eventDiagnostic = data?.runtimeDiagnostics?.completionEgress;
+  const eventDiagnostic = data?.runtimeDiagnostics?.terminalDelivery;
   if (eventDiagnostic && typeof eventDiagnostic === 'object') return eventDiagnostic;
-  const workItemDiagnostic = workItemId ? workItems[workItemId]?.runtimeDiagnostics?.completionEgress : null;
+  const workItemDiagnostic = workItemId ? workItems[workItemId]?.runtimeDiagnostics?.terminalDelivery : null;
   return workItemDiagnostic && typeof workItemDiagnostic === 'object' ? workItemDiagnostic : null;
 }
 
@@ -299,6 +368,7 @@ export function resolveDashboardWorkItemId(data) {
 
 export function isCanonicalDashboardWorkItem(data) {
   if (!data || typeof data !== 'object') return false;
+  if (data.mainViewVisible === false) return false;
   if (data.hasContract === true) return true;
   if (hasMeaningfulValue(data.workItemKind)) return true;
   if (hasMeaningfulValue(data.contractId)) return true;
@@ -319,8 +389,14 @@ export function mergeWorkItemState(workItemId, patch) {
     next[key] = value;
   }
 
+  next._localObservedAt = Date.now();
   workItems[workItemId] = next;
   return next;
+}
+
+function isFreshLocalWorkItem(item, now = Date.now()) {
+  const observedAt = Number(item?._localObservedAt || 0);
+  return Number.isFinite(observedAt) && observedAt > 0 && now - observedAt < WORK_ITEM_SNAPSHOT_DELETE_GRACE_MS;
 }
 
 export function buildLifecyclePatchFromAlert(data) {
@@ -366,14 +442,14 @@ export function buildLifecyclePatchFromAlert(data) {
 // ── Clock ──
 export function updateClock() {
   const now = new Date();
-  document.getElementById('headerTime').textContent = now.toTimeString().slice(0, 8);
-  document.getElementById('headerDate').textContent = now.toISOString().slice(0, 10).replace(/-/g, '.');
+  setText('headerTime', now.toTimeString().slice(0, 8));
+  setText('headerDate', now.toISOString().slice(0, 10).replace(/-/g, '.'));
   if (connectedAt) {
     const diff = Math.floor((now - connectedAt) / 1000);
     const h = String(Math.floor(diff / 3600)).padStart(2, '0');
     const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
     const s = String(diff % 60).padStart(2, '0');
-    document.getElementById('statUptime').textContent = `${h}:${m}:${s}`;
+    setText('statUptime', `${h}:${m}:${s}`);
   }
 }
 setInterval(updateClock, 1000);
@@ -386,6 +462,7 @@ export async function loadAgentMeta() {
     const res = await fetch(`/watchdog/agents?token=${encodeURIComponent(token)}`);
     if (res.ok) {
       const list = await res.json();
+      if (!Array.isArray(list) || list.length === 0) return;
       const freshIds = new Set(list.map(a => a.id));
       for (const id of Object.keys(agentMeta)) {
         if (!freshIds.has(id)) {
@@ -405,11 +482,26 @@ export async function loadAgentMeta() {
 
       // Build SVG dynamically from agent data
       window._lastAgentData = list;
-      buildPipelineSVG(list);
+      buildRuntimeGraphSVG(list);
+      updateRuntimeGraph();
 
       // Load available models for hot-swap
       loadModels();
     }
+  } catch {}
+}
+
+export async function loadDispatchRuntimeState() {
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  try {
+    const res = await fetch(`/watchdog/runtime?token=${encodeURIComponent(token)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    applyDispatchRuntimeSnapshot({
+      targets: data?.dispatchRuntime?.targets || {},
+      outgoingBySource: data?.dispatchRuntime?.outgoingBySource || {},
+    });
+    updateRuntimeGraph();
   } catch {}
 }
 
@@ -437,7 +529,7 @@ export function getOfflineWindowMs(agentId) {
 }
 
 export function getAgentLastSeen(agentId) {
-  return getPipelineAggregateAgentIds(agentId).reduce((maxTs, id) => {
+  return getRuntimeGraphAggregateAgentIds(agentId).reduce((maxTs, id) => {
     const stateTs = agentState[id]?._lastSeen || 0;
     const runtimeTs = dispatchRuntimeState[id]?.lastSeen || 0;
     return Math.max(maxTs, stateTs, runtimeTs);
@@ -445,7 +537,7 @@ export function getAgentLastSeen(agentId) {
 }
 
 export function getAgentAvailability(agentId) {
-  const aggregateIds = getPipelineAggregateAgentIds(agentId);
+  const aggregateIds = getRuntimeGraphAggregateAgentIds(agentId);
   if (aggregateIds.some((id) => {
     const state = agentState[id] || {};
     const runtime = dispatchRuntimeState[id] || {};
@@ -457,7 +549,7 @@ export function getAgentAvailability(agentId) {
 }
 
 export function getAgentVisualStatus(agentId) {
-  const aggregateIds = getPipelineAggregateAgentIds(agentId);
+  const aggregateIds = getRuntimeGraphAggregateAgentIds(agentId);
   if (aggregateIds.some((id) => {
     const state = agentState[id] || {};
     const runtime = dispatchRuntimeState[id] || {};
@@ -485,12 +577,12 @@ export function formatLastSeen(agentId) {
 let _lastWorkItemsHash = '';
 
 function getLoopSessionId(contract) {
-  const prog = contract?.runtimeDiagnostics?.pipelineProgression;
+  const prog = contract?.runtimeDiagnostics?.graphRouteProgression;
   return prog?.loopSessionId || null;
 }
 
 function getLoopId(contract) {
-  const prog = contract?.runtimeDiagnostics?.pipelineProgression;
+  const prog = contract?.runtimeDiagnostics?.graphRouteProgression;
   return prog?.loopId || null;
 }
 
@@ -606,10 +698,10 @@ function renderWorkItemCard(c, { nested = false } = {}) {
     : envelope === 'workflow_signal'
       ? '<span style="color:var(--accent-red);font-size:10px;letter-spacing:0.05em"> SIGNAL</span>'
     : '';
-  const progression = describePipelineProgression(getWorkItemPipelineProgression(c));
+  const progression = describeGraphRouteProgression(getWorkItemGraphRouteProgression(c));
   const progressionHtml = progression
     ? `<div class="contract-meta-row">
-        <dt>PIPELINE</dt>
+        <dt>GRAPH ROUTE</dt>
         <dd><div class="contract-progress-chip-wrapper visible"><span class="contract-progress-chip ${progression.tone}" title="${esc(progression.title)}">${esc(progression.text)}</span></div></dd>
       </div>`
     : '';
@@ -656,7 +748,7 @@ function renderWorkItemCard(c, { nested = false } = {}) {
   const nestedClass = nested ? ' contract-loop-stage' : '';
   const stageClass = nested && status === 'completed' ? ' contract-loop-stage-completed' : nested && (status === 'running' || status === 'pending') ? ' contract-loop-stage-active' : '';
 
-  return `<div class="contract-card status-${status}${nestedClass}${stageClass}">
+  return `<div class="work-item-card status-${status}${nestedClass}${stageClass}" data-work-item-id="${esc(c.id)}">
     <div class="contract-header">
       <span class="contract-id">${esc(c.id)}${pathTag}</span>
       <span class="contract-status-badge ${status}">${esc(status)}</span>
@@ -681,10 +773,22 @@ function renderWorkItemCard(c, { nested = false } = {}) {
   </div>`;
 }
 
+export function focusWorkItem(workItemId) {
+  const normalized = typeof workItemId === 'string' && workItemId.trim() ? workItemId.trim() : null;
+  if (!normalized) return false;
+  const selector = `[data-work-item-id="${normalized.replaceAll('"', '\\"')}"]`;
+  const card = document.getElementById('workItemList')?.querySelector(selector);
+  if (!card) return false;
+  card.classList.add('focused');
+  card.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  setTimeout(() => card.classList.remove('focused'), 1800);
+  return true;
+}
+
 function renderLoopGroupCard(loopSessionId, loopWorkItems) {
   const sorted = loopWorkItems.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const loopId = getLoopId(sorted[0]) || 'unknown';
-  const latestProg = sorted[sorted.length - 1]?.runtimeDiagnostics?.pipelineProgression;
+  const latestProg = sorted[sorted.length - 1]?.runtimeDiagnostics?.graphRouteProgression;
   const currentRound = latestProg?.round || 1;
   const currentStage = latestProg?.to || latestProg?.from || latestProg?.stage || '--';
   const completedCount = sorted.filter(c => c.status === 'completed').length;
@@ -725,13 +829,15 @@ function renderLoopGroupCard(loopSessionId, loopWorkItems) {
 }
 
 export function renderWorkItems() {
-  const el = document.getElementById('workItemList');
+  const host = document.getElementById('workItemList');
+  if (!host) return;
+
   const list = Object.values(workItems)
     .filter((item) => isCanonicalDashboardWorkItem(item))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   // Quick hash: skip rebuild if work item set unchanged
   const hash = list.map((c) => {
-    const progression = getWorkItemPipelineProgression(c);
+    const progression = getWorkItemGraphRouteProgression(c);
     return [
       c.id,
       c.status,
@@ -752,9 +858,9 @@ export function renderWorkItems() {
   if (hash === _lastWorkItemsHash) return;
   _lastWorkItemsHash = hash;
   if (list.length === 0) {
-    el.innerHTML = '<div class="empty-state">NO ACTIVE WORK ITEMS<br>AWAITING DISPATCH...</div>';
-    document.getElementById('statWorkItems').textContent = '0';
-    document.getElementById('statCompleted').textContent = '0';
+    setHtml('workItemList', '<div class="empty-state">NO ACTIVE WORK ITEMS<br>AWAITING DISPATCH...</div>');
+    setText('statWorkItems', '0');
+    setText('statCompleted', '0');
     emit('work-items:updated', { workItems: list });
     return;
   }
@@ -787,10 +893,10 @@ export function renderWorkItems() {
     htmlParts.push(renderWorkItemCard(c));
   }
 
-  el.innerHTML = htmlParts.join('');
+  setHtml('workItemList', htmlParts.join(''));
 
-  document.getElementById('statWorkItems').textContent = list.length;
-  document.getElementById('statCompleted').textContent = list.filter(c => c.status === 'completed').length;
+  setText('statWorkItems', list.length);
+  setText('statCompleted', list.filter(c => c.status === 'completed').length);
   emit('work-items:updated', { workItems: list });
 }
 
@@ -803,20 +909,21 @@ function getAgentBlock(agentId) {
 
 export function addEvent(type, data) {
   eventCount++;
-  document.getElementById('statEvents').textContent = eventCount;
+  setText('statEvents', eventCount);
   const rawAgentId = data.agentId || '_system';
-  const agentId = normalizeDashboardAgentKey(rawAgentId);
+  const normalizedAgentId = normalizeDashboardAgentKey(rawAgentId);
+  const agentId = shouldFoldDashboardEventToSystem(normalizedAgentId) ? '_system' : normalizedAgentId;
   if (agentId !== rawAgentId) mergeAgentEventBlocks(rawAgentId, agentId);
   const key = getAgentBlock(agentId);
   const now = new Date().toTimeString().slice(0, 8);
   const eventLabel = type === 'alert' ? (data.type || 'alert') : type;
   let body = '';
   if (type === 'track_start') body = 'session started';
-  else if (type === 'track_progress') body = `#${data.toolCallCount} ${esc(normalizeDashboardText(getRecentToolSummary(data) || data.lastLabel || ''))}`;
-  else if (type === 'track_end') body = `ended (${esc(normalizeDashboardText(data.status || 'ok'))}) ${data.elapsedMs ? (data.elapsedMs/1000).toFixed(0)+'s' : ''}`;
-  else if (type === 'graph_dispatch') body = `${esc(normalizeDashboardText(data.from || '?'))} -> ${esc(normalizeDashboardText(data.to || '?'))} ${esc(normalizeDashboardText(data.contractId || ''))}`.trim();
-  else if (type === 'alert' && data.type === 'survival_check') body = `[survival_check] ${esc(normalizeDashboardText(data.availability || 'available'))} ${esc(normalizeDashboardText(data.detail || ''))}`;
-  else if (type === 'alert') body = `[${esc(normalizeDashboardText(data.type))}] ${esc(normalizeDashboardText(resolveDashboardWorkItemId(data) || data.task || JSON.stringify(data).slice(0, 60)))}`;
+  else if (type === 'track_progress') body = `#${data.toolCallCount} ${normalizeDashboardText(getRecentToolSummary(data) || data.lastLabel || '')}`;
+  else if (type === 'track_end') body = `ended (${normalizeDashboardText(data.status || 'ok')}) ${data.elapsedMs ? (data.elapsedMs/1000).toFixed(0)+'s' : ''}`;
+  else if (type === 'graph_dispatch') body = `${normalizeDashboardText(data.from || '?')} -> ${normalizeDashboardText(data.to || '?')} ${normalizeDashboardText(data.contractId || '')}`.trim();
+  else if (type === 'alert' && data.type === 'survival_check') body = `[survival_check] ${normalizeDashboardText(data.availability || 'available')} ${normalizeDashboardText(data.detail || '')}`;
+  else if (type === 'alert') body = `[${normalizeDashboardText(data.type)}] ${normalizeDashboardText(resolveDashboardWorkItemId(data) || data.task || JSON.stringify(data).slice(0, 60))}`;
   else body = normalizeDashboardText(JSON.stringify(data).slice(0, 80));
 
   agentEvents[key].unshift({
@@ -852,7 +959,7 @@ export function renderEventStream() {
         ${events.map(e => `<div class="event-item">
           <div class="event-time">${esc(e.time)}</div>
           <div class="event-type">${esc(e.eventLabel)}</div>
-          <div class="event-body">${e.body}</div>
+          <div class="event-body">${esc(e.body)}</div>
         </div>`).join('')}
       </div>
     </div>`;
@@ -861,7 +968,7 @@ export function renderEventStream() {
   const hash = `${eventCount}:${keys.map((key) => `${key}:${key.startsWith('_') ? 'idle' : getAgentVisualStatus(key)}:${agentEvents[key].length}`).join('|')}`;
   if (hash === _lastEventStreamHash) return;
   _lastEventStreamHash = hash;
-  container.innerHTML = html;
+  if (container) container.innerHTML = html;
 }
 
 export function toggleBlock(header) {
@@ -878,15 +985,15 @@ export function processEvent(type, data) {
       if (data.kind === 'survival_check') {
         agentState[data.agentId]._survival = data.availability || 'available';
       }
-      updatePipeline();
+      updateRuntimeGraph();
       renderEventStream();
     }
     return;
   }
   if (type === 'connected') {
     connectedAt = new Date();
-    document.getElementById('connDot').classList.add('connected');
-    document.getElementById('connText').textContent = 'STREAM ACTIVE';
+    setClassToken('connDot', 'connected', true);
+    setText('connText', 'STREAM ACTIVE');
     return;
   }
 
@@ -899,7 +1006,8 @@ export function processEvent(type, data) {
         resolveFlowVisualLabel('graph_dispatch', data),
         { workItemId: resolveDashboardWorkItemId(data) || data.contractId || null, type: flowType },
       );
-      updatePipeline();
+      pulseContractFlow(getRuntimeGraphAgentId(data.from), getRuntimeGraphAgentId(data.to), data.contractId || resolveDashboardWorkItemId(data));
+      updateRuntimeGraph();
     }
     addEvent(type, data);
     return;
@@ -959,24 +1067,11 @@ export function processEvent(type, data) {
       });
     }
     renderWorkItems();
-    updatePipeline();
+    updateRuntimeGraph();
     updateActiveStat();
 
-    // Dynamic flow: track_start creates flow lines based on graph edges
-    if (type === 'track_start') {
-      // Use graph edges to determine flow direction — who has an edge pointing to this agent?
-      const graphEdges = window.__graphEdges || [];
-      const incomingEdges = graphEdges.filter(e => e.to === data.agentId);
-      const flowType = resolveFlowVisualType('activity', data);
-      if (incomingEdges.length > 0) {
-        for (const edge of incomingEdges) {
-          addActiveFlow(edge.from, data.agentId, truncLabel(data.task), { workItemId: workItemId || null, type: flowType });
-        }
-      } else if (data.replyTo?.agentId) {
-        // Fallback: no graph edge info → use replyTo
-        addActiveFlow(data.replyTo.agentId, data.agentId, truncLabel(data.task), { workItemId: workItemId || null, type: flowType });
-      }
-    }
+    // Route visuals are driven by typed runtime dispatch/delivery events, not by
+    // session start metadata.
   }
 
   if (type === 'track_end') {
@@ -986,7 +1081,7 @@ export function processEvent(type, data) {
       agentState[data.agentId].status = data.status === 'failed' ? 'error' : 'idle';
       agentState[data.agentId].lastLabel = null;
       agentState[data.agentId]._lastSeen = data.ts || Date.now();
-      if (data.agentId?.startsWith('worker-') && data.status !== 'failed') {
+      if (agentMeta[data.agentId]?.role === 'executor' && data.status !== 'failed') {
         agentState[data.agentId]._justCompleted = true;
         if (deliveryTargetAgentId) {
           agentState[deliveryTargetAgentId] = agentState[deliveryTargetAgentId] || {};
@@ -1000,10 +1095,7 @@ export function processEvent(type, data) {
           if (deliveryTargetAgentId && agentState[deliveryTargetAgentId]) {
             agentState[deliveryTargetAgentId]._delivering = false;
           }
-          const allWorkers = [...((dynamicWorkers.length > 0) ? dynamicWorkers : WORKERS),
-        ...((window._lastAgentData || []).filter(a => a.role === 'executor' && a.specialized).map(a => a.id))
-      ];
-          updatePipeline();
+          updateRuntimeGraph();
         }, 5000);
       }
     }
@@ -1040,14 +1132,18 @@ export function processEvent(type, data) {
       });
     }
     renderWorkItems();
-    updatePipeline();
+    updateRuntimeGraph();
     updateActiveStat();
 
     // Dynamic flow: track_end removes incoming flows, optionally shows delivery
     removeActiveFlowsFor(data.agentId);
     // Check graph: if this agent has no out-edges, it's a terminal node → show delivery
     const graphEdges = window.__graphEdges || [];
-    const hasOutEdge = graphEdges.some(e => e.from === data.agentId);
+    const sourceGraphAgentId = getRuntimeGraphAgentId(data.agentId);
+    const hasOutEdge = graphEdges.some(e => (
+      e.from === sourceGraphAgentId
+      && isVisibleRuntimeGraphAgentId(e.to)
+    ));
     const terminalDeliveryDiagnostic = resolveTerminalDeliveryDiagnostic(data, workItemId);
     if (!hasOutEdge && data.status !== 'failed' && hasVisibleTerminalDeliveryActivity(terminalDeliveryDiagnostic)) {
       // Terminal node — show delivery return flow
@@ -1066,28 +1162,32 @@ export function processEvent(type, data) {
 
   if (type === 'alert') {
     if (data.type === 'dispatch_runtime_state') {
-      if (data.targets) Object.keys(data.targets).forEach(wId => {
-        dispatchRuntimeState[wId] = data.targets[wId];
-        agentState[wId] = agentState[wId] || {};
-        if (data.targets[wId]?.lastSeen) agentState[wId]._lastSeen = data.targets[wId].lastSeen;
-      });
-      if (data.queue !== undefined) dispatchQueueState = Array.isArray(data.queue) ? data.queue : [];
-      updatePipeline();
+      if (data.targets && typeof data.targets === 'object') {
+        applyDispatchRuntimeSnapshot({
+          targets: data.targets,
+          outgoingBySource: data.outgoingBySource || {},
+        });
+        Object.keys(data.targets).forEach(wId => {
+          agentState[wId] = agentState[wId] || {};
+          if (data.targets[wId]?.lastSeen) agentState[wId]._lastSeen = data.targets[wId].lastSeen;
+        });
+      }
+      updateRuntimeGraph();
     }
     if (data.type === 'survival_check' && data.agentId) {
       agentState[data.agentId] = agentState[data.agentId] || {};
       agentState[data.agentId]._lastSeen = data.ts || Date.now();
       agentState[data.agentId]._survival = data.availability || 'available';
-      updatePipeline();
+      updateRuntimeGraph();
       return;
     }
     if (data.type === 'system_reset') {
       loadAgentMeta(); loadWorkItems();
       Object.keys(agentState).forEach(k => delete agentState[k]);
       Object.keys(dispatchRuntimeState).forEach(k => delete dispatchRuntimeState[k]);
-      dispatchQueueState = [];
       clearAllFlows();
-      updatePipeline();
+      closeTransientDashboardOverlays();
+      updateRuntimeGraph();
     }
     if (data.type === 'agent_created' || data.type === 'agent_deleted' || data.type === 'agent_hard_deleted' || data.type === 'model_changed') {
       loadAgentMeta();
@@ -1108,6 +1208,7 @@ export function processEvent(type, data) {
             workItemId,
             type: resolveFlowVisualType('dispatch_alert', data),
           });
+          pulseContractFlow(getRuntimeGraphAgentId(from), getRuntimeGraphAgentId(to), workItemId);
         }
       }
       // Loop route flow: stage advance/start creates a visible route line
@@ -1144,15 +1245,15 @@ export function connectSSE() {
     es.addEventListener(t, e => { try { processEvent(t, JSON.parse(e.data)); } catch {} });
   });
   es.onerror = () => {
-    document.getElementById('connDot').classList.remove('connected');
-    document.getElementById('connText').textContent = 'RECONNECTING...';
+    setClassToken('connDot', 'connected', false);
+    setText('connText', 'RECONNECTING...');
     es.close();
     setTimeout(connectSSE, 3000);
   };
 }
 
 setInterval(() => {
-  updatePipeline();
+  updateRuntimeGraph();
   renderEventStream();
 }, 10000);
 
@@ -1167,10 +1268,11 @@ export async function loadWorkItems() {
       list.forEach(c => {
         if (!c?.id) return;
         nextIds.add(c.id);
-        workItems[c.id] = Object.assign(workItems[c.id] || {}, c);
+        workItems[c.id] = Object.assign(workItems[c.id] || {}, c, { _localObservedAt: undefined });
       });
+      const now = Date.now();
       Object.keys(workItems).forEach((id) => {
-        if (!nextIds.has(id)) delete workItems[id];
+        if (!nextIds.has(id) && !isFreshLocalWorkItem(workItems[id], now)) delete workItems[id];
       });
       renderWorkItems();
     }
@@ -1192,12 +1294,14 @@ export async function systemReset() {
       Object.keys(workItems).forEach(k => delete workItems[k]);
       Object.keys(agentState).forEach(k => delete agentState[k]);
       Object.keys(dispatchRuntimeState).forEach(k => delete dispatchRuntimeState[k]);
-      dispatchQueueState = []; eventCount = 0;
+      eventCount = 0;
+      clearAllFlows();
+      closeTransientDashboardOverlays();
       renderWorkItems();
-      updatePipeline();
+      updateRuntimeGraph();
       renderEventStream();
       updateActiveStat();
-      document.getElementById('statEvents').textContent = '0';
+      setText('statEvents', '0');
       addEvent('alert', { type: 'system_reset', ...result });
     } else {
       const error = await res.json().catch(() => ({}));

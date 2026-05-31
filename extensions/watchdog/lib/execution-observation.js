@@ -42,7 +42,6 @@ export function normalizeExecutionObservation(observation, {
       files: [],
       artifactPaths,
       primaryOutputPath: normalizedFallbackPrimaryOutputPath,
-      contractResult: null,
       reviewerResult: null,
       reviewVerdict: null,
       researchDirection: null,
@@ -57,10 +56,10 @@ export function normalizeExecutionObservation(observation, {
   }
 
   const stageRunResult = normalizeStageRunResult(source.stageRunResult || null);
-  const stageCompletion = normalizeStageCompletion(
-    source.stageCompletion || null,
-    stageRunResult?.completion || {},
-  );
+  const stageCompletionSource = normalizeRecord(source.stageCompletion, null);
+  const stageCompletion = stageCompletionSource || stageRunResult?.completion
+    ? normalizeStageCompletion(stageCompletionSource, stageRunResult?.completion || {})
+    : null;
   const files = normalizeObservationFiles(source.files);
   const artifactPaths = normalizeObservationArtifactPaths(
     [
@@ -82,7 +81,6 @@ export function normalizeExecutionObservation(observation, {
     files,
     artifactPaths,
     primaryOutputPath,
-    contractResult: normalizeObservationPayload(source.contractResult),
     reviewerResult: normalizeObservationPayload(source.reviewerResult),
     reviewVerdict: normalizeObservationPayload(source.reviewVerdict),
     researchDirection: normalizeObservationPayload(source.researchDirection),
@@ -98,7 +96,6 @@ export function normalizeExecutionObservation(observation, {
   normalized.collected = normalized.collected === true || Boolean(
     normalized.stageRunResult
     || normalized.stageCompletion
-    || normalized.contractResult
     || normalized.reviewerResult
     || normalized.reviewVerdict
     || normalized.researchDirection

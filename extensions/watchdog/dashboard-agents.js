@@ -9,6 +9,10 @@ import {
   buildAgentDeleteConfirmation,
   resolveAgentRemovalAction,
 } from "./dashboard-agent-management-actions.js";
+import {
+  filterDashboardAgentCandidates,
+  shouldDisplayDashboardAgentRecord,
+} from "./dashboard-agent-visibility.js";
 import { initDashboardSubpage } from "./dashboard-subpage-init.js";
 
 const state = {
@@ -46,6 +50,8 @@ const state = {
     counts: {},
   },
 };
+
+let guidancePreviewRequestSeq = 0;
 
 function buildApiUrl(path) {
   const token = getToken();
@@ -257,7 +263,7 @@ function getLocalWorkspaceResidue() {
 }
 
 function getDiscoveryCandidates() {
-  return [...getConfiguredCandidates(), ...getLocalWorkspaceResidue()];
+  return filterDashboardAgentCandidates([...getConfiguredCandidates(), ...getLocalWorkspaceResidue()]);
 }
 
 function getKnownDiscoveryAgents() {
@@ -268,11 +274,11 @@ function getKnownDiscoveryAgents() {
 }
 
 function getCandidateCounts() {
-  const candidateCounts = state.discovery?.candidateCounts || {};
-  const configured = Number(candidateCounts.configured) || getConfiguredCandidates().length;
-  const localWorkspace = Number(candidateCounts.localWorkspace) || getLocalWorkspaceResidue().length;
+  const visibleCandidates = getDiscoveryCandidates();
+  const configured = visibleCandidates.filter((agent) => agent.source === "configured").length;
+  const localWorkspace = visibleCandidates.filter((agent) => agent.source === "local_workspace").length;
   return {
-    total: Number(candidateCounts.total) || (configured + localWorkspace),
+    total: visibleCandidates.length,
     configured,
     localWorkspace,
   };
@@ -452,7 +458,7 @@ function renderAgentCard(agent) {
     `
     : "";
   return `
-    <article class="${cardClassName}">
+    <article class="${cardClassName}" data-agent-id="${esc(agent.id)}">
       <div class="agents-card-head">
         <div>
           <div class="agents-card-title">${esc(agent.name || agent.id)}</div>
@@ -640,7 +646,7 @@ function renderPage() {
 
   const counts = state.discovery?.counts || {};
   const agents = Array.isArray(state.discovery?.agents) ? state.discovery.agents : [];
-  const rosterAgents = agents.filter((agent) => agent.joinable !== true);
+  const rosterAgents = agents.filter((agent) => agent.joinable !== true && shouldDisplayDashboardAgentRecord(agent));
   const managedAgents = filterRosterAgents(rosterAgents, state.rosterFilter);
   const selectedRosterAgent = managedAgents.find((agent) => agent.id === state.rosterDetailId) || null;
   const candidateCount = getCandidateCounts().total;
@@ -664,7 +670,7 @@ function renderPage() {
           </div>
           <p class="agents-command-copy">
             主视图只保留系统内编队和纳管状态。未接入的本地 agent 统一收束到右上角 <strong>ADD AGENT</strong>，
-            避免候选对象和正式编队混在一起。
+            让候选对象和正式编队保持清晰分层。
           </p>
           <div class="agents-telemetry-row">
             ${renderTelemetryChip("Configured", counts.configured || 0)}
@@ -953,7 +959,7 @@ async function loadDiscovery() {
     toast(error.message || "读取 agent discovery 失败", "error");
   } finally {
     const allAgents = Array.isArray(state.discovery?.agents) ? state.discovery.agents : [];
-    if (!allAgents.some((agent) => agent.id === state.rosterDetailId && agent.joinable !== true)) {
+    if (!allAgents.some((agent) => agent.id === state.rosterDetailId && agent.joinable !== true && shouldDisplayDashboardAgentRecord(agent))) {
       state.rosterDetailId = null;
       resetGuidancePreview(null);
     } else if (!allAgents.some((agent) => agent.id === state.guidancePreview?.agentId)) {
@@ -969,6 +975,7 @@ async function loadDiscovery() {
 }
 
 async function loadGuidancePreview(agentId, fileName) {
+  const requestSeq = ++guidancePreviewRequestSeq;
   state.guidancePreview = {
     agentId,
     fileName,
@@ -985,6 +992,11 @@ async function loadGuidancePreview(agentId, fileName) {
   renderPage();
   try {
     const result = await requestJson(`/watchdog/agents/guidance/read?agentId=${encodeURIComponent(agentId)}&file=${encodeURIComponent(fileName)}`);
+    if (
+      requestSeq !== guidancePreviewRequestSeq
+      || state.guidancePreview?.agentId !== agentId
+      || state.guidancePreview?.fileName !== fileName
+    ) return;
     state.guidancePreview = {
       agentId: result.agentId || agentId,
       fileName: result.fileName || fileName,
@@ -999,6 +1011,11 @@ async function loadGuidancePreview(agentId, fileName) {
       error: "",
     };
   } catch (error) {
+    if (
+      requestSeq !== guidancePreviewRequestSeq
+      || state.guidancePreview?.agentId !== agentId
+      || state.guidancePreview?.fileName !== fileName
+    ) return;
     state.guidancePreview = {
       agentId,
       fileName,

@@ -27,6 +27,20 @@ Harness 是执行层工具箱，不是平台总控。
 - [extensions/watchdog/lib/harness/harness-run.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-run.js)
 - [extensions/watchdog/lib/harness/harness-module-runner.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-module-runner.js)
 
+## 冻结的模块接口
+
+v109-stable 起，module 注册非静默拒绝不合规项：`lib/harness/harness-module-schema.js` 的 `validateHarnessModuleDefinition` 要求 `id` 必带 `harness:` 前缀、`kind`∈{guard,collector,gate,normalizer}。
+
+对象链：`HarnessRun → CLI System → Operator → Automation`。端到端样例见 `tests/cli-chain-e2e.test.js`，验证这四关节接上（harness 产出经 `inspect.harness_runs` 被 operator 读到，再喂 automation）。源: 备忘录114 §6。
+
+## 灵魂落地（v115，P0/P0.5）
+
+接口归一后补齐 harness 作为"塑形工具"的完整性：
+
+- **Run-Shape Map**：正式对象（`lib/harness/run-shape-map.js`），描述一次 run 该长什么形状 + coverage 完整性校验。
+- **soft 段反逼**：`lib/harness/soft-guidance.js` 从 run 实况反推建议，喂回塑形。
+- **Meta-harness 严格闸**：module 注册/组合走严格校验，拒绝不合规拼图。
+
 ## 为什么存在
 
 - 让一次执行可限制

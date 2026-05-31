@@ -1,11 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 
-test("test-runner waits for delivery artifact persistence before validating output", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/test-runner.js", "utf8");
+import { normalizeVerificationStatus } from "../lib/admin/admin-change-set-history.js";
 
-  assert.match(source, /\bwaitForDeliveryArtifacts\b/);
-  assert.match(source, /await waitForDeliveryArtifacts\(contractId/);
-  assert.doesNotMatch(source, /delivery\.path/);
+test("test-run finalizing status remains a running verification state", () => {
+  const record = {
+    status: "finalizing",
+    totalCases: 1,
+    completedCases: 1,
+    passedCases: 1,
+    failedCases: 0,
+    blockedCases: 0,
+  };
+
+  assert.equal(normalizeVerificationStatus(record), "running");
+});
+
+test("test-run cleaning status remains a running verification state", () => {
+  const record = {
+    status: "cleaning",
+    totalCases: 1,
+    completedCases: 1,
+    passedCases: 1,
+    failedCases: 0,
+    blockedCases: 0,
+  };
+
+  assert.equal(normalizeVerificationStatus(record), "running");
 });

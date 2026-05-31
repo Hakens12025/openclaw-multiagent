@@ -108,11 +108,3 @@ export function extractActionMarkers(markdownContent) {
 
   return actions;
 }
-
-/**
- * Check if markdown content contains any [ACTION] markers.
- */
-export function hasActionMarkers(markdownContent) {
-  if (typeof markdownContent !== "string") return false;
-  return ACTION_MARKER_RE.test(markdownContent);
-}

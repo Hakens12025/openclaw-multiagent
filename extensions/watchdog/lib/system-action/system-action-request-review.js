@@ -1,6 +1,9 @@
 import { access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
+import {
+  RUNTIME_WAKE_SEMANTICS,
+  runtimeWakeAgentDetailed,
+} from "../transport/runtime-wake-transport.js";
 import {
   buildCoordinationSnapshot,
 } from "../coordination-primitives.js";
@@ -16,6 +19,7 @@ import {
 import {
   INTENT_TYPES,
   PROTOCOL_VERSION,
+  RUNTIME_RESULT_FILE,
 } from "../protocol-primitives.js";
 import {
   attachSystemActionDeliveryTicket,
@@ -25,9 +29,9 @@ import {
 } from "../operator/operator-context.js";
 import { SYSTEM_ACTION_STATUS } from "../core/runtime-status.js";
 import {
-  AGENT_ROLE,
-  getAgentRole,
+  getAgentConfiguredSkills,
   listAgentIdsByRole,
+  AGENT_ROLE,
 } from "../agent/agent-identity.js";
 import { loadGraph, getTransitionsForNode } from "../agent/agent-graph.js";
 import { buildReviewContext } from "../review-context-builder.js";
@@ -39,9 +43,14 @@ import {
 import { normalizeString } from "../core/normalize.js";
 import { getArtifactLaneDefinition } from "../artifact-lane-registry.js";
 
-const REVIEW_ARTIFACT_LANE = getArtifactLaneDefinition("code_review");
-if (!REVIEW_ARTIFACT_LANE) {
-  throw new Error("missing artifact lane definition: code_review");
+function getReviewArtifactLane() {
+  // Lazily resolved so a missing lane at registry init time does not crash
+  // the entire module on import (which would break all system_action paths).
+  const lane = getArtifactLaneDefinition("code_review");
+  if (!lane) {
+    throw new Error("missing artifact lane definition: code_review");
+  }
+  return lane;
 }
 
 function normalizeArtifactEntry(entry, fallbackLabel = "artifact") {
@@ -81,7 +90,7 @@ function collectReviewArtifacts(params, sourceContract) {
     addArtifact(entry, `coding_output_${index + 1}`);
   }
 
-  addArtifact(sourceContract?.output, "contract_output");
+  addArtifact(sourceContract?.output, "contract_artifact");
   return artifacts;
 }
 
@@ -103,10 +112,18 @@ async function reviewerHasPendingRuntimeWork(reviewerAgentId) {
   const reviewerInbox = join(agentWorkspace(reviewerAgentId), "inbox");
   const reviewerOutbox = join(agentWorkspace(reviewerAgentId), "outbox");
   return hasRunningAgentSession(reviewerAgentId)
-    || await fileExists(join(reviewerInbox, REVIEW_ARTIFACT_LANE.fileName))
+    || await fileExists(join(reviewerInbox, getReviewArtifactLane().fileName))
     || await fileExists(join(reviewerInbox, "enriched-diagnostics.json"))
-    || await fileExists(join(reviewerOutbox, "code_verdict.json"))
-    || await fileExists(join(reviewerOutbox, "next_action.json"));
+    || await fileExists(join(reviewerOutbox, RUNTIME_RESULT_FILE));
+}
+
+function hasReviewCapability(agentId) {
+  const skills = getAgentConfiguredSkills(agentId);
+  // Skill-based check first: explicit "review-findings" skill marks review capability.
+  if (skills.includes("review-findings")) return true;
+  // Role-based fallback for agents without an explicit skill binding (e.g.
+  // workspace-only agents not yet configured with skills).
+  return false;
 }
 
 async function resolveReviewTargetAgent(sourceAgentId) {
@@ -117,11 +134,14 @@ async function resolveReviewTargetAgent(sourceAgentId) {
 
   const graph = await loadGraph();
   const graphTargets = getTransitionsForNode(graph, normalizedSourceAgentId);
-  const reviewerTarget = graphTargets.find((agentId) => getAgentRole(agentId) === AGENT_ROLE.REVIEWER);
-  if (reviewerTarget) {
-    return reviewerTarget;
+  // Prefer graph-authorized neighbors with review capability (skill-based).
+  const skillTarget = graphTargets.find(hasReviewCapability);
+  if (skillTarget) {
+    return skillTarget;
   }
 
+  // Role-based fallback: covers agents configured with role "reviewer" but
+  // without an explicit skill list (workspace-only or legacy configs).
   return listAgentIdsByRole(AGENT_ROLE.REVIEWER)[0] || null;
 }
 
@@ -133,6 +153,7 @@ export async function systemActionRunRequestReview(normalizedAction, {
   logger,
   actionReplyTo,
 }) {
+  const reviewArtifactLane = getReviewArtifactLane();
   const upstreamReplyTo = normalizedAction.params?.upstreamReplyTo || contractData?.replyTo || null;
 
   const collaborationTarget = await prepareCollaborationTarget({
@@ -199,7 +220,7 @@ export async function systemActionRunRequestReview(normalizedAction, {
     domain: normalizedAction.params?.domain || contractData?.taskDomain || "generic",
     protocol: {
       version: PROTOCOL_VERSION,
-      transport: REVIEW_ARTIFACT_LANE.fileName,
+      transport: reviewArtifactLane.fileName,
       source: INTENT_TYPES.REQUEST_REVIEW,
       route: "system_action",
       intentType: normalizedAction.type,
@@ -248,15 +269,21 @@ export async function systemActionRunRequestReview(normalizedAction, {
   });
 
   await atomicWriteFile(
-    join(reviewerInbox, REVIEW_ARTIFACT_LANE.fileName),
+    join(reviewerInbox, reviewArtifactLane.fileName),
     JSON.stringify(reviewRequest, null, 2),
   );
   const wake = normalizeWakeDiagnostic(
     await runtimeWakeAgentDetailed(
       reviewerAgentId,
-      normalizedAction.params?.reason || `request_review from ${agentId}`,
+      normalizedAction.params?.reason || null,
       api,
       logger,
+      {
+        wakeSemantic: RUNTIME_WAKE_SEMANTICS.REQUEST_REVIEW_DISPATCH,
+        sourceAgentId: agentId,
+        deliveryTicketId: systemActionDelivery.deliveryTicket?.id || null,
+        sourceContractId: contractData?.id || null,
+      },
     ),
     {
       lane: "system_action.request_review",

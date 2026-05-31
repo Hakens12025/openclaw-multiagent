@@ -3,10 +3,11 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
-  OC, CONTRACTS_DIR,
+  CONTRACTS_DIR,
   agentWorkspace,
   withLock, atomicWriteFile,
 } from "./state.js";
+import { CONTROL_PLANE_PATHS } from "./control-plane/control-plane-paths.js";
 import { broadcast } from "./transport/sse.js";
 import { EVENT_TYPE } from "./core/event-types.js";
 import {
@@ -20,7 +21,7 @@ import {
   readCachedContractSnapshotById,
   readContractSnapshotByPath,
 } from "./store/contract-store.js";
-import { readRuntimeResultContent } from "./routing/delivery-result.js";
+import { resolveTerminalUserFacingResultContent } from "./routing/delivery-result.js";
 
 export async function scanPendingContracts(logger, forAgentId) {
   try {
@@ -66,7 +67,7 @@ export async function readContractCompletionArtifact(contractId, contract, {
     };
   } catch {}
 
-  const content = await readRuntimeResultContent({ contract });
+  const content = await resolveTerminalUserFacingResultContent({ contract });
   if (!content) {
     return null;
   }
@@ -79,6 +80,7 @@ export async function readContractCompletionArtifact(contractId, contract, {
 
 async function writeContractSnapshot(contractPath, contract, { touchUpdatedAt = false } = {}) {
   if (touchUpdatedAt) contract.updatedAt = Date.now();
+  await mkdir(resolve(contractPath, ".."), { recursive: true });
   await atomicWriteFile(contractPath, JSON.stringify(contract, null, 2));
   cacheContractSnapshot(contractPath, contract);
   return contractPath;
@@ -232,7 +234,7 @@ export async function writeTaskState(trackingState, logger) {
   ].join("\n");
 
   try {
-    await writeFile(join(OC, "workspaces", "controller", "TASK_STATE.md"), content);
+    await writeFile(CONTROL_PLANE_PATHS.taskStateFile, content);
   } catch (e) {
     logger.warn(`[watchdog] writeTaskState error: ${e.message}`);
   }

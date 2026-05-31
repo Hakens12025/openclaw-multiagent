@@ -2,7 +2,10 @@
 
 import { compactText } from "../core/normalize.js";
 import { projectAutomationHarnessSummary } from "../automation/automation-harness-projection.js";
-import { summarizePipelineProgression } from "./operator-snapshot-runtime.js";
+import {
+  summarizeGraphRouteProgression,
+  summarizeRuntimeIncident,
+} from "./operator-snapshot-runtime.js";
 
 function summarizeOperatorContext(operatorContext) {
   return {
@@ -69,9 +72,6 @@ export function summarizeWorkItem(workItem) {
     task: compactText(workItem?.task, 140),
     taskType: workItem?.taskType || null,
     pct: Number.isFinite(workItem?.pct) ? workItem.pct : null,
-    cursor: workItem?.cursor || null,
-    estimatedPhase: workItem?.estimatedPhase || null,
-    activityProgress: workItem?.activityProgress || null,
     updatedAt: Number.isFinite(workItem?.updatedAt) ? workItem.updatedAt : null,
     source: workItem?.source || null,
     replyTargetAgent: workItem?.replyTargetAgent || null,
@@ -79,7 +79,9 @@ export function summarizeWorkItem(workItem) {
     deliveryChannels: [...new Set(deliveryTargets.map((entry) => entry?.channel).filter(Boolean))],
     systemActionDeliveryTicketStatus: workItem?.systemActionDeliveryTicketStatus || null,
     systemActionDeliveryTicketRef: workItem?.systemActionDeliveryTicketRef || null,
-    pipelineProgression: summarizePipelineProgression(workItem?.runtimeDiagnostics?.pipelineProgression, workItem),
+    graphRouteProgression: summarizeGraphRouteProgression(workItem?.runtimeDiagnostics?.graphRouteProgression, workItem),
+    incident: summarizeRuntimeIncident(workItem?.runtimeDiagnostics?.executionIncident),
+    ioObservation: workItem?.ioObservation || workItem?.runtimeDiagnostics?.ioObservation || null,
     operatorContext: summarizeOperatorContext(workItem?.operatorContext),
   };
 }

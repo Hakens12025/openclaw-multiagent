@@ -5,10 +5,12 @@ import { join } from "node:path";
 import { agentWorkspace } from "./state.js";
 import { hasConcurrentTrackingSessionForAgent } from "./store/tracker-store.js";
 import {
-  AGENT_ROLE,
+  agentDedupesConcurrentTrackerForHeartbeat,
+  agentRequiresContractForHeartbeat,
   getAgentIdentitySnapshot,
 } from "./agent/agent-identity.js";
 import { listArtifactLaneBindingsForRole } from "./artifact-lane-registry.js";
+import { hasPendingSignal } from "./runtime/pending-signal-registry.js";
 
 async function fileExists(path) {
   try {
@@ -26,35 +28,48 @@ function hasConcurrentAgentTracker(agentId, sessionKey) {
 export async function hasActionableHeartbeatWork(agentId, trackingState, sessionKey) {
   const identity = getAgentIdentitySnapshot(agentId);
 
+  if (identity.plane !== "runtime") {
+    return hasPendingSignal(agentId);
+  }
+
   if (identity.gateway) {
-    // Gateway agents are always actionable: they may have user messages
-    // (injected by framework, not via inbox files) or pending deliveries.
-    // Cost of a false positive is minimal (HEARTBEAT_OK reply).
-    return true;
+    return hasPendingSignal(agentId);
   }
 
   const ws = agentWorkspace(agentId);
   if (!ws) return true;
 
-  if (identity.role === AGENT_ROLE.EXECUTOR) {
-    if (hasConcurrentAgentTracker(agentId, sessionKey)) {
-      return false;
+  // P6-Phase1: contract-gated actionable-work 从 role 特化迁到 policy。
+  // requiresContract 缺省等价于 (role===EXECUTOR||RESEARCHER)；
+  // dedupeConcurrentTracker 缺省等价于 (role===EXECUTOR)。行为逐分支等价：
+  //   - 去重并发 tracker 的 agent（旧 executor 分支）：检查 contract/artifactContext/inbox 文件。
+  //   - 不去重的 contract-gated agent（旧 researcher 分支）：只检查 inbox/contract.json 文件。
+  if (agentRequiresContractForHeartbeat(agentId)) {
+    if (agentDedupesConcurrentTrackerForHeartbeat(agentId)) {
+      if (hasConcurrentAgentTracker(agentId, sessionKey)) {
+        return false;
+      }
+      return Boolean(trackingState?.contract)
+        || Boolean(trackingState?.artifactContext)
+        || await fileExists(join(ws, "inbox", "contract.json"));
     }
-    return Boolean(trackingState?.contract)
-      || Boolean(trackingState?.artifactContext)
-      || await fileExists(join(ws, "inbox", "contract.json"));
-  }
-
-  if (identity.role === AGENT_ROLE.RESEARCHER) {
     return await fileExists(join(ws, "inbox", "contract.json"));
   }
 
-  if (identity.role === AGENT_ROLE.REVIEWER) {
-    const artifactBindings = listArtifactLaneBindingsForRole(identity.role);
+  // Agents with artifact lane bindings (resolved via capability preset skills)
+  // have actionable work only when an artifact inbox payload or active artifact
+  // context is present. This covers any role whose preset includes "review-findings".
+  const artifactBindings = listArtifactLaneBindingsForRole(identity.role);
+  if (artifactBindings.length > 0) {
     const hasArtifactInbox = (await Promise.all(
       artifactBindings.map((binding) => fileExists(join(ws, "inbox", binding.fileName))),
     )).some(Boolean);
-    return Boolean(trackingState?.artifactContext)
+    // A bound contract is actionable work regardless of artifact bindings.
+    // Loop reviewer stage gets a contract (not a flat artifact-inbox file), so without
+    // this an artifact-lane role with a live contract was misclassified as idle →
+    // its agent_end got skipped → the loop never advanced past the reviewer stage.
+    return Boolean(trackingState?.contract)
+      || Boolean(trackingState?.artifactContext)
       || hasArtifactInbox;
   }
 

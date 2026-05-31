@@ -1,13 +1,13 @@
 import {
   attachAdminChangeSetVerification,
   getAdminChangeSetDetails,
-  listAdminChangeSets,
   saveAdminChangeSetDraft,
 } from "../lib/admin/admin-change-sets.js";
 import {
   executeAdminChangeSet,
   previewAdminChangeSetExecution,
 } from "../lib/admin/admin-change-set-executor.js";
+import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 export function register(api, logger, {
   checkAuth,
@@ -25,7 +25,7 @@ export function register(api, logger, {
       if (!checkAuth(req, res)) return true;
       try {
         if (req.method === "GET") {
-          const drafts = await listAdminChangeSets();
+          const drafts = await inspectCliSystemSurface({ surfaceId: "inspect.change_sets" });
           sendJson(res, 200, {
             generatedAt: Date.now(),
             count: drafts.length,
@@ -123,6 +123,8 @@ export function register(api, logger, {
       dryRun: payload.dryRun === true,
       startVerification: payload.startVerification === true,
       explicitConfirm: payload.explicitConfirm === true,
+      // 强制 verify 门默认开启；仅当显式传 requireVerification:false 才放行未验证 commit。
+      requireVerification: payload.requireVerification !== false,
       logger,
       onAlert: emitAlert,
       runtimeContext: buildRuntimeContext(),

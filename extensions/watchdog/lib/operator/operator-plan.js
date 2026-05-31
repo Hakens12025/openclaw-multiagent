@@ -1,7 +1,7 @@
 import {
-  findMissingRequiredAdminSurfaceFields,
-  normalizeAdminSurfacePayload,
-} from "../admin/admin-surface-registry.js";
+  findMissingRequiredCliSystemSurfaceFields,
+  normalizeCliSystemSurfacePayload,
+} from "../cli-system/cli-surface-registry.js";
 import { isOperatorExecutableSurfaceId } from "./operator-surface-policy.js";
 import { normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
 
@@ -56,6 +56,89 @@ function normalizeOrderedStringArray(value) {
     .filter(Boolean);
 }
 
+function mergeDerivedValue(derived, key, value) {
+  const normalized = normalizeString(value);
+  if (normalized) {
+    derived[key] = normalized;
+  } else if (!(key in derived)) {
+    derived[key] = null;
+  }
+}
+
+function mergeAgentDerivedFields(derived, payload, mappings) {
+  for (const [derivedKey, payloadKeys] of Object.entries(mappings)) {
+    const value = payloadKeys
+      .map((payloadKey) => payload[payloadKey])
+      .find((candidate) => normalizeString(candidate));
+    mergeDerivedValue(derived, derivedKey, value);
+  }
+}
+
+function collectEdgeDerivedFields(edges, payload) {
+  const from = normalizeString(payload.from);
+  const to = normalizeString(payload.to);
+  if (from && to) {
+    edges.push({ from, to });
+  }
+}
+
+function collectPlanDerivedFieldsFromStep(step, derived, edges) {
+  const payload = normalizeRecord(step?.payload);
+  const surfaceId = normalizeString(step?.surfaceId);
+  const agentFieldExtractors = {
+    "agents.create": {
+      agentId: ["agentId", "id"],
+      role: ["role"],
+      model: ["model"],
+    },
+    "agents.name": {
+      agentId: ["agentId"],
+      displayName: ["name"],
+    },
+    "agents.description": {
+      agentId: ["agentId"],
+      description: ["description"],
+    },
+  };
+
+  if (agentFieldExtractors[surfaceId]) {
+    mergeAgentDerivedFields(derived, payload, agentFieldExtractors[surfaceId]);
+    return;
+  }
+
+  if (surfaceId === "agents.skills") {
+    mergeDerivedValue(derived, "agentId", payload.agentId);
+    derived.requestedSkills = uniqueStrings([
+      ...(Array.isArray(derived.requestedSkills) ? derived.requestedSkills : []),
+      ...normalizeOrderedStringArray(payload.skills),
+    ]);
+    return;
+  }
+
+  if (surfaceId === "graph.edge.add" || surfaceId === "graph.edge.delete") {
+    collectEdgeDerivedFields(edges, payload);
+    return;
+  }
+
+  if (surfaceId === "graph.loop.compose") {
+    const agentIds = normalizeOrderedStringArray(payload.agents);
+    if (agentIds.length > 0) {
+      derived.agentIds = agentIds;
+    }
+    return;
+  }
+
+  if (surfaceId === "graph.loop.repair" || surfaceId === "runtime.loop.interrupt") {
+    mergeDerivedValue(derived, "loopId", payload.loopId);
+    return;
+  }
+
+  if (surfaceId === "runtime.loop.resume") {
+    mergeDerivedValue(derived, "loopId", payload.loopId);
+    mergeDerivedValue(derived, "startStage", payload.startStage);
+  }
+}
+
 function collectPlanDerivedFields(steps, derived) {
   const nextDerived = {
     ...normalizeRecord(derived),
@@ -63,42 +146,7 @@ function collectPlanDerivedFields(steps, derived) {
   const edges = [];
 
   for (const step of Array.isArray(steps) ? steps : []) {
-    const payload = normalizeRecord(step?.payload);
-    if (step?.surfaceId === "agents.create") {
-      nextDerived.agentId = normalizeString(payload.agentId) || normalizeString(payload.id) || nextDerived.agentId || null;
-      nextDerived.role = normalizeString(payload.role) || nextDerived.role || null;
-      nextDerived.model = normalizeString(payload.model) || nextDerived.model || null;
-    } else if (step?.surfaceId === "agents.name") {
-      nextDerived.agentId = normalizeString(payload.agentId) || nextDerived.agentId || null;
-      nextDerived.displayName = normalizeString(payload.name) || nextDerived.displayName || null;
-    } else if (step?.surfaceId === "agents.description") {
-      nextDerived.agentId = normalizeString(payload.agentId) || nextDerived.agentId || null;
-      nextDerived.description = normalizeString(payload.description) || nextDerived.description || null;
-    } else if (step?.surfaceId === "agents.skills") {
-      nextDerived.agentId = normalizeString(payload.agentId) || nextDerived.agentId || null;
-      nextDerived.requestedSkills = uniqueStrings([
-        ...(Array.isArray(nextDerived.requestedSkills) ? nextDerived.requestedSkills : []),
-        ...normalizeOrderedStringArray(payload.skills),
-      ]);
-    } else if (step?.surfaceId === "graph.edge.add" || step?.surfaceId === "graph.edge.delete") {
-      const from = normalizeString(payload.from);
-      const to = normalizeString(payload.to);
-      if (from && to) {
-        edges.push({ from, to });
-      }
-    } else if (step?.surfaceId === "graph.loop.compose") {
-      const agentIds = normalizeOrderedStringArray(payload.agents);
-      if (agentIds.length > 0) {
-        nextDerived.agentIds = agentIds;
-      }
-    } else if (step?.surfaceId === "graph.loop.repair") {
-      nextDerived.loopId = normalizeString(payload.loopId) || nextDerived.loopId || null;
-    } else if (step?.surfaceId === "runtime.loop.interrupt") {
-      nextDerived.loopId = normalizeString(payload.loopId) || nextDerived.loopId || null;
-    } else if (step?.surfaceId === "runtime.loop.resume") {
-      nextDerived.loopId = normalizeString(payload.loopId) || nextDerived.loopId || null;
-      nextDerived.startStage = normalizeString(payload.startStage) || nextDerived.startStage || null;
-    }
+    collectPlanDerivedFieldsFromStep(step, nextDerived, edges);
   }
 
   if (edges.length > 0) {
@@ -120,8 +168,8 @@ function validatePlanStep(step, index) {
   if (!surfaceId || !isOperatorExecutableSurfaceId(surfaceId)) {
     throw new Error(`unsupported operator step at index ${index}`);
   }
-  const payload = normalizeAdminSurfacePayload(surfaceId, normalizeRecord(source.payload));
-  const missingFields = findMissingRequiredAdminSurfaceFields(surfaceId, payload);
+  const payload = normalizeCliSystemSurfacePayload(surfaceId, normalizeRecord(source.payload));
+  const missingFields = findMissingRequiredCliSystemSurfaceFields(surfaceId, payload);
   if (missingFields.length > 0) {
     throw new Error(
       `operator step at index ${index} is missing required fields: ${missingFields.map((field) => field.key).join(", ")}`,

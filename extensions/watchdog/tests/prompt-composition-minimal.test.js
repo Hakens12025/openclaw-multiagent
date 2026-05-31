@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { AGENT_ROLE } from "../lib/agent/agent-identity.js";
-import { buildSoulTemplate } from "../lib/soul-template-builder.js";
 import {
   buildAgentsTemplate,
   buildBuildingMapTemplate,
@@ -12,123 +12,210 @@ import {
   buildHeartbeatTemplate,
   buildPlatformGuideTemplate,
 } from "../lib/platform-doc-builder.js";
+import { buildSoulTemplate } from "../lib/soul-template-builder.js";
+import { OC } from "../lib/state.js";
 
-const NEGATIVE_TUTORING_PATTERN = /\b[Dd]o not\b|\bdon't\b|DON'T|不要|禁止|反例|错误示例|重度\s*API/u;
-const LEGACY_ROUTE_PATTERN = /fast[-_ ]?track|full[-_ ]?path|short[-_ ]?contract|short[-_ ]?route|isFastTrack|fastTrack|FAST-TRACK|FULL-PATH/u;
-const ACTIVE_OPENCLAW_SKILL_IDS = [
-  "agent-bootstrap-designer",
-  "error-avoidance",
-  "operator-admin",
-  "operator-tooling",
-  "platform-map",
-  "platform-tools",
-  "prompt-craft",
-  "system-action",
+const PROMPT_NEGATIVE_PATTERNS = [
+  /不要/u,
+  /禁止/u,
+  /不得/u,
+  /不能/u,
+  /不应/u,
+  /不该/u,
+  /不许/u,
+  /不再/u,
+  /不直接/u,
+  /不手工/u,
+  /不自造/u,
+  /不发明/u,
+  /不固定/u,
+  /不预设/u,
+  /不属于/u,
+  /不替代/u,
+  /不负责/u,
+  /不靠/u,
+  /\bDo not\b/iu,
+  /\bDon't\b/iu,
+  /\bNever\b/iu,
+  /\bmust not\b/iu,
+  /\bshould not\b/iu,
+  /\bcannot\b/iu,
+  /\bcan't\b/iu,
 ];
 
-async function readRepoFile(relativePath) {
-  return readFile(new URL(`../../../${relativePath}`, import.meta.url), "utf8");
+function assertPositivePromptCopy(label, content) {
+  for (const pattern of PROMPT_NEGATIVE_PATTERNS) {
+    assert.doesNotMatch(content, pattern, `${label} contains prompt-negative pattern ${pattern}`);
+  }
 }
 
-function buildActivePromptDocuments() {
-  const agentEntries = [
-    { id: "controller", role: AGENT_ROLE.BRIDGE, gateway: true, ingressSource: "webui", skills: ["system-action"] },
-    { id: "planner", role: AGENT_ROLE.PLANNER, skills: [] },
-    { id: "worker1", role: AGENT_ROLE.EXECUTOR, skills: [] },
-  ];
-  const graph = { edges: [{ from: "controller", to: "planner" }, { from: "planner", to: "worker1" }] };
-  return {
-    "SOUL.executor": buildSoulTemplate("worker1", AGENT_ROLE.EXECUTOR),
-    "SOUL.planner": buildSoulTemplate("planner", AGENT_ROLE.PLANNER),
-    "HEARTBEAT": buildHeartbeatTemplate(),
-    "AGENTS": buildAgentsTemplate("controller", AGENT_ROLE.BRIDGE, ["system-action"]),
-    "BUILDING-MAP": buildBuildingMapTemplate("controller", AGENT_ROLE.BRIDGE, ["system-action"], agentEntries),
-    "COLLABORATION-GRAPH": buildCollaborationGraphTemplate("controller", AGENT_ROLE.BRIDGE, graph, []),
-    "DELIVERY": buildDeliveryTemplate(),
-    "PLATFORM-GUIDE": buildPlatformGuideTemplate("controller", AGENT_ROLE.BRIDGE, ["system-action"], graph, []),
+function assertNoAbsenceTutorialCopy(label, content) {
+  for (const pattern of [
+    /没有待处理工作/u,
+    /当前未加载/u,
+    /入口都不存在/u,
+  ]) {
+    assert.doesNotMatch(content, pattern, `${label} contains absence tutorial copy ${pattern}`);
+  }
+}
+
+test("managed agent guidance uses positive minimal prompt copy", () => {
+  const skills = ["platform-map", "platform-tools", "error-avoidance", "system-action"];
+  const graph = {
+    edges: [
+      { from: "controller", to: "planner" },
+      { from: "planner", to: "worker" },
+    ],
   };
-}
+  const loops = [{ id: "main-loop", entryAgentId: "planner", nodes: ["planner", "worker"], active: false }];
+  const generated = {
+    heartbeat: buildHeartbeatTemplate(),
+    agents: buildAgentsTemplate("worker", AGENT_ROLE.EXECUTOR, skills),
+    buildingMap: buildBuildingMapTemplate("worker", AGENT_ROLE.EXECUTOR, skills, [
+      { id: "controller", role: AGENT_ROLE.BRIDGE, gateway: true, ingressSource: "webui", skills },
+      { id: "planner", role: AGENT_ROLE.PLANNER, skills },
+      { id: "worker", role: AGENT_ROLE.EXECUTOR, skills },
+    ]),
+    collaborationGraph: buildCollaborationGraphTemplate("worker", AGENT_ROLE.EXECUTOR, graph, loops),
+    delivery: buildDeliveryTemplate(),
+    platformGuide: buildPlatformGuideTemplate("worker", AGENT_ROLE.EXECUTOR, skills, graph, loops),
+    bridgeSoul: buildSoulTemplate("controller", AGENT_ROLE.BRIDGE),
+    plannerSoul: buildSoulTemplate("planner", AGENT_ROLE.PLANNER),
+    executorSoul: buildSoulTemplate("worker", AGENT_ROLE.EXECUTOR),
+    researcherSoul: buildSoulTemplate("researcher", AGENT_ROLE.RESEARCHER),
+    reviewerSoul: buildSoulTemplate("reviewer", AGENT_ROLE.REVIEWER),
+  };
 
-test("prompt-craft skill is the OpenClaw prompt standard", async () => {
-  const skill = await readRepoFile("skills/prompt-craft/SKILL.md");
+  for (const [label, content] of Object.entries(generated)) {
+    assertPositivePromptCopy(label, content);
+    assertNoAbsenceTutorialCopy(label, content);
+  }
 
-  assert.match(skill, /OpenClaw Prompt Standard|OpenClaw 提示词标准/u);
-  assert.match(skill, /最小有用/u);
-  assert.match(skill, /正向/u);
-  assert.match(skill, /runtime.*stores|stores.*runtime|typed envelopes|policy|surface/u);
-  assert.match(skill, /\[ACTION\].*JSON|JSON.*\[ACTION\]/u);
-
-  assert.doesNotMatch(skill, /Anthropic\/OpenAI\/DeepSeek\/DeepMind/u);
-  assert.doesNotMatch(skill, /MiniMax-M2\.5/u);
-  assert.doesNotMatch(skill, /think step by step/i);
+  assert.match(generated.platformGuide, /\[ACTION\]/);
+  assert.doesNotMatch(generated.platformGuide, /\[ACTION\] wake/);
+  assert.doesNotMatch(generated.platformGuide, /\[ACTION\] delegate/);
+  assert.doesNotMatch(generated.platformGuide, /\[ACTION\] review/);
+  assert.doesNotMatch(generated.platformGuide, /## 协作命令[\s\S]*(常用写法|规则：)/u);
 });
 
-test("active generated prompts use minimal positive task language", () => {
-  const documents = buildActivePromptDocuments();
-  for (const [name, content] of Object.entries(documents)) {
-    assert.doesNotMatch(content, NEGATIVE_TUTORING_PATTERN, `${name} contains negative tutorial wording`);
-    assert.doesNotMatch(content, LEGACY_ROUTE_PATTERN, `${name} contains legacy route wording`);
+test("default OpenClaw skill docs avoid negative tutorial prompt copy", async () => {
+  const skillIds = [
+    "error-avoidance",
+    "operator-admin",
+    "operator-tooling",
+    "platform-map",
+    "platform-tools",
+    "system-action",
+  ];
+
+  for (const skillId of skillIds) {
+    const content = await readFile(join(OC, "skills", skillId, "SKILL.md"), "utf8");
+    assert.match(content, new RegExp(`name:\\s*${skillId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), `skills/${skillId}/SKILL.md has loadable frontmatter name`);
+    assertPositivePromptCopy(`skills/${skillId}/SKILL.md`, content);
   }
 });
 
-test("active prompt and UI sources no longer expose legacy route split wording", async () => {
-  const sources = await Promise.all([
-    readRepoFile("extensions/watchdog/lib/ingress/dispatch-entry.js"),
-    readRepoFile("extensions/watchdog/lib/ingress/dispatch-execution-contract-entry.js"),
-    readRepoFile("extensions/watchdog/lib/ingress/ingress-classification.js"),
-    readRepoFile("extensions/watchdog/dashboard.js"),
-    readRepoFile("extensions/watchdog/dashboard-flow-visuals.js"),
-    readRepoFile("extensions/watchdog/tests/suite-model.js"),
-    readRepoFile("extensions/watchdog/tests/suite-benchmark.js"),
-  ]);
+test("platform-tools skill teaches runtime_result metadata without outbox manifest residue", async () => {
+  const content = await readFile(join(OC, "skills", "platform-tools", "SKILL.md"), "utf8");
 
-  for (const source of sources) {
-    assert.doesNotMatch(source, LEGACY_ROUTE_PATTERN);
+  assert.match(content, /outbox\/runtime_result\.json/);
+  assert.match(content, /runtime status metadata/i);
+  assert.doesNotMatch(content, /Runtime reads[\s\S]*(routing|delivery|harness|operator|automation|CLI evidence)/i);
+  assert.doesNotMatch(content, /manifest/i);
+  assert.doesNotMatch(content, /structured result/i);
+});
+
+test("operator tooling skill uses current delivery ticket and runtime_result vocabulary", async () => {
+  const content = await readFile(join(OC, "skills", "operator-tooling", "SKILL.md"), "utf8");
+
+  assert.match(content, /system_action_delivery_tickets\.list/);
+  assert.match(content, /runtime_result/);
+  assert.doesNotMatch(content, /runtime-return|runtime return|runtimeReturn/u);
+});
+
+test("runtime and harness prompt surfaces avoid negative tutorial prompt copy", async () => {
+  const sourcePaths = [
+    join("hooks", "before-tool-call.js"),
+    join("lib", "security.js"),
+    join("lib", "formal-runtime", "suite-direct-service.js"),
+    join("lib", "formal-runtime", "suite-loop-direct.js"),
+    join("lib", "formal-runtime", "suite-loop-platform.js"),
+  ];
+
+  for (const sourcePath of sourcePaths) {
+    const content = await readFile(join(OC, "extensions", "watchdog", sourcePath), "utf8");
+    assertPositivePromptCopy(sourcePath, content);
   }
 });
 
-test("active dashboard visible copy uses graph and loop terminology", async () => {
-  const sources = await Promise.all([
-    readRepoFile("extensions/watchdog/dashboard.html"),
-    readRepoFile("extensions/watchdog/dashboard-i18n.js"),
-    readRepoFile("extensions/watchdog/dashboard.js"),
-    readRepoFile("extensions/watchdog/dashboard-operator.js"),
-    readRepoFile("extensions/watchdog/dashboard-flow-visuals.js"),
-    readRepoFile("extensions/watchdog/dashboard-harness-runs.js"),
-    readRepoFile("extensions/watchdog/dashboard-harness-shared.js"),
-  ]);
-  const visiblePipelinePattern = /DISPATCH PIPELINE|调度管线|pipeline progression|Pipeline progression|Runtime advanced pipeline|Runtime concluded pipeline|No recent runtime-owned pipeline progression|flow-pipeline-progress|label_pipeline/u;
+test("prompt-craft is the OpenClaw minimal prompt standard", async () => {
+  const content = await readFile(join(OC, "skills", "prompt-craft", "SKILL.md"), "utf8");
 
-  for (const source of sources) {
-    assert.doesNotMatch(source, visiblePipelinePattern);
+  assert.match(content, /OpenClaw Prompt Standard/, "prompt-craft should expose the OpenClaw prompt standard");
+  assert.match(content, /minimal useful prompt/i, "prompt-craft should center minimal useful prompts");
+  assert.match(content, /runtime truth/i, "prompt-craft should keep runtime truth out of prompt prose");
+  assert.match(content, /\[ACTION\]/, "prompt-craft should preserve formal ACTION protocol guidance");
+  assert.doesNotMatch(content, /推理模型|通用模型|few-shot|CoT|think step by step/i, "prompt-craft should not be broad model-prompting guidance");
+});
+
+test("operator brain prompt stays surface-bound and topology-neutral", async () => {
+  const content = await readFile(join(OC, "extensions", "watchdog", "lib", "operator", "operator-brain.js"), "utf8");
+
+  assert.doesNotMatch(content, /Hard rules|Rules:/, "operator prompt should not be a rules lecture");
+  assert.doesNotMatch(content, /no markdown fences/i, "operator prompt should use positive JSON output wording");
+  assert.doesNotMatch(content, /front-desk|controller\s*<->|reporting to controller/i, "operator prompt should not invent controller topology semantics");
+  assert.match(content, /executableSurfaces/, "operator prompt should stay bound to formal surfaces");
+  assert.match(content, /advice_only/, "operator prompt should retain the non-execution answer mode");
+});
+
+test("installed OpenClaw skill docs avoid negative tutorial prompt copy", async () => {
+  const skillIds = [
+    "agent-bootstrap-designer",
+    "browser-automation",
+    "multi-agent-comm",
+    "prompt-craft",
+    "research-methodology",
+    "review-findings",
+    "skill-deployer",
+  ];
+
+  for (const skillId of skillIds) {
+    const content = await readFile(join(OC, "skills", skillId, "SKILL.md"), "utf8");
+    assertPositivePromptCopy(`skills/${skillId}/SKILL.md`, content);
   }
 });
 
-test("active docs no longer teach retired prompt protocol surfaces", async () => {
-  const docs = await Promise.all([
-    readRepoFile("README.md"),
-    readRepoFile("SYSTEM_MAP.md"),
-    readRepoFile("wiki/concepts/workspace-guidance.md"),
-    readRepoFile("wiki/concepts/loop.md"),
-    readRepoFile("wiki/decisions/agent-as-classifier.md"),
-  ]);
+test("root managed guidance avoids negative tutorial prompt copy", async () => {
+  const rootGuidancePaths = [
+    "AGENTS.md",
+    "BUILDING-MAP.md",
+    "COLLABORATION-GRAPH.md",
+    "DELIVERY.md",
+    "HEARTBEAT.md",
+    "PLATFORM-GUIDE.md",
+    "SOUL.md",
+  ];
 
-  for (const doc of docs) {
-    assert.doesNotMatch(doc, /outbox\/system_action\.json/);
-    assert.doesNotMatch(doc, /RUNTIME-RETURN\.md|runtime-return-tickets/);
-    assert.doesNotMatch(doc, /\bstart_pipeline\b|\badvance_pipeline\b/);
-    assert.doesNotMatch(doc, LEGACY_ROUTE_PATTERN);
+  for (const sourcePath of rootGuidancePaths) {
+    const content = await readFile(join(OC, sourcePath), "utf8");
+    assertPositivePromptCopy(sourcePath, content);
   }
 });
 
-test("active OpenClaw skills use the prompt-craft standard", async () => {
-  for (const skillId of ACTIVE_OPENCLAW_SKILL_IDS) {
-    const skill = await readRepoFile(`skills/${skillId}/SKILL.md`);
+test("active wiki concepts avoid negative prompt-style copy", async () => {
+  const wikiPaths = [
+    "wiki/concepts/delivery.md",
+    "wiki/concepts/runtime-dispatch-queue.md",
+    "wiki/concepts/conveyor-belt.md",
+    "wiki/schema.md",
+  ];
 
-    assert.doesNotMatch(skill, NEGATIVE_TUTORING_PATTERN, `${skillId} contains negative tutorial wording`);
-    assert.doesNotMatch(skill, LEGACY_ROUTE_PATTERN, `${skillId} contains legacy route wording`);
-    assert.doesNotMatch(skill, /outbox\/system_action\.json/, `${skillId} teaches file-based system action`);
-    assert.doesNotMatch(skill, /RUNTIME-RETURN\.md|runtime-return-tickets/, `${skillId} teaches retired return surface`);
-    assert.doesNotMatch(skill, /\bstart_pipeline\b|\badvance_pipeline\b/, `${skillId} teaches retired pipeline action`);
+  for (const sourcePath of wikiPaths) {
+    const content = await readFile(join(OC, sourcePath), "utf8");
+    assertPositivePromptCopy(sourcePath, content);
+    assert.doesNotMatch(content, /runtime-return|runtime return|runtimeReturn/u);
+    assert.doesNotMatch(content, /contract-result-json/u);
+    assert.doesNotMatch(content, /main-view contract actors/u);
+    assert.doesNotMatch(content, /反模式|绝对禁止/u);
   }
 });

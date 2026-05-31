@@ -5,15 +5,16 @@ const dispatchTargetStateMap = new Map();
 const releaseWorkerCalls = [];
 const broadcastCalls = [];
 const deleteTrackingCalls = [];
+const clearLoopSessionCalls = [];
 const recordHistoryCalls = [];
 const onAgentDoneCalls = [];
 const qqTypingStopCalls = [];
 const runtimeAgentConfigs = new Map();
+const operationOrder = [];
 
 mock.module("../lib/state.js", {
   namedExports: {
     CONTRACTS_DIR: "/tmp/contracts",
-    SYSTEM_ACTION_DELIVERY_TICKET_STORE: "/tmp/openclaw-test/system-action-delivery-tickets.json",
     HOME: "/tmp",
     OC: "/tmp/openclaw-test",
     QQ_OPENID: "qq-openid-test",
@@ -50,11 +51,12 @@ mock.module("../lib/routing/dispatch-runtime-state.js", {
     },
     releaseDispatchTargetContract: async (payload) => {
       releaseWorkerCalls.push(payload);
+      operationOrder.push("release_dispatch_target");
     },
   },
 });
 
-mock.module("../lib/qq.js", {
+mock.module("../lib/channel-notify.js", {
   namedExports: {
     qqTypingStop: (contractId) => {
       qqTypingStopCalls.push(contractId);
@@ -66,8 +68,18 @@ mock.module("../lib/store/tracker-store.js", {
   namedExports: {
     deleteTrackingSession: (sessionKey) => {
       deleteTrackingCalls.push(sessionKey);
+      operationOrder.push("delete_tracking_session");
     },
     listTrackingStates: () => [],
+  },
+});
+
+mock.module("../lib/loop/loop-detection.js", {
+  namedExports: {
+    clearSession: (sessionKey) => {
+      clearLoopSessionCalls.push(sessionKey);
+      operationOrder.push("clear_loop_session");
+    },
   },
 });
 
@@ -82,6 +94,7 @@ mock.module("../lib/store/task-history-store.js", {
     getTaskHistorySnapshot: () => [],
     recordTaskHistory: (payload) => {
       recordHistoryCalls.push(payload);
+      operationOrder.push("record_task_history");
     },
   },
 });
@@ -90,6 +103,7 @@ mock.module("../lib/routing/dispatch-graph-policy.js", {
   namedExports: {
     onAgentDone: async (...args) => {
       onAgentDoneCalls.push(args);
+      operationOrder.push("dispatch_graph_on_agent_done");
     },
   },
 });
@@ -107,9 +121,11 @@ test("retry suspend keeps worker reservation and suppresses terminal cleanup sid
   releaseWorkerCalls.length = 0;
   broadcastCalls.length = 0;
   deleteTrackingCalls.length = 0;
+  clearLoopSessionCalls.length = 0;
   recordHistoryCalls.length = 0;
   onAgentDoneCalls.length = 0;
   qqTypingStopCalls.length = 0;
+  operationOrder.length = 0;
 
   dispatchTargetStateMap.set("worker-a", {
     busy: true,
@@ -156,9 +172,11 @@ test("terminal finalize stops QQ typing before releasing executor reservation", 
   releaseWorkerCalls.length = 0;
   broadcastCalls.length = 0;
   deleteTrackingCalls.length = 0;
+  clearLoopSessionCalls.length = 0;
   recordHistoryCalls.length = 0;
   onAgentDoneCalls.length = 0;
   qqTypingStopCalls.length = 0;
+  operationOrder.length = 0;
 
   dispatchTargetStateMap.set("worker-a", {
     busy: true,
@@ -195,6 +213,11 @@ test("terminal finalize stops QQ typing before releasing executor reservation", 
   assert.equal(onAgentDoneCalls.length, 1);
   assert.deepEqual(onAgentDoneCalls[0][3], { retainBusy: false });
   assert.deepEqual(deleteTrackingCalls, [trackingState.sessionKey]);
+  assert.deepEqual(clearLoopSessionCalls, [trackingState.sessionKey]);
+  assert.ok(
+    operationOrder.indexOf("delete_tracking_session") < operationOrder.indexOf("dispatch_graph_on_agent_done"),
+    `terminal tracker cleanup must happen before queue drain; order=${operationOrder.join(" -> ")}`,
+  );
   assert.equal(broadcastCalls.some(([event]) => event === "track_end"), true);
 });
 
@@ -204,9 +227,11 @@ test("synthetic completion ends tracking without releasing executor reservation 
   releaseWorkerCalls.length = 0;
   broadcastCalls.length = 0;
   deleteTrackingCalls.length = 0;
+  clearLoopSessionCalls.length = 0;
   recordHistoryCalls.length = 0;
   onAgentDoneCalls.length = 0;
   qqTypingStopCalls.length = 0;
+  operationOrder.length = 0;
 
   dispatchTargetStateMap.set("worker-a", {
     busy: true,
@@ -241,6 +266,7 @@ test("synthetic completion ends tracking without releasing executor reservation 
   assert.equal(releaseWorkerCalls.length, 0);
   assert.equal(onAgentDoneCalls.length, 0);
   assert.deepEqual(deleteTrackingCalls, [trackingState.sessionKey]);
+  assert.deepEqual(clearLoopSessionCalls, [trackingState.sessionKey]);
   assert.equal(recordHistoryCalls.length, 1);
   assert.equal(broadcastCalls.some(([event]) => event === "track_end"), true);
 });

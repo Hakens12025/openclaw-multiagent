@@ -10,35 +10,43 @@
 import { loadGraph, getEdgesFrom } from "../agent/agent-graph.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { mutateContractSnapshot, getContractPath, readContractSnapshotById } from "../contracts.js";
+import { mutateContractSnapshot, getContractPath } from "../contracts.js";
 import { CONTRACT_STATUS, isActiveContractStatus } from "../core/runtime-status.js";
 import {
-  advanceDispatchRoundRobinCursor,
   claimDispatchTargetContract,
   dequeueDispatchContract,
+  enqueueOutgoingDispatchContract,
   enqueueDispatchContract,
   getDispatchQueueDepth,
   hasDispatchTarget,
   isDispatchTargetBusy,
   listDispatchTargetIds,
   markDispatchTargetDispatching,
+  removeOutgoingDispatchContract,
   releaseDispatchTargetContract,
+  requeueDispatchContractFront,
   rollbackDispatchTargetDispatch,
   ensureDispatchTargetAvailable,
 } from "./dispatch-runtime-state.js";
 import { dispatchSendExecutionContract } from "./dispatch-transport.js";
-import { getAgentRole } from "../agent/agent-identity.js";
-import { getDispatchInstruction, getRoleSummary } from "../role-spec-registry.js";
 import { buildAgentContractSessionKey } from "../session-keys.js";
-import { waitForTrackingContractClaim } from "../store/tracker-store.js";
+import {
+  deleteUnclaimedTrackingSessionForContract,
+  waitForTrackingContractClaim,
+} from "../store/tracker-store.js";
+import { hasRuntimeGraphBypassAuthority } from "./runtime-authority.js";
+import { withLock } from "../state.js";
 
-const GATE = Object.freeze({
-  ON_COMPLETE: "on-complete",
-  ON_FAIL: "on-fail",
-  FAN_OUT: "fan-out",
-  ROUND_ROBIN: "round-robin",
-  DEFAULT: "default",
-});
+class DispatchClaimTimeoutError extends Error {
+  constructor({ contractId, targetAgent, sessionKey, reason = null } = {}) {
+    super(`dispatch claim timeout for ${contractId} -> ${targetAgent}`);
+    this.name = "DispatchClaimTimeoutError";
+    this.contractId = contractId || null;
+    this.targetAgent = targetAgent || null;
+    this.sessionKey = sessionKey || null;
+    this.claimReason = reason || "timeout";
+  }
+}
 
 function isAgentBusy(agentId) {
   return hasDispatchTarget(agentId) ? isDispatchTargetBusy(agentId) : false;
@@ -66,6 +74,27 @@ function applySharedContractDispatchMutation(contract, targetAgent, updateContra
 function markBusy(agentId, contractId) {
   if (!hasDispatchTarget(agentId)) return false;
   return markDispatchTargetDispatching(agentId, contractId);
+}
+
+async function authorizeDispatchEdge(fromAgent, targetAgent, logger, {
+  runtimeAuthority = null,
+} = {}) {
+  if (hasRuntimeGraphBypassAuthority({ fromAgent, targetAgent, runtimeAuthority })) {
+    return { ok: true };
+  }
+
+  const graph = await loadGraph();
+  const edges = getEdgesFrom(graph, fromAgent);
+  const authorized = edges.some((edge) => edge?.to === targetAgent);
+  if (!authorized) {
+    logger?.warn?.(`[dispatch-graph-policy] blocked dispatch without graph edge: ${fromAgent} -> ${targetAgent}`);
+    return {
+      ok: false,
+      action: "unauthorized_explicit_target",
+      target: targetAgent,
+    };
+  }
+  return { ok: true };
 }
 
 export async function markIdle(agentId, logger = null) {
@@ -122,48 +151,84 @@ function queueDepth(agentId) {
 
 // ── Internal dispatch (queue ownership → shared dispatch primitive) ─────────
 
-async function buildWakeMessage(contractId, targetAgent) {
-  const role = getAgentRole(targetAgent);
-  const summary = getRoleSummary(role);
-  const instruction = getDispatchInstruction(role);
-
-  // Read contract to inject task + output path into wake message
-  let task = "";
-  let output = "";
-  try {
-    const contract = await readContractSnapshotById(contractId);
-    task = contract?.task || "";
-    output = contract?.output || "";
-  } catch {}
-
-  return [
-    `${summary}`,
-    `你收到了合约 ${contractId}。`,
-    "",
-    task ? `任务：${task}` : "",
-    output ? `输出路径：${output}` : "",
-    "",
-    instruction,
-  ].filter(Boolean).join("\n");
+// 唤醒消息：原始续作指令。上游产物经【包流转】落到本 agent 的 inbox/upstream/<producer>/，
+// 并由 contract.json 的 upstreamPackages 指针引导 agent 去读（见 artifact-store.js /
+// runtime-mailbox.js）。产物不再嵌进 wake —— agent 只读自己 inbox，系统负责搬运。
+export function buildWakeMessage(contractId) {
+  return `Continue the current contract: ${contractId}.`;
 }
 
 async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, logger, {
   updateContract = null,
+  wakeupFunc = null,
   wakePayload = null,
   buildWakeReason = null,
   broadcastDispatch = true,
   dispatchAlert = null,
+  queueEntry = null,
+  runtimeAuthority = null,
 } = {}) {
+  const authorization = await authorizeDispatchEdge(fromAgent, targetAgent, logger, {
+    runtimeAuthority,
+  });
+  if (!authorization.ok) {
+    if (queueEntry?.contractId) {
+      await requeueDispatchContractFront(targetAgent, queueEntry, logger);
+    }
+    return {
+      dispatched: false,
+      queued: false,
+      failed: true,
+      action: authorization.action,
+      target: authorization.target,
+    };
+  }
+
+  enqueueOutgoingDispatchContract(fromAgent, contractId, {
+    targetAgent,
+    status: "dispatching",
+    routeEdge: {
+      from: fromAgent,
+      to: targetAgent,
+      direction: null,
+    },
+  }, logger);
+
   const targetAvailable = await ensureDispatchTargetAvailable(targetAgent, logger);
   if (!targetAvailable || !hasDispatchTarget(targetAgent)) {
     logger?.error?.(`[dispatch-graph-policy] ${targetAgent} is not a registered dispatch target; refusing ${contractId}`);
+    if (queueEntry?.contractId) {
+      await requeueDispatchContractFront(targetAgent, queueEntry, logger);
+    }
+    enqueueOutgoingDispatchContract(fromAgent, contractId, {
+      targetAgent,
+      status: "blocked",
+      routeEdge: {
+        from: fromAgent,
+        to: targetAgent,
+        direction: null,
+      },
+    }, logger);
     return { dispatched: false, queued: false, failed: true };
   }
 
-  // If target is busy, queue and return
-  if (isAgentBusy(targetAgent)) {
+  // Atomically check busy state and claim dispatch ownership.
+  // withLock serializes concurrent dispatches and reconcile writes targeting the same agent,
+  // closing the TOCTOU window between isAgentBusy() and markBusy().
+  const claimResult = await withLock(`dispatch-target-claim:${targetAgent}`, async () => {
+    if (isAgentBusy(targetAgent)) {
+      return { action: "queue", reason: "busy" };
+    }
+    if (!markBusy(targetAgent, contractId)) {
+      return { action: "queue", reason: "claim_lost" };
+    }
+    return { action: "dispatch" };
+  });
+
+  if (claimResult.action === "queue") {
     const depth = queueDepth(targetAgent) + 1;
-    logger?.info?.(`[dispatch-graph-policy] ${targetAgent} busy → queuing ${contractId} (depth: ${depth})`);
+    const logReason = claimResult.reason === "busy" ? "busy" : "claim lost";
+    logger?.info?.(`[dispatch-graph-policy] ${targetAgent} ${logReason} → queuing ${contractId} (depth: ${depth})`);
     const enqueueResult = await enqueueForAgent(targetAgent, {
       contractId,
       fromAgent,
@@ -172,13 +237,12 @@ async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, lo
     if (enqueueResult?.error) {
       return { dispatched: false, queued: false, failed: true };
     }
+    await removeOutgoingDispatchContract(fromAgent, contractId, logger);
     return { dispatched: false, queued: true };
   }
-
-  // Mark busy and dispatch via primitives
-  markBusy(targetAgent, contractId);
   logger?.info?.(`[dispatch-graph-policy] routing ${contractId}: ${fromAgent} → ${targetAgent}`);
   const targetSessionKey = buildAgentContractSessionKey(targetAgent, contractId);
+  let dispatchWake = null;
 
   try {
     const dispatchResult = await dispatchSendExecutionContract({
@@ -187,13 +251,15 @@ async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, lo
       from: fromAgent,
       api,
       logger,
+      wakeupFunc,
       wakePayload: {
         sessionKey: buildAgentContractSessionKey(targetAgent, contractId),
         ...(wakePayload && typeof wakePayload === "object" ? wakePayload : {}),
       },
-      buildWakeReason: buildWakeReason || (() => buildWakeMessage(contractId, targetAgent)),
+      buildWakeReason: buildWakeReason || (() => buildWakeMessage(contractId)),
       broadcastDispatch,
       dispatchAlert,
+      runtimeAuthority,
       updateContract(contract) {
         return applySharedContractDispatchMutation(contract, targetAgent, updateContract);
       },
@@ -201,13 +267,30 @@ async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, lo
     if (dispatchResult?.ok === false) {
       throw new Error(dispatchResult.blockReason || "shared dispatch failed");
     }
+    dispatchWake = dispatchResult?.wake;
 
     const claim = await waitForTrackingContractClaim(targetSessionKey, contractId, 1500);
     if (!claim?.claimed) {
-      logger?.info?.(
-        `[dispatch-graph-policy] claim timeout for ${contractId} → ${targetAgent}; `
-        + `treating staged inbox dispatch as accepted`,
-      );
+      deleteUnclaimedTrackingSessionForContract({
+        sessionKey: targetSessionKey,
+        contractId,
+        agentId: targetAgent,
+        reason: "dispatch_claim_timeout",
+      });
+      broadcast("alert", {
+        type: "dispatch_claim_timeout",
+        contractId,
+        agentId: targetAgent,
+        sessionKey: targetSessionKey,
+        reason: claim?.reason || "timeout",
+        ts: Date.now(),
+      });
+      throw new DispatchClaimTimeoutError({
+        contractId,
+        targetAgent,
+        sessionKey: targetSessionKey,
+        reason: claim?.reason || "timeout",
+      });
     }
 
     await claimDispatchTargetContract({ contractId, agentId: targetAgent, logger });
@@ -221,10 +304,34 @@ async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, lo
   } catch (e) {
     logger?.warn?.(`[dispatch-graph-policy] dispatch failed for ${contractId} → ${targetAgent}: ${e?.message}, rolling back busy`);
     rollbackDispatchTargetDispatch(targetAgent);
-    return { dispatched: false, queued: false, failed: true };
+    if (queueEntry?.contractId) {
+      await requeueDispatchContractFront(targetAgent, queueEntry, logger);
+    }
+    enqueueOutgoingDispatchContract(fromAgent, contractId, {
+      targetAgent,
+      status: "blocked",
+      routeEdge: {
+        from: fromAgent,
+        to: targetAgent,
+        direction: null,
+      },
+    }, logger);
+    return {
+      dispatched: false,
+      queued: false,
+      failed: true,
+      claimed: e instanceof DispatchClaimTimeoutError ? false : undefined,
+      claimReason: e instanceof DispatchClaimTimeoutError ? e.claimReason : undefined,
+    };
   }
 
-  return { dispatched: true, queued: false, claimed: true };
+  await removeOutgoingDispatchContract(fromAgent, contractId, logger);
+  return {
+    dispatched: true,
+    queued: false,
+    claimed: true,
+    wake: dispatchWake,
+  };
 }
 
 // ── onAgentDone — drain queue after agent finishes ──────────────────────────
@@ -242,7 +349,9 @@ export async function onAgentDone(agentId, api, logger, {
   if (!next) return;
 
   logger?.info?.(`[dispatch-graph-policy] draining queue for ${agentId}: next=${next.contractId} (remaining: ${queueDepth(agentId)})`);
-  await dispatchSharedToAgent(next.contractId, next.fromAgent, agentId, api, logger);
+  await dispatchSharedToAgent(next.contractId, next.fromAgent, agentId, api, logger, {
+    queueEntry: next,
+  });
 }
 
 export async function drainIdleDispatchTargets(api, logger) {
@@ -258,14 +367,27 @@ export async function drainIdleDispatchTargets(api, logger) {
       `[dispatch-graph-policy] draining recovered queue for ${agentId}: next=${next.contractId} `
       + `(remaining: ${queueDepth(agentId)})`,
     );
-    await dispatchSharedToAgent(next.contractId, next.fromAgent, agentId, api, logger);
+    await dispatchSharedToAgent(next.contractId, next.fromAgent, agentId, api, logger, {
+      queueEntry: next,
+    });
   }
 }
 
 // ── routeAfterAgentEnd ──────────────────────────────────────────────────────
 
 export async function resolveRouteAfterAgentEndTarget(agentId, { status, targetAgent = null } = {}) {
+  const graph = await loadGraph();
+  const edges = getEdgesFrom(graph, agentId);
+
   if (targetAgent) {
+    const authorized = edges.some((edge) => edge?.to === targetAgent);
+    if (!authorized) {
+      return {
+        routable: false,
+        action: "unauthorized_explicit_target",
+        target: targetAgent,
+      };
+    }
     return {
       routable: true,
       action: "explicit",
@@ -273,54 +395,15 @@ export async function resolveRouteAfterAgentEndTarget(agentId, { status, targetA
     };
   }
 
-  const graph = await loadGraph();
-  const edges = getEdgesFrom(graph, agentId);
-
   if (!edges || edges.length === 0) {
     return { routable: false, action: "terminal", target: null };
   }
 
-  // Single out-edge
   if (edges.length === 1) {
     return { routable: true, action: "single_edge", target: edges[0].to };
   }
 
-  // on-complete / on-fail
-  const statusEdges = edges.filter(
-    (e) => e.gate === GATE.ON_COMPLETE || e.gate === GATE.ON_FAIL
-  );
-  if (statusEdges.length > 0) {
-    const matchGate = status === "failed" ? GATE.ON_FAIL : GATE.ON_COMPLETE;
-    const matched = statusEdges.find((e) => e.gate === matchGate);
-    if (matched) {
-      return { routable: true, action: matchGate, target: matched.to };
-    }
-    return { routable: false, action: "terminal", target: null };
-  }
-
-  // fan-out — not supported
-  const fanOutEdges = edges.filter((e) => e.gate === GATE.FAN_OUT);
-  if (fanOutEdges.length > 0) {
-    return { routable: false, action: "fan-out_unsupported", target: null };
-  }
-
-  // round-robin
-  const rrEdges = edges.filter((e) => e.gate === GATE.ROUND_ROBIN);
-  if (rrEdges.length > 0) {
-    const idx = advanceDispatchRoundRobinCursor(agentId, rrEdges.length);
-    return { routable: true, action: "round_robin", target: rrEdges[idx]?.to || null };
-  }
-
-  // default
-  const defaultEdges = edges.filter((e) => !e.gate || e.gate === GATE.DEFAULT);
-  if (defaultEdges.length > 0) {
-    if (defaultEdges.length > 1) {
-      return { routable: false, action: "ambiguous_runtime_transition", target: null };
-    }
-    return { routable: true, action: "default", target: defaultEdges[0].to };
-  }
-
-  return { routable: false, action: "terminal", target: null };
+  return { routable: false, action: "ambiguous_runtime_transition", target: null };
 }
 
 export async function routeAfterAgentEnd(agentId, contractId, {
@@ -340,9 +423,6 @@ export async function routeAfterAgentEnd(agentId, contractId, {
   });
 
   if (!resolvedRoute.routable || !resolvedRoute.target) {
-    if (resolvedRoute.action === "fan-out_unsupported") {
-      logger?.error?.("[dispatch-graph-policy] fan-out gate not supported in current contract model");
-    }
     return { routed: false, action: resolvedRoute.action, target: resolvedRoute.target || null };
   }
 
@@ -363,6 +443,7 @@ export async function routeAfterAgentEnd(agentId, contractId, {
   if (result.failed) {
     return { routed: false, action: "dispatch_failed", target: resolvedRoute.target };
   }
+  await removeOutgoingDispatchContract(agentId, contractId, logger);
   return {
     routed: true,
     action: result.queued ? "queued" : "dispatched",
@@ -392,10 +473,5 @@ export async function dispatchResolveFirstHop(sourceAgentId, {
     return null;
   }
 
-  const defaultEdge = edges.find((e) => !e.gate || e.gate === GATE.DEFAULT);
-  if (defaultEdge) {
-    return defaultEdge.to;
-  }
-
-  return edges[0].to;
+  return edges.length === 1 ? edges[0].to : null;
 }

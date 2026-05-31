@@ -17,7 +17,7 @@ Agent 本身就是分类器 — 自然识别超出能力范围的任务，输出
 
 以下代码/逻辑已全部删除：
 
-- QQ regex 预分类
+- `isSimpleQQMessage()` / `isFastTrackQQMessage()` regex 预分类
 - ingress hard-path 预路由拦截块
 - `ingressResult?.suppressed` 检查
 - `ignoredHeartbeatSessions` guard

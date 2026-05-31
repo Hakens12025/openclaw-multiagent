@@ -8,6 +8,7 @@ import {
 } from "./harness-run.js";
 import { normalizeRecord, normalizeString, normalizePositiveInteger, normalizeFiniteNumber, uniqueTools } from "../core/normalize.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
+import { HARNESS_FAILURE_CLASS } from "./harness-evidence-vocab.js";
 import { agentWorkspace } from "../state-agent-helpers.js";
 import { HOME } from "../state-paths.js";
 import {
@@ -171,7 +172,7 @@ function resolveArtifactEvidence(terminalSource, artifact) {
     { value: executionObservation.primaryOutputPath, source: "executionObservation.primaryOutputPath" },
     { value: executionObservation.artifactPaths[0], source: "executionObservation.artifactPaths[0]" },
     { value: source?.output, source: "contract.output" },
-    { value: source?.conclusionArtifact?.path, source: "pipeline.conclusionArtifact.path" },
+    { value: source?.conclusionArtifact?.path, source: "loopRuntime.conclusionArtifact.path" },
   ];
 
   for (const candidate of candidates) {
@@ -241,11 +242,13 @@ function classifyFailure(terminalStatus, terminalSource) {
     || terminalSource?.clarification,
   )?.toLowerCase() || null;
 
-  if (reason && /timeout|timed?\s*out/.test(reason)) return "timeout";
-  if (normalizedStatus === CONTRACT_STATUS.AWAITING_INPUT) return "awaiting_input";
-  if (normalizedStatus === CONTRACT_STATUS.CANCELLED) return "cancelled";
-  if (normalizedStatus === CONTRACT_STATUS.ABANDONED) return "abandoned";
-  if (normalizedStatus === CONTRACT_STATUS.FAILED) return "failed";
+  // failure_class 值归一到 harness-evidence-vocab（HARNESS_FAILURE_CLASS）；
+  // 未列入归一类时透传原始 status（消费端 strategy 取不到则为 null）。
+  if (reason && /timeout|timed?\s*out/.test(reason)) return HARNESS_FAILURE_CLASS.TIMEOUT;
+  if (normalizedStatus === CONTRACT_STATUS.AWAITING_INPUT) return HARNESS_FAILURE_CLASS.AWAITING_INPUT;
+  if (normalizedStatus === CONTRACT_STATUS.CANCELLED) return HARNESS_FAILURE_CLASS.CANCELLED;
+  if (normalizedStatus === CONTRACT_STATUS.ABANDONED) return HARNESS_FAILURE_CLASS.ABANDONED;
+  if (normalizedStatus === CONTRACT_STATUS.FAILED) return HARNESS_FAILURE_CLASS.FAILED;
   return normalizedStatus;
 }
 

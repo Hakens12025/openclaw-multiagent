@@ -4,17 +4,17 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import {
-  OC, CONTRACTS_DIR, QQ_OPENID,
+  CONTRACTS_DIR,
 } from "../state.js";
+import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 import {
   rememberDispatchChainOrigin,
   rememberDispatchChainOrigins,
 } from "../store/contract-flow-store.js";
-import { qqNotify } from "../qq.js";
 import { buildConversationId, loadConversation, buildPriorContext } from "../conversations.js";
 import { getContractPath, persistContractSnapshot } from "../contracts.js";
 import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
-import { annotateExecutionContract } from "../protocol-primitives.js";
+import { annotateExecutionContract, buildRuntimeContext } from "../protocol-primitives.js";
 import { attachOperatorContext } from "../operator/operator-context.js";
 import { attachRouteMetadataDiagnostics } from "../route-metadata.js";
 import { attachSystemActionDeliveryTicket } from "../routing/delivery-system-action-ticket.js";
@@ -22,29 +22,53 @@ import { listResolvedGraphLoops } from "../loop/graph-loop-registry.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
 import {
   buildInitialTaskStageRuntime,
-  deriveCompatibilityPhases,
-  deriveCompatibilityTotal,
+  deriveDisplayPhases,
+  deriveDisplayTotal,
 } from "../task-stage-plan.js";
 import { buildTaskStagePlanFromTask } from "../task-stage-planner.js";
 import {
-  buildGatewayReplyTarget,
-  isQQIngressAgent,
-} from "../agent/agent-identity.js";
-import { dispatchResolveFirstHop, dispatchRouteExecutionContract } from "../routing/dispatch-graph-policy.js";
+  canAutoWakeForTaskRuntime,
+} from "../agent/agent-activation-policy.js";
 import {
-  buildDispatchRuntimeSnapshot,
+  buildGatewayReplyTarget,
+  getAgentIdentitySnapshot,
+  isGatewayAgent,
+  isQQIngressAgent,
+  listRuntimeAgentIds,
+} from "../agent/agent-identity.js";
+import {
+  dispatchResolveFirstHop,
+  dispatchRouteExecutionContract,
+  resolveRouteAfterAgentEndTarget,
+} from "../routing/dispatch-graph-policy.js";
+import {
   listDispatchTargetIds,
 } from "../routing/dispatch-runtime-state.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
+import {
+  assertLiveQQIngressReplyTarget,
+  assertLiveQQReplyTarget,
+  isQQIngressSource,
+  normalizeQQIngressSource,
+} from "../qq-reply-target.js";
 
 export function dispatchResolveIngressReplyTarget(source, replyTo) {
-  if (replyTo?.agentId) return replyTo;
+  const normalizedSource = normalizeQQIngressSource(source) || source;
+  const isQQSource = isQQIngressSource(source);
+  assertLiveQQIngressReplyTarget(source, replyTo);
+  const defaultReplyTo = buildGatewayReplyTarget(normalizedSource);
+  const targetIsQQBridge = isQQSource && isQQIngressAgent(replyTo?.agentId || defaultReplyTo?.agentId || null);
 
-  const defaultReplyTo = buildGatewayReplyTarget(source);
-  const fromAgent = defaultReplyTo?.agentId;
+  if (replyTo?.agentId) {
+    return {
+      ...replyTo,
+      ...(targetIsQQBridge && !replyTo.channel ? { channel: "qqbot" } : {}),
+    };
+  }
+
   return {
     ...defaultReplyTo,
-    ...(isQQIngressAgent(fromAgent) ? { channel: "qqbot", target: QQ_OPENID } : {}),
+    ...(targetIsQQBridge ? { channel: "qqbot" } : {}),
   };
 }
 
@@ -59,8 +83,35 @@ function resolveIngressDispatchOwnerAgent(source, effectiveReplyTo, dispatchOwne
   if (explicitDispatchOwnerAgentId) {
     return explicitDispatchOwnerAgentId;
   }
-  return buildGatewayReplyTarget(source)?.agentId
-    || effectiveReplyTo?.agentId
+
+  const sourceGatewayAgentId = buildGatewayReplyTarget(source)?.agentId || null;
+  const controllerGatewayAgentId = buildGatewayReplyTarget("webui")?.agentId || null;
+  if (
+    sourceGatewayAgentId
+    && controllerGatewayAgentId
+    && sourceGatewayAgentId !== controllerGatewayAgentId
+  ) {
+    return controllerGatewayAgentId;
+  }
+
+  const replyToAgentId = typeof effectiveReplyTo?.agentId === "string" && effectiveReplyTo.agentId.trim()
+    ? effectiveReplyTo.agentId.trim()
+    : null;
+  if (
+    replyToAgentId
+    && controllerGatewayAgentId
+    && replyToAgentId !== controllerGatewayAgentId
+    && isGatewayAgent(replyToAgentId)
+  ) {
+    return controllerGatewayAgentId;
+  }
+
+  if (!sourceGatewayAgentId && controllerGatewayAgentId) {
+    return controllerGatewayAgentId;
+  }
+
+  return sourceGatewayAgentId
+    || replyToAgentId
     || null;
 }
 
@@ -81,15 +132,45 @@ async function loadPriorContextForReply(replyTo) {
   }
 }
 
-async function notifyIngressReceipt({ fromAgent, message }) {
-  if (!isQQIngressAgent(fromAgent)) return;
-
-  const runtimeSnapshot = buildDispatchRuntimeSnapshot();
-  const idleWorkers = Object.values(runtimeSnapshot.targets || {})
-    .filter((state) => !state?.busy && !state?.dispatching)
-    .length;
-  await qqNotify(QQ_OPENID, `任务已收到\n${message.slice(0, 60)}\n${idleWorkers > 0 ? "已进入执行队列" : "排队中"}`);
+function buildIngressTaskMessage(message) {
+  return String(message || "").trim();
 }
+
+function validateTaskRuntimeTarget(agentId) {
+  const targetAgent = typeof agentId === "string" && agentId.trim()
+    ? agentId.trim()
+    : null;
+  if (!targetAgent) {
+    return {
+      ok: false,
+      error: "missing_target",
+      targetAgent: null,
+    };
+  }
+  const identity = getAgentIdentitySnapshot(targetAgent);
+  if (listRuntimeAgentIds().length === 0 && targetAgent !== "operator") {
+    return {
+      ok: true,
+      targetAgent,
+      plane: identity.plane || null,
+    };
+  }
+  if (!canAutoWakeForTaskRuntime(identity)) {
+    return {
+      ok: false,
+      error: "target_not_task_runtime",
+      targetAgent,
+      plane: identity.plane || null,
+    };
+  }
+  return {
+    ok: true,
+    targetAgent,
+    plane: identity.plane || null,
+  };
+}
+
+// Layer 3 notifyIngressReceipt removed — Layer 1 (qqbot gateway DISPATCH receipt) already covers this.
 
 function resolveDispatchChainOriginSessionKey(fromAgent, effectiveReplyTo) {
   const replySessionKey = typeof effectiveReplyTo?.sessionKey === "string" && effectiveReplyTo.sessionKey.trim()
@@ -140,6 +221,7 @@ export async function dispatchCreateExecutionContractEntry({
   source,
   effectiveReplyTo,
   dispatchOwnerAgentId = null,
+  targetAgent = null,
   deliveryTargets = null,
   scheduleContext = null,
   automationContext = null,
@@ -156,6 +238,7 @@ export async function dispatchCreateExecutionContractEntry({
   if (!effectiveReplyTo?.agentId) {
     throw new TypeError("dispatchCreateExecutionContractEntry requires effectiveReplyTo.agentId");
   }
+  assertLiveQQReplyTarget(effectiveReplyTo);
 
   const fromAgent = resolveIngressDispatchOwnerAgent(source, effectiveReplyTo, dispatchOwnerAgentId);
   if (!fromAgent) {
@@ -163,32 +246,66 @@ export async function dispatchCreateExecutionContractEntry({
   }
   const ts = Date.now();
   const contractId = buildExecutionContractId(ts);
-  const firstHopAgentId = await dispatchResolveFirstHop(source, {
+  const explicitTargetAgentId = typeof targetAgent === "string" && targetAgent.trim()
+    ? targetAgent.trim()
+    : null;
+  if (explicitTargetAgentId) {
+    const authorization = await resolveRouteAfterAgentEndTarget(fromAgent, {
+      targetAgent: explicitTargetAgentId,
+    });
+    if (!authorization.routable) {
+      logger?.warn?.(
+        `[ingress] blocked explicit target without graph edge: ${fromAgent} -> ${explicitTargetAgentId}`,
+      );
+      return {
+        ok: false,
+        error: authorization.action || "unauthorized_explicit_target",
+        targetAgent: explicitTargetAgentId,
+      };
+    }
+  }
+  const firstHopAgentId = explicitTargetAgentId || await dispatchResolveFirstHop(source, {
     dispatchOwnerAgentId: fromAgent,
   });
+  if (firstHopAgentId) {
+    const targetValidation = validateTaskRuntimeTarget(firstHopAgentId);
+    if (!targetValidation.ok) {
+      logger?.warn?.(
+        `[ingress] blocked execution contract target outside task runtime: ${firstHopAgentId}`,
+      );
+      return {
+        ok: false,
+        error: targetValidation.error,
+        targetAgent: firstHopAgentId,
+      };
+    }
+  }
+  const taskMessage = buildIngressTaskMessage(message);
   const stagePlan = buildTaskStagePlanFromTask({
     contractId,
-    task: message,
+    task: taskMessage,
     phases,
   });
-  const stageRuntime = buildInitialTaskStageRuntime({ stagePlan });
-  const compatibilityPhases = stagePlan ? deriveCompatibilityPhases(stagePlan) : null;
+  const stageRuntime = stagePlan ? buildInitialTaskStageRuntime({ stagePlan }) : null;
+  const displayPhases = stagePlan ? deriveDisplayPhases(stagePlan) : null;
+  const displayTotal = stagePlan ? deriveDisplayTotal(stagePlan) : null;
   const { conversationId, priorContext } = await loadPriorContextForReply(effectiveReplyTo);
 
   let contract = annotateExecutionContract({
     id: contractId,
-    task: message,
+    task: taskMessage,
     assignee: firstHopAgentId || null,
     dispatchOwnerAgentId: fromAgent,
     replyTo: effectiveReplyTo,
     ...(upstreamReplyTo ? { upstreamReplyTo } : {}),
     ...(returnContext ? { returnContext } : {}),
     ...(serviceSession ? { serviceSession } : {}),
-    stagePlan,
-    stageRuntime,
-    phases: compatibilityPhases,
-    total: stagePlan ? deriveCompatibilityTotal(stagePlan) : null,
-    output: join(OC, "workspaces", "controller", "output", `${contractId}.md`),
+    ...(stagePlan ? { stagePlan } : {}),
+    ...(stageRuntime ? { stageRuntime } : {}),
+    ...(displayPhases ? { phases: displayPhases } : {}),
+    ...(displayTotal != null ? { total: displayTotal } : {}),
+    runtimeContext: buildRuntimeContext({ now: ts }),
+    output: join(CONTROL_PLANE_PATHS.outputDir, `${contractId}.md`),
     status: CONTRACT_STATUS.PENDING,
     retryCount: 0,
     createdAt: ts,
@@ -215,7 +332,6 @@ export async function dispatchCreateExecutionContractEntry({
     logMessage: `[ingress] created ${contractId} (from=${fromAgent})`,
   });
 
-  await notifyIngressReceipt({ fromAgent, message });
   await recordIngressDispatchChain({ fromAgent, effectiveReplyTo, firstHopAgentId, ts, logger });
 
   // Route via graph: resolve out-edge from source agent

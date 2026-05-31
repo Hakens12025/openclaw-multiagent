@@ -1,23 +1,15 @@
 // lib/operator-snapshot.js — Core data loading & operator snapshot assembly
 
-import { listAdminChangeSets } from "../admin/admin-change-sets.js";
-import { loadGraph } from "../agent/agent-graph.js";
-import { summarizeAgentJoinRegistry } from "../agent/agent-join-registry.js";
-import { summarizeAdminSurfaces } from "../admin/admin-surface-registry.js";
-import { listAutomationRuntimeStates, summarizeAutomationRuntimeRegistry } from "../automation/automation-runtime.js";
 import { listAgentRegistry } from "../capability/capability-registry.js";
-import { summarizeCliSystemSurfaces } from "../cli-system/cli-surface-registry.js";
-import { listLifecycleWorkItems } from "../contracts.js";
-import { listResolvedGraphLoops } from "../loop/graph-loop-registry.js";
-import { listRecentHarnessRuns } from "../harness/harness-run-store.js";
-import { listResolvedLoopSessions } from "../loop/loop-session-store.js";
+import { inspectCliSystemSurface, summarizeCliSystemSurfaces } from "../cli-system/cli-surface-registry.js";
 import { normalizeString } from "../core/normalize.js";
 import {
   buildAttentionItems,
   buildAutomationDecisionsSnapshot,
   buildReviewerResultsSnapshot,
   buildRuntimeSummary,
-  listRecentPipelineProgressions,
+  listRecentRuntimeIncidents,
+  listRecentGraphRouteProgressions,
   resolveSnapshotState,
 } from "./operator-snapshot-runtime.js";
 import {
@@ -43,9 +35,6 @@ import {
   summarizeDraftWithRelations,
 } from "./operator-snapshot-draft-relations.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { summarizeSystemActionDeliveryTickets } from "../routing/delivery-system-action-ticket.js";
-import { summarizeScheduleRegistry } from "../schedule/schedule-registry.js";
-import { listTestRuns } from "../test-runs.js";
 
 const DEFAULT_LIST_LIMIT = 6;
 const MAX_LIST_LIMIT = 20;
@@ -78,19 +67,47 @@ function countBy(items, resolveKey, {
   return counts;
 }
 
+function deriveOperatorSurfaceSummary(cliSystemSummary) {
+  const surfaces = (Array.isArray(cliSystemSummary?.surfaces) ? cliSystemSummary.surfaces : [])
+    .filter((surface) => surface?.source === "admin_surface");
+  return {
+    counts: {
+      total: surfaces.length,
+      operatorExecutable: surfaces.filter((surface) => surface?.operatorExecutable === true).length,
+      executable: surfaces.filter((surface) => surface?.executable === true).length,
+    },
+    surfaces,
+  };
+}
+
 export async function loadSnapshotCoreData({ listLimit = DEFAULT_LIST_LIMIT } = {}) {
   const limit = clampListLimit(listLimit);
+  // graph / test reports / automation runtimes 并行加载；graph 经 CLI-system inspect
+  // surface 读取，不直读 store（收口旁路）。读出 graph 后再喂给 inspect.graph_loops，
+  // 顺序不变、无循环。
   const [agents, graph, testReports, automationRuntimes] = await Promise.all([
     listAgentRegistry(),
-    loadGraph(),
+    inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" }),
     loadRecentTestReports(),
-    listAutomationRuntimeStates().catch(() => []),
+    // automation runtime states 经 CLI-system inspect surface 读取，不直读 store（收口旁路）。保留原兜底。
+    inspectCliSystemSurface({ surfaceId: "inspect.automation_runtime" }).catch(() => []),
   ]);
-  const loops = await listResolvedGraphLoops({ graph });
-  const loopSessions = await listResolvedLoopSessions({ loops });
+  // graph loop / loop session 经 CLI-system inspect surface 读取，不直读 store（收口旁路）。
+  const loops = await inspectCliSystemSurface({
+    surfaceId: "inspect.graph_loops",
+    params: { graph },
+  });
+  const loopSessions = await inspectCliSystemSurface({
+    surfaceId: "inspect.loop_sessions",
+    params: { loops },
+  });
   let harnessRuns;
   try {
-    harnessRuns = await listRecentHarnessRuns(limit);
+    // 经 CLI-system inspect surface 读取 HarnessRun，不直读 store（收口旁路）。
+    harnessRuns = await inspectCliSystemSurface({
+      surfaceId: "inspect.harness_runs",
+      params: { limit },
+    });
   } catch {
     harnessRuns = [];
   }
@@ -109,30 +126,41 @@ export async function buildOperatorSnapshot({
     schedules,
     agentJoins,
     automations,
+    guidanceDriftState,
   ] = await Promise.all([
     loadSnapshotCoreData({ listLimit }),
-    listAdminChangeSets(),
-    listLifecycleWorkItems(),
-    summarizeSystemActionDeliveryTickets(),
-    summarizeScheduleRegistry(),
-    summarizeAgentJoinRegistry(),
-    summarizeAutomationRuntimeRegistry(),
+    // change sets / work items / delivery tickets / schedules / agent joins /
+    // automation summary / guidance drift 经 CLI-system inspect surface 读取，
+    // 不直读 store（收口旁路）。guidance drift 保留原 catch 兜底。
+    inspectCliSystemSurface({ surfaceId: "inspect.change_sets" }),
+    inspectCliSystemSurface({ surfaceId: "inspect.work_items" }),
+    inspectCliSystemSurface({ surfaceId: "inspect.delivery_tickets" }),
+    inspectCliSystemSurface({ surfaceId: "inspect.schedules" }),
+    inspectCliSystemSurface({ surfaceId: "inspect.agent_joins" }),
+    inspectCliSystemSurface({ surfaceId: "inspect.automation_runtime_summary" }),
+    inspectCliSystemSurface({ surfaceId: "inspect.guidance_drift" }).catch(() => null),
   ]);
+  // pending signals 经 CLI-system inspect surface 读取，不直读 registry（收口旁路）。保留原兜底。
+  const pendingSignalSummary = await inspectCliSystemSurface({
+    surfaceId: "inspect.pending_signals",
+  }).catch(() => null);
   const { agents, loops, loopSessions, harnessRuns, testReports } = coreData;
   // graph is also available in coreData but not needed by the snapshot output itself
   const activeLoopSession = loopSessions.find((session) => session?.active === true) || null;
   const brokenLoopSessions = loopSessions.filter((session) => session?.runtimeStatus === "broken");
-  const recentPipelineProgressions = listRecentPipelineProgressions(workItems, {
+  const recentGraphRouteProgressions = listRecentGraphRouteProgressions(workItems, {
     activeLoopSession,
     limit,
   });
-  const latestPipelineProgression = recentPipelineProgressions[0] || null;
+  const latestGraphRouteProgression = recentGraphRouteProgressions[0] || null;
 
-  const surfaceSummary = summarizeAdminSurfaces();
   const cliSystemSummary = summarizeCliSystemSurfaces();
-  const testRuns = listTestRuns();
+  const surfaceSummary = deriveOperatorSurfaceSummary(cliSystemSummary);
+  // test runs 经 CLI-system inspect surface 读取，不直读 registry（收口旁路）。
+  const testRuns = await inspectCliSystemSurface({ surfaceId: "inspect.test_runs" });
   const recentRuns = Array.isArray(testRuns?.runs) ? testRuns.runs : [];
   const runtimeSummary = buildRuntimeSummary(limit);
+  const recentRuntimeIncidents = listRecentRuntimeIncidents(workItems, { limit });
   const draftRelations = buildDraftRelations(drafts, workItems, systemActionDeliveries.tickets, recentRuns);
 
   const workItemCounts = countBy(workItems, (workItem) => workItem?.status, {
@@ -150,6 +178,7 @@ export async function buildOperatorSnapshot({
       workItemCounts,
       systemActionDeliveryCounts: systemActionDeliveries.counts,
       runtimeSummary,
+      recentRuntimeIncidents,
       activeTestRun,
       automationCounts: automations.counts,
     }),
@@ -180,8 +209,9 @@ export async function buildOperatorSnapshot({
       failedHarnessModules: automations.counts.failedHarnessModules || 0,
       activeTrackingSessions: runtimeSummary.tracking.total,
       activeLoopSessionId: activeLoopSession?.id || null,
-      latestPipelineProgressionContractId: latestPipelineProgression?.contractId || null,
-      latestPipelineProgressionOutcome: latestPipelineProgression?.outcome || null,
+      latestGraphRouteProgressionContractId: latestGraphRouteProgression?.contractId || null,
+      latestGraphRouteProgressionOutcome: latestGraphRouteProgression?.outcome || null,
+      recentRuntimeIncidentCount: recentRuntimeIncidents.length,
       registeredLoopCount: loops.length,
       queueDepth: runtimeSummary.queueDepth,
       activeTestRunId: activeTestRun?.id || null,
@@ -292,8 +322,8 @@ export async function buildOperatorSnapshot({
         brokenSessions: brokenLoopSessions.length,
       },
       activeSession: activeLoopSession ? summarizeLoopSession(activeLoopSession) : null,
-      latestProgression: latestPipelineProgression,
-      recentProgressions: recentPipelineProgressions,
+      latestProgression: latestGraphRouteProgression,
+      recentProgressions: recentGraphRouteProgressions,
       registered: loops.slice(0, limit).map(summarizeLoop),
       sessions: loopSessions.slice(0, limit).map(summarizeLoopSession),
     },
@@ -312,7 +342,18 @@ export async function buildOperatorSnapshot({
     },
     reviewerResults: buildReviewerResultsSnapshot(automations),
     automationDecisions: buildAutomationDecisionsSnapshot(automations),
-    runtime: runtimeSummary,
+    runtime: {
+      ...runtimeSummary,
+      recentIncidents: recentRuntimeIncidents,
+    },
+    guidanceDrift: {
+      state: guidanceDriftState,
+      links: {
+        discovery: "/watchdog/agents/discovery",
+        takeover: "/watchdog/agents/guidance/takeover",
+      },
+    },
+    pendingSignals: pendingSignalSummary,
     links: {
       operatorSnapshot: "/watchdog/operator-snapshot",
       cliSystemSurfaces: "/watchdog/cli-system/surfaces",

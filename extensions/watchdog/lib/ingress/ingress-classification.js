@@ -1,4 +1,4 @@
-// lib/ingress-classification.js — Standard ingress shaping helpers
+// lib/ingress-classification.js — Explicit ingress stage-shaping helpers
 
 export function normalizeIngressPhases(phases) {
   if (!Array.isArray(phases)) return null;

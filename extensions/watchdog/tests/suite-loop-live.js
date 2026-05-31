@@ -1,4 +1,4 @@
-// tests/suite-loop-live.js — Live loop end-to-end test with structured diagnostic log
+// Live loop end-to-end test with structured diagnostic log
 //
 // This suite runs a REAL loop (researcher → worker-d → evaluator → researcher)
 // through the admin API, waits for each stage to complete, and produces a
@@ -10,7 +10,7 @@ import { join } from "node:path";
 import {
   BASE, OC, PORT, REPORTS_DIR, tokens,
   fetchJSON, httpFetch, loadConfig, RUNTIME_AGENT_IDS, WORKER_IDS, sleep,
-} from "./infra.js";
+} from "../lib/formal-runtime/infra.js";
 import { loadActiveLoopRuntime } from "../lib/loop/loop-round-runtime.js";
 import { loadLoopSessionState, LOOP_SESSION_STATE_FILE } from "../lib/loop/loop-session-store.js";
 
@@ -51,13 +51,56 @@ async function readContractFromApi(contractId) {
   } catch { return null; }
 }
 
-async function cleanLoopState(loopAgents = LOOP_AGENTS) {
+async function cleanLoopState(loopAgents = LOOP_AGENTS, loopId = null) {
+  if (loopId) {
+    await postAdmin("/watchdog/runtime/loop/interrupt", {
+      loopId,
+      reason: "live_test_setup_clean",
+    }).catch(() => {});
+  }
   await unlink(LOOP_SESSION_STATE_FILE).catch(() => {});
   for (const agent of loopAgents) {
-    const inbox = join(OC, "workspaces", agent, "inbox");
+    const workspaceDir = join(OC, "workspaces", agent);
+    const inbox = join(workspaceDir, "inbox");
+    const outbox = join(workspaceDir, "outbox");
+    const output = join(workspaceDir, "output");
     await unlink(join(inbox, "contract.json")).catch(() => {});
-    await rm(join(inbox, ".runtime-direct-queue"), { recursive: true, force: true }).catch(() => {});
+    await rm(join(inbox, ".runtime-direct-envelope-queue"), { recursive: true, force: true }).catch(() => {});
+    await rm(outbox, { recursive: true, force: true }).catch(() => {});
+    await rm(output, { recursive: true, force: true }).catch(() => {});
+    await mkdir(outbox, { recursive: true }).catch(() => {});
+    await mkdir(output, { recursive: true }).catch(() => {});
   }
+}
+
+async function waitForLoopAgentsToQuiesce(loopAgents = LOOP_AGENTS, loopId = null, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  const watchedAgents = new Set(Array.isArray(loopAgents) ? loopAgents : []);
+
+  while (Date.now() < deadline) {
+    const [activeRuntime, loopSessionState, runtimeSnapshot] = await Promise.all([
+      loadActiveLoopRuntime().catch(() => null),
+      loadLoopSessionState().catch(() => null),
+      fetchJSON("/watchdog/runtime").catch(() => null),
+    ]);
+
+    const activeLoopStillPresent = loopId
+      ? activeRuntime?.loopId === loopId || loopSessionState?.activeSession?.loopId === loopId
+      : Boolean(activeRuntime || loopSessionState?.activeSession);
+
+    const trackingSessions = Object.values(runtimeSnapshot?.trackingSessions || {});
+    const runningTrackedAgents = trackingSessions
+      .filter((entry) => watchedAgents.has(entry?.agentId))
+      .filter((entry) => entry?.status === "running");
+
+    if (!activeLoopStillPresent && runningTrackedAgents.length === 0) {
+      return { ok: true };
+    }
+
+    await sleep(1000);
+  }
+
+  return { ok: false, reason: "quiesce_timeout" };
 }
 
 function ts() { return new Date().toISOString().replace("T", " ").slice(0, 19); }
@@ -126,8 +169,8 @@ class DiagnosticLog {
       terminalOutcome: contract.terminalOutcome?.reason?.slice(0, 100) || null,
       stageRunSummary: observedStageRunResult?.summary?.slice(0, 100) || null,
       primaryArtifact: observedStageRunResult?.primaryArtifactPath || null,
-      progression: contract.runtimeDiagnostics?.pipelineProgression?.action || null,
-      progressionTo: contract.runtimeDiagnostics?.pipelineProgression?.to || null,
+      progression: contract.runtimeDiagnostics?.graphRouteProgression?.action || null,
+      progressionTo: contract.runtimeDiagnostics?.graphRouteProgression?.to || null,
     });
   }
 
@@ -153,7 +196,7 @@ class DiagnosticLog {
   }
 }
 
-// ── Wait for a pipeline stage to complete or fail ───────────────────────────
+// ── Wait for a loop stage to complete or fail ───────────────────────────────
 
 function resolveLoopSessionSnapshot(loopSessionState, loopSessionId) {
   const activeSession = loopSessionState?.activeSession?.id === loopSessionId
@@ -253,7 +296,8 @@ export async function runLoopLiveCase(testCase) {
       return { testCase, results, duration: elapsed(), pass: false, diag };
     }
     // ── Setup ──
-    await cleanLoopState(loopAgents);
+    await cleanLoopState(loopAgents, testCase.loopId);
+    await waitForLoopAgentsToQuiesce(loopAgents, testCase.loopId);
     diag.log("setup", "CLEAN_STATE");
 
     // Compose loop
