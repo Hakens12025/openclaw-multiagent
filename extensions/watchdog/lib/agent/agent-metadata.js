@@ -76,10 +76,6 @@ export const SYSTEM_ACTION_ENABLED_ROLES = new Set([
   AGENT_ROLE.REVIEWER,
 ]);
 
-export function isProtectedAgentId(agentId) {
-  return PROTECTED_AGENT_IDS.has(agentId);
-}
-
 export function isSupportedAgentRole(role) {
   const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
   return SUPPORTED_AGENT_ROLES.has(normalized);

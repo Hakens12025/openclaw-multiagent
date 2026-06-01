@@ -99,7 +99,7 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 
 ### 4.4 outbox 协议
 
-Agent 写 `outbox/` 目录，router-handler-registry 按 `outboxCommitKinds` 分发：
+Agent 写 `outbox/` 目录，runtime-mailbox-handler-registry 按 `outboxCommitKinds` 分发：
 - `execution_result` — 执行层 agent（planner / worker / researcher / reviewer）统一产出执行结果
 - `stage_result` — runtime 可识别的阶段完成/失败信号
 - `contract_result` — contract 级补充状态或失败说明
@@ -120,7 +120,7 @@ Operator 是 **watchdog 内部的运行时快照与控制接口**：
 **Operator 依赖的已通用层：**
 - agent-identity（角色解析）✅
 - protocol-primitives（信封/意图标准化）✅
-- router-handler-registry（outbox 路由）✅
+- runtime-mailbox-handler-registry（outbox 路由）✅
 - worker-pool（调度）✅
 
 **Operator 仍触及的 legacy/临时层：**

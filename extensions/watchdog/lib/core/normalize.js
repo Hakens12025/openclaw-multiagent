@@ -25,6 +25,15 @@ export function uniqueStrings(values) {
   )];
 }
 
+export function normalizeOrderedStringArray(value) {
+  const values = Array.isArray(value)
+    ? value
+    : (typeof value === "string" ? value.split(/[\n,]+/g) : []);
+  return values
+    .map((item) => normalizeString(item))
+    .filter(Boolean);
+}
+
 const TOOL_ALIASES = Object.freeze({
   websearch: "web_search",
   webfetch: "web_fetch",

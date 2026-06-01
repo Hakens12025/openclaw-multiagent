@@ -10,7 +10,7 @@ import {
 } from "./admin-surface-plan-hints.js";
 import { buildAdminSurfaceSubject } from "./admin-surface-subject.js";
 import { buildCliSystemDisplayId } from "../cli-system/cli-surface-display.js";
-import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
+import { normalizeBoolean, normalizeOrderedStringArray, normalizeRecord, normalizeString } from "../core/normalize.js";
 
 function cloneJsonValue(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -23,15 +23,6 @@ function normalizeStringArray(value) {
   return [...new Set(values
     .map((item) => normalizeString(item))
     .filter(Boolean))];
-}
-
-function normalizeOrderedStringArray(value) {
-  const values = Array.isArray(value)
-    ? value
-    : (typeof value === "string" ? value.split(/[\n,]+/g) : []);
-  return values
-    .map((item) => normalizeString(item))
-    .filter(Boolean);
 }
 
 function getValueAtPath(source, path) {

@@ -1,6 +1,5 @@
 import {
   getArtifactLaneDefinition,
-  resolveArtifactStageDefinition as resolveArtifactLaneStageDefinition,
 } from "./artifact-lane-registry.js";
 
 function normalizeTrackingString(value) {
@@ -54,10 +53,6 @@ export function buildArtifactWorkItemId(trackingState, artifactContext) {
     || normalizeTrackingString(trackingState?.agentId)
     || "unknown";
   return `artifact:${kind}:${sessionKey}`;
-}
-
-export function resolveArtifactStageDefinition(artifactContext) {
-  return resolveArtifactLaneStageDefinition(artifactContext);
 }
 
 export function resolveTrackingWorkItem(trackingState) {

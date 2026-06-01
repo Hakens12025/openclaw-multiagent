@@ -8,7 +8,7 @@ import { CONTRACT_STATUS } from "./core/runtime-status.js";
 import {
   materializeTaskStageTruth,
 } from "./task-stage-plan.js";
-import { resolveArtifactStageDefinition } from "./tracking-work-item.js";
+import { resolveArtifactStageDefinition } from "./artifact-lane-registry.js";
 
 function hasObservedContractStageTruth(contract) {
   return Boolean(

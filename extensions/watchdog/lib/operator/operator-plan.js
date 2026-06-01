@@ -3,7 +3,7 @@ import {
   normalizeCliSystemSurfacePayload,
 } from "../cli-system/cli-surface-registry.js";
 import { isOperatorExecutableSurfaceId } from "./operator-surface-policy.js";
-import { normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
+import { normalizeOrderedStringArray, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
 
 export const OPERATOR_PLAN_INTENTS = Object.freeze([
   "create_agent",
@@ -45,15 +45,6 @@ function shouldPreferAdviceOnly(requestText, intent) {
   if (!looksLikeQuestionRequest(normalized)) return false;
   if (looksLikeExplicitActionDirective(normalized)) return false;
   return ["connect_agents", "disconnect_agents", "graph_mutation", "platform_mutation", "agent_mutation"].includes(intent);
-}
-
-function normalizeOrderedStringArray(value) {
-  const values = Array.isArray(value)
-    ? value
-    : (typeof value === "string" ? value.split(/[\n,]+/g) : []);
-  return values
-    .map((item) => normalizeString(item))
-    .filter(Boolean);
 }
 
 function mergeDerivedValue(derived, key, value) {

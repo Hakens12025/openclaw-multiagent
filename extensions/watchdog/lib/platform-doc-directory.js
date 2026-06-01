@@ -1,7 +1,7 @@
 // Agent directory and office map helpers for platform doc builder.
 // Exports: buildOfficeDirectoryLines, buildWorkspaceAgentDirectory
 
-import { getCapabilityDirectoryOrder } from "./agent/agent-capability-policy.js";
+import { getCapabilityDirectoryOrder } from "./capability/capability-preset-registry.js";
 import { listAutoInjectedAgentSkillRefs } from "./semantic-skill-registry.js";
 import { normalizeString, uniqueStrings } from "./core/normalize.js";
 import { AGENT_ROLE, normalizeAgentRole } from "./agent/agent-identity.js";

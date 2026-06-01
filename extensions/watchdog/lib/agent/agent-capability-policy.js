@@ -1,6 +1,5 @@
 import { normalizeString, uniqueStrings, uniqueTools } from "../core/normalize.js";
 import {
-  getCapabilityDirectoryOrder as readCapabilityDirectoryOrder,
   getCapabilityPreset,
 } from "../capability/capability-preset-registry.js";
 
@@ -23,8 +22,4 @@ export function composeDefaultCapabilityProjection({
     ...(routerHandlerId ? { routerHandlerId } : {}),
     ...(normalizedSkills.length > 0 ? { skills: normalizedSkills } : {}),
   };
-}
-
-export function getCapabilityDirectoryOrder(role) {
-  return readCapabilityDirectoryOrder(role);
 }
