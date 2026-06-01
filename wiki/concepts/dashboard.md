@@ -60,7 +60,7 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 
 1. V3（03-09）：三角拓扑
 2. V4（03-09）：多 Worker 垂直指挥塔
-3. 03-11：交互式系统（拖拽/CRUD/缩放），dashboard-interactive.js 733 行
+3. 03-11：交互式系统（拖拽/CRUD/缩放），单文件 733 行（后拆分为 `dashboard-drag.js` / `dashboard-ux.js` / `dashboard-nav.js` 等）
 4. 后续：Devtools 面板、隔离测试传输
 5. 前端测试开发者工具系列迭代
 6. v112 (P-WF1~4)：新增「工作流」页 `/watchdog/workflow-view`，缩略图/拓扑/session 三区联动，后端经 inspect 家族可观测。
