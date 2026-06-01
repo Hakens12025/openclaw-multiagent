@@ -1,0 +1,20 @@
+name: doc-paths
+
+# 防文档→代码路径漂移：扫所有 .md 里对 watchdog 源码路径的引用，
+# 校验被引用文件真实存在。活文档出现失效引用即 fail（见 scripts/check-doc-paths.js）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check doc → code path drift
+        run: node scripts/check-doc-paths.js
