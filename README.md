@@ -41,7 +41,13 @@ bash start.sh
 - **多模型** —— ARK（豆包 / MiniMax / GLM / DeepSeek / Kimi）、OpenAI 兼容、Anthropic、本地 Ollama，配置里切
 - **可扩展** —— skill 按 agent 注入，hook 拦截工具调用，改一改 graph 就是一条新工作流
 
-![OpenClaw Dashboard](docs/screenshots/dashboard-idle.png)
+![OpenClaw 主控面](docs/screenshots/home.png)
+
+> **主控面**：左侧工作项生命周期，中间实时运行时图（agent 沿 graph 边协作），右侧事件流实时滚动。
+
+![工作流页](docs/screenshots/workflow.png)
+
+> **工作流页**：连通分量拓扑总览 + session 查看器——点任意 agent，看它这一轮的输入 → 处理过程 → 输出。
 
 ## 它怎么工作
 
