@@ -76,6 +76,7 @@ bash start.sh
 - 存在operator这个meta-agent，负责系统治理（修改系统agent拓扑，结构，prompt，skill，根据过往的历史运行记录自动发觉可优化的部分，张贴工单到operator页面，供用户选择），全操作使用harness和CLI system进行，无法直接edit代码，保证治理合规
 - 整个结构可保存为实时预览的快照，用以预览operator对系统的修改，如有不满意可选择不应用
 - 结构以保存码的形式储存，方便未来社区分享设计，分三级层次——纯编排结构、编排结构+agent内容、编排结构+agent内容+API key（用于个人结构复现）
+- Token最小化为设计指导思想，不会堆prompt来限制agent的输出，极限使用过qwen3.5:0.9b模型最小上下文窗口运行该系统，简单任务依然能够跑通
 - 
 
 ```
