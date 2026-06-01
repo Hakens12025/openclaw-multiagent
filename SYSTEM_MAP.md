@@ -113,8 +113,8 @@ Operator 是 **watchdog 内部的运行时快照与控制接口**：
 
 | 文件 | 层级 | 功能 |
 |------|------|------|
-| `lib/operator-context.js` | lib 核心 | 标准化 operator 上下文元数据 |
-| `lib/operator-snapshot.js` | lib 核心 | 生成运行时快照（agent 状态、pool、queue） |
+| `lib/operator/operator-context.js` | lib 核心 | 标准化 operator 上下文元数据 |
+| `lib/operator/operator-snapshot.js` | lib 核心 | 生成运行时快照（agent 状态、pool、queue） |
 | `routes/operator-catalog.js` | HTTP 路由 | `/watchdog/operator-snapshot` API |
 
 **Operator 依赖的已通用层：**
@@ -177,8 +177,8 @@ node test-runner.js --suite model
 2. **`openclaw.json`** — agent 清单、provider、channel 配置（2 分钟）
 3. **`extensions/watchdog/index.js`** — 插件装配入口（2 分钟）
 4. **深入按需**：
-   - 角色解析 → `lib/agent-identity.js`
+   - 角色解析 → `lib/agent/agent-identity.js`
    - 协议对象 → `lib/protocol-primitives.js`
-   - outbox 路由 → `lib/router-handler-registry.js`
-   - loop runtime → `lib/pipeline-engine.js` / `lib/graph-loop-registry.js`
-   - 前端 → `dashboard.js` + `dashboard-svg.js` + `dashboard-pipeline.js`
+   - outbox 路由 → `lib/routing/runtime-mailbox-handler-registry.js`
+   - loop runtime → `lib/loop/graph-loop-registry.js` + `lib/loop/loop-round-runtime.js`
+   - 前端 → `dashboard.js` + `dashboard-svg.js` + `dashboard-graph.js`

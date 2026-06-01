@@ -1,0 +1,167 @@
+{
+  "meta": {
+    "lastTouchedVersion": "example"
+  },
+  "wizard": {
+    "lastRunMode": "local"
+  },
+  "browser": {
+    "enabled": false,
+    "headless": false,
+    "defaultProfile": "openclaw"
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "ark-openai": {
+        "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "apiKey": "YOUR_ARK_API_KEY_HERE",
+        "api": "openai-completions",
+        "models": [
+          { "id": "minimax-m2.5", "name": "MiniMax M2.5 (ARK)" },
+          { "id": "glm-4.7", "name": "GLM-4.7 (ARK)" },
+          { "id": "deepseek-v3.2", "name": "DeepSeek V3.2 (ARK)" },
+          { "id": "kimi-k2.5", "name": "Kimi K2.5 (ARK)" }
+        ]
+      },
+      "ark-anthropic": {
+        "baseUrl": "https://ark.cn-beijing.volces.com/api/coding",
+        "apiKey": "YOUR_ARK_API_KEY_HERE",
+        "api": "anthropic-messages",
+        "models": [
+          { "id": "minimax-m2.5", "name": "MiniMax M2.5 (ARK)" },
+          { "id": "deepseek-v3.2", "name": "DeepSeek V3.2 (ARK)" }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": { "primary": "ark-openai/minimax-m2.5" },
+      "memorySearch": { "enabled": false },
+      "compaction": {
+        "mode": "safeguard",
+        "memoryFlush": { "enabled": false }
+      },
+      "timeoutSeconds": 1800,
+      "typingIntervalSeconds": 6,
+      "typingMode": "thinking",
+      "heartbeat": { "every": "30m", "lightContext": true },
+      "maxConcurrent": 6,
+      "subagents": { "maxConcurrent": 8, "runTimeoutSeconds": 1800 }
+    },
+    "list": [
+      {
+        "id": "controller",
+        "binding": { "skills": { "configured": ["system-action"] } },
+        "role": "bridge",
+        "workspace": "~/.openclaw/workspaces/controller",
+        "model": { "primary": "ark-openai/minimax-m2.5" },
+        "heartbeat": { "every": "2h" },
+        "skills": ["system-action"],
+        "tools": { "allow": ["read", "write", "edit"] },
+        "gateway": true,
+        "protected": true,
+        "ingressSource": "webui"
+      },
+      {
+        "id": "agent-for-kksl",
+        "role": "bridge",
+        "workspace": "~/.openclaw/workspaces/kksl",
+        "model": { "primary": "ark-openai/minimax-m2.5" },
+        "heartbeat": { "every": "2h" },
+        "gateway": true,
+        "protected": true,
+        "ingressSource": "qq"
+      },
+      {
+        "id": "worker",
+        "role": "executor",
+        "workspace": "~/.openclaw/workspaces/worker",
+        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+      },
+      {
+        "id": "planner",
+        "role": "planner",
+        "workspace": "~/.openclaw/workspaces/planner",
+        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+      },
+      {
+        "id": "worker2",
+        "role": "executor",
+        "workspace": "~/.openclaw/workspaces/worker2",
+        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+      },
+      {
+        "id": "worker-3",
+        "role": "executor",
+        "workspace": "~/.openclaw/workspaces/worker-3",
+        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+      },
+      {
+        "id": "worker-4",
+        "role": "executor",
+        "workspace": "~/.openclaw/workspaces/worker-4",
+        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+      }
+    ]
+  },
+  "tools": {
+    "web": {
+      "search": { "enabled": true, "maxResults": 10 },
+      "fetch": { "enabled": true, "maxCharsCap": 50000 }
+    },
+    "sessions": { "visibility": "all" },
+    "agentToAgent": { "enabled": true }
+  },
+  "bindings": [
+    { "agentId": "agent-for-kksl", "match": { "channel": "qqbot" } },
+    { "agentId": "agent-for-kksl", "match": { "channel": "feishu" } }
+  ],
+  "messages": { "ackReactionScope": "group-mentions" },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "session": {
+    "dmScope": "main",
+    "resetTriggers": ["/new", "/reset"],
+    "mainKey": "main"
+  },
+  "cron": { "maxConcurrentRuns": 4 },
+  "hooks": {
+    "enabled": true,
+    "token": "YOUR_HOOK_TOKEN_HERE",
+    "allowRequestSessionKey": true,
+    "allowedSessionKeyPrefixes": ["hook:", "agent:"]
+  },
+  "channels": {
+    "qqbot": {
+      "enabled": false,
+      "appId": "YOUR_QQ_APP_ID",
+      "clientSecret": "YOUR_QQ_CLIENT_SECRET"
+    },
+    "feishu": {
+      "enabled": false,
+      "appId": "YOUR_FEISHU_APP_ID",
+      "appSecret": "YOUR_FEISHU_APP_SECRET"
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "GENERATE_A_RANDOM_TOKEN_HERE"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "qqbot": { "enabled": false },
+      "watchdog": { "enabled": true },
+      "feishu": { "enabled": false }
+    }
+  }
+}

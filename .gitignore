@@ -1,6 +1,7 @@
 # === Secrets / Credentials (NEVER COMMIT) ===
 openclaw.json
 openclaw.*.json
+!openclaw.example.json
 openclaw.json.bak*
 openclaw.json.backup-*
 openclaw.cherry.json*
