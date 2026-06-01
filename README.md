@@ -63,14 +63,20 @@ bash start.sh
 
 ## 设计小巧思
 
+- 方便的WebUI，可直接管理agent（添加删除agent，prompt设计，使用的模型，agent间拓扑结构）
 - 用户消息和系统内派工渠道分开，用户可以直接和系统内任意agent交流，同时可让某agent直接派工去往某个agent，或者是某个设计好的loop，完成后自动回流消息
 - 用户消息和系统派工消息使用不同的prompt，系统派工prompt为专用的wake-agent-message，更加对应agent在系统中的角色
+- Prompt分情况组装，skill头部强制注入上下文，记忆系统使用openclaw默认记忆系统
 - 以contract为核心的session机制，同一contract在各agent之间session编号一致，便于上下文保留
 - 多agent协作时，前一agent会生成context消息，以便后一agent上手开工
 - harness设计为模块化，harness本身严格规范设计，倒闭operator设计和编写严格的harness模块
 - 使用使用heartbeat方法避开了openclaw多并发缓慢的问题
+- 设计了更好的排队系统，自动等待和自动派发更丝滑，相同contract享受相同session，同一agent再度处理该contract不会丢上下文
 - 自带test-runner，3种预设test，在对系统，prompt进行修改后可直接复核质量
-- 存在operator这个meta-agent，负责系统治理，全操作使用harness和CLI system进行，无法直接edit代码，保证治理合规
+- 存在operator这个meta-agent，负责系统治理（修改系统agent拓扑，结构，prompt，skill，根据过往的历史运行记录自动发觉可优化的部分，张贴工单到operator页面，供用户选择），全操作使用harness和CLI system进行，无法直接edit代码，保证治理合规
+- 整个结构可保存为实时预览的快照，用以预览operator对系统的修改，如有不满意可选择不应用
+- 结构以保存码的形式储存，方便未来社区分享设计，分三级层次——纯编排结构、编排结构+agent内容、编排结构+agent内容+API key（用于个人结构复现）
+- 
 
 ```
 Gateway        加载 openclaw.json，注册插件
