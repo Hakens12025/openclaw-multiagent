@@ -3,6 +3,7 @@
 import { listAgentRegistry } from "../capability/capability-registry.js";
 import { inspectCliSystemSurface, summarizeCliSystemSurfaces } from "../cli-system/cli-surface-registry.js";
 import { normalizeString } from "../core/normalize.js";
+import { operatorAutoPropose } from "./operator-auto-propose.js";
 import {
   buildAttentionItems,
   buildAutomationDecisionsSnapshot,
@@ -189,6 +190,21 @@ export async function buildOperatorSnapshot({
     .map((draft) => summarizeDraftWithRelations(draft, draftRelations.get(draft.id), limit));
   const workQueue = buildWorkQueue(recentChangeSets, limit);
 
+  // ⑤ Phase4: operator 自动提案（suggest-only）。从 automation runtime summary 的 ProfileLifecycle
+  // 投影派生分级建议，填 #40 控制面右栏；纯建议，人审批后经既有 change-set apply→verify 落地。
+  const operatorProposals = operatorAutoPropose({
+    profiles: (Array.isArray(automations?.automations) ? automations.automations : []).map((entry) => ({
+      automationId: entry?.summary?.id || entry?.id || null,
+      profileLifecycle: entry?.summary?.profileLifecycle || null,
+      harness: {
+        failedModuleCount: entry?.summary?.lastHarnessFailedModuleCount || 0,
+        failedModules: Array.isArray(entry?.summary?.lastHarnessRun?.failedModules)
+          ? entry.summary.lastHarnessRun.failedModules
+          : [],
+      },
+    })),
+  });
+
   return {
     generatedAt: Date.now(),
     summary: {
@@ -215,8 +231,10 @@ export async function buildOperatorSnapshot({
       registeredLoopCount: loops.length,
       queueDepth: runtimeSummary.queueDepth,
       activeTestRunId: activeTestRun?.id || null,
+      operatorProposalCount: operatorProposals.length,
     },
     attention,
+    operatorProposals,
     agents: {
       counts: {
         total: agents.length,

@@ -183,16 +183,6 @@ const FORMAL_PRESET_DEFS = [
     cleanMode: "session-clean",
   },
   {
-    id: "loop-platform",
-    label: "平台回路测试",
-    description: "显式控制面启动平台 loop",
-    suite: "loop-platform",
-    caseIds: ["real-user-loop-start"],
-    resetBetweenCases: false,
-    transport: "runtime",
-    cleanMode: "session-clean",
-  },
-  {
     id: "direct-service",
     label: "协作 Delivery 测试",
     description: "assign_task 结果送回同一业务会话",

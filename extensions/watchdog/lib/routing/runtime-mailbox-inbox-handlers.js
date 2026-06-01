@@ -22,15 +22,12 @@ import { isDirectRequestEnvelope } from "../protocol-primitives.js";
 import { ensureRuntimeDirectEnvelopeInbox } from "../runtime-direct-envelope-queue.js";
 import { normalizeContractIdentity, normalizeString } from "../core/normalize.js";
 import { isActiveContractStatus } from "../core/runtime-status.js";
-import { resolveWorkspaceContractOutputAliasPath } from "../runtime-contract-output-alias.js";
 
 const TASK_FACING_INBOX_ALLOW_KEYS = Object.freeze([
   "id",
   "task",
   "taskType",
   "assignee",
-  "output",
-  "outputAlias",
   "status",
   "completionCriteria",
   "codingSpec",
@@ -86,10 +83,6 @@ function projectTaskFacingInboxContract(contract, agentId = null) {
     if (Object.prototype.hasOwnProperty.call(contract, key)) {
       projected[key] = contract[key];
     }
-  }
-  const outputAlias = resolveWorkspaceContractOutputAliasPath(agentId, contract.output);
-  if (outputAlias) {
-    projected.outputAlias = outputAlias;
   }
   return projected;
 }

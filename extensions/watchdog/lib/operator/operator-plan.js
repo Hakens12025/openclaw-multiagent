@@ -145,7 +145,9 @@ function collectPlanDerivedFields(steps, derived) {
     nextDerived.toAgentId = edges[0].to || nextDerived.toAgentId || null;
     if (edges.length === 2) {
       nextDerived.bidirectional = edges[0].from === edges[1].to && edges[0].to === edges[1].from;
-    } else if (nextDerived.bidirectional == null) {
+    } else {
+      // 非 2 边一律非双向（单边不可能双向；>2 边非双向语义）。
+      // 显式置 false，避免从上一轮 derived 继承到的 bidirectional=true 残留。
       nextDerived.bidirectional = false;
     }
   }

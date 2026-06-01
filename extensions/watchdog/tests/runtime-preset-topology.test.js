@@ -6,9 +6,6 @@ import { runtimeAgentConfigs } from "../lib/state.js";
 import {
   resolveDirectServiceProbeTopology,
 } from "../lib/formal-runtime/suite-direct-service.js";
-import {
-  resolveLoopPlatformTopology,
-} from "../lib/formal-runtime/suite-loop-platform.js";
 
 function setRuntimeAgents(agents) {
   runtimeAgentConfigs.clear();
@@ -44,32 +41,6 @@ test("direct-service topology exposes reviewer lane from current runtime truth",
   const topology = resolveDirectServiceProbeTopology();
 
   assert.equal(topology.reviewerAgentId, "review-alpha");
-});
-
-test("loop-platform topology composes a live loop from current non-bridge runtime agents", () => {
-  setRuntimeAgents([
-    { id: "controller", role: "bridge", gateway: true, ingressSource: "webui" },
-    { id: "planner", role: "planner" },
-    { id: "worker", role: "executor" },
-    { id: "worker2", role: "executor" },
-  ]);
-
-  const topology = resolveLoopPlatformTopology();
-
-  assert.equal(topology.entryAgentId, "planner");
-  assert.deepEqual(topology.loopAgents, ["planner", "worker", "worker2"]);
-});
-
-test("loop-platform topology reports blocked when runtime lacks enough work agents", () => {
-  setRuntimeAgents([
-    { id: "controller", role: "bridge", gateway: true, ingressSource: "webui" },
-    { id: "worker", role: "executor" },
-  ]);
-
-  const topology = resolveLoopPlatformTopology();
-
-  assert.equal(topology.entryAgentId, "worker");
-  assert.equal(topology.blockedReason, "loop-platform preset requires at least 2 non-bridge work agents");
 });
 
 test("direct-service probe prompt stays minimal and keeps the formal action marker in the result file flow", async () => {

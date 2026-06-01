@@ -3,7 +3,6 @@ import { join } from "node:path";
 
 import { annotateExecutionContract } from "../protocol-primitives.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 import { normalizeTerminalOutcome } from "../terminal-outcome.js";
 import {
   buildInitialTaskStageRuntime,
@@ -71,7 +70,6 @@ export function buildLoopContract({
     ...(stageRuntime ? { stageRuntime } : {}),
     ...(displayPhases ? { phases: displayPhases } : {}),
     ...(displayTotal != null ? { total: displayTotal } : {}),
-    output: join(CONTROL_PLANE_PATHS.outputDir, `${contractId}.md`),
     status: CONTRACT_STATUS.PENDING,
     createdAt: Date.now(),
     updatedAt: Date.now(),

@@ -76,7 +76,7 @@ export function estimateCliRunTimeoutMs(preset) {
     : 1;
   const perCaseBudgetMs = preset?.suite === "concurrent"
     ? CLI_CONCURRENT_CASE_BUDGET_MS
-    : preset?.suite === "loop-platform" || preset?.suite === "direct-service"
+    : preset?.suite === "direct-service"
       ? CLI_RUNTIME_CASE_BUDGET_MS
       : CLI_SINGLE_CASE_BUDGET_MS;
   const resetAllowanceMs = preset?.resetBetweenCases === true

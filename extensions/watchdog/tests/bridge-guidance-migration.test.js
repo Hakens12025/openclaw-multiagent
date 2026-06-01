@@ -27,8 +27,8 @@ test("bridge SOUL template keeps minimal formal dispatch entrypoint", () => {
 test("buildSoulTemplate dispatches to bridge branch for BRIDGE role", () => {
   const bridge = buildSoulTemplate("bridge-dispatcher", AGENT_ROLE.BRIDGE);
   const fallback = buildSoulTemplate("bridge-dispatcher", "agent");
-  assert.match(bridge, /Bridge Local Handling Principles/);
-  assert.doesNotMatch(fallback, /Bridge Local Handling Principles/);
+  assert.match(bridge, /桥接本地处理原则/);
+  assert.doesNotMatch(fallback, /桥接本地处理原则/);
 });
 
 test("bridge workspace takeover writes managed bridge SOUL into .guidance-backup-protected location", async () => {

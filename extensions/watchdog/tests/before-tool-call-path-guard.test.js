@@ -6,7 +6,6 @@ import { join } from "node:path";
 import * as beforeToolCallHook from "../hooks/before-tool-call.js";
 import { registerRuntimeAgents } from "../lib/agent/agent-identity.js";
 import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
-import { resolveWorkspaceContractOutputAliasPath } from "../lib/runtime-contract-output-alias.js";
 import { createTrackingState } from "../lib/session-bootstrap.js";
 import { agentWorkspace, runtimeAgentConfigs } from "../lib/state.js";
 import { clearTrackingStore, rememberTrackingState } from "../lib/store/tracker-store.js";
@@ -366,14 +365,7 @@ test("contract-backed session cannot read contract.output before it exists", asy
   assert.equal(result?.block, true);
   assert.match(result?.blockReason || "", /contract\.output/u);
   assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
-  assert.ok(
-    (result?.blockReason || "").includes(contractOutput),
-    "contract.output read guard should include the formal output path",
-  );
-  assert.ok(
-    (result?.blockReason || "").includes(resolveWorkspaceContractOutputAliasPath(agentId, contractOutput)),
-    "contract.output read guard should include the workspace-local output alias",
-  );
+  // outbox 统一(f7769b5): hint 不再向 agent 暴露中央 output/alias 路径，只引导写 outbox/。
 });
 
 test("contract-backed session blocks output basename variants that probe current contract.output", async () => {
@@ -722,14 +714,7 @@ test("contract-backed session blocks repeated rereads of inbox contract and poin
   assert.match(result?.blockReason || "", /已读取/u);
   assert.doesNotMatch(result?.blockReason || "", /不要再读取/u);
   assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
-  assert.ok(
-    (result?.blockReason || "").includes(contractOutput),
-    "contract reread guard should include the formal output path",
-  );
-  assert.ok(
-    (result?.blockReason || "").includes(resolveWorkspaceContractOutputAliasPath(agentId, contractOutput)),
-    "contract reread guard should include the workspace-local output alias",
-  );
+  // outbox 统一(f7769b5): reread guard 不再暴露中央 output/alias 路径，引导写 outbox/。
 });
 
 test("contract-backed session still allows the first successful inbox read after earlier blocked attempts", async () => {
@@ -835,7 +820,7 @@ test("contract-backed session cannot rewrite its own inbox contract truth", asyn
   assert.equal(result?.block, true);
   assert.match(result?.blockReason || "", /contract truth/u);
   assert.match(result?.blockReason || "", /runtime 管理/u);
-  assert.match(result?.blockReason || "", /结果路径/u);
+  assert.match(result?.blockReason || "", /outbox/u);
   assert.doesNotMatch(result?.blockReason || "", /任务产物请写入 outbox\/runtime_result\.json/u);
   assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
 });
@@ -895,14 +880,7 @@ test("contract-backed session cannot edit contract.output before it exists", asy
   assert.equal(result?.block, true);
   assert.match(result?.blockReason || "", /文件生成前/u);
   assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
-  assert.ok(
-    (result?.blockReason || "").includes(contractOutput),
-    "contract.output edit guard should include the formal output path",
-  );
-  assert.ok(
-    (result?.blockReason || "").includes(resolveWorkspaceContractOutputAliasPath(agentId, contractOutput)),
-    "contract.output edit guard should include the workspace-local output alias",
-  );
+  // outbox 统一(f7769b5): edit guard 不再暴露中央 output/alias 路径，引导写 outbox/。
 });
 
 test("contract-backed session blocks runtime_result writes outside the current workspace outbox", async () => {
@@ -1136,7 +1114,7 @@ test("contract-backed session blocks writes to managed guidance docs", async () 
 
   assert.equal(result?.block, true);
   assert.match(result?.blockReason || "", /managed guidance/u);
-  assert.match(result?.blockReason || "", /结果路径/u);
+  assert.match(result?.blockReason || "", /outbox/u);
   assert.doesNotMatch(result?.blockReason || "", /任务产物请写入 outbox\/runtime_result\.json/u);
   assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
 });

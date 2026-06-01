@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { generateReport } from "./formal-runtime/suite-single.js";
-import { generateLoopPlatformReport } from "./formal-runtime/suite-loop-platform.js";
 
 export function buildTestRunReportText({ run, preset } = {}) {
   if (!run || typeof run !== "object") {
@@ -12,9 +11,6 @@ export function buildTestRunReportText({ run, preset } = {}) {
     throw new TypeError("buildTestRunReportText requires preset");
   }
   const durationSec = ((run.finishedAt - run.startedAt) / 1000).toFixed(1);
-  if (preset.suite === "loop-platform") {
-    return generateLoopPlatformReport(run.caseResults, durationSec);
-  }
   return generateReport(run.caseResults, `devtool:${preset.id}`, durationSec);
 }
 

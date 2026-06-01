@@ -356,6 +356,12 @@ export function register(api, logger, deps) {
       agents: payload.agents ?? payload.agentsText,
     }),
   });
+  registerAdminSurfacePostRoute("/watchdog/graph/group/compose", "graph.group.compose", {
+    mapPayload: (payload) => ({
+      ...payload,
+      agents: payload.agents ?? payload.agentsText ?? payload.members,
+    }),
+  });
   registerAdminSurfacePostRoute("/watchdog/graph/loop/delete", "graph.loop.delete");
   registerAdminSurfacePostRoute("/watchdog/graph/loop/repair", "graph.loop.repair");
   registerAdminSurfacePostRoute("/watchdog/skills/create", "skills.create");

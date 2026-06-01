@@ -6,7 +6,7 @@ import { buildSoulTemplate } from "../lib/soul-template-builder.js";
 
 function assertExecutionSoulUsesCanonicalOutbox(role, agentId) {
   const soul = buildSoulTemplate(agentId, role);
-  assert.match(soul, /Current Session Boundary/, `${agentId} soul should teach current-session boundary`);
+  assert.match(soul, /当前会话边界/, `${agentId} soul should teach current-session boundary`);
   assert.doesNotMatch(soul, /inbox\/contract\.json/, `${agentId} soul should not hardcode shared-contract input`);
   assert.doesNotMatch(soul, /outbox\/stage_result\.json/, `${agentId} soul should not teach legacy stage_result commit`);
   assert.doesNotMatch(soul, /outbox\/contract_result\.json/, `${agentId} soul should not teach legacy contract_result commit`);

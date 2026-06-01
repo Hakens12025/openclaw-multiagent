@@ -14,9 +14,6 @@ import {
   isSystemActionEnabledRole,
 } from "./agent-metadata.js";
 
-let runtimePlannerDispatchOrigin = null;
-let runtimeAgentConfigVersion = 0;
-
 export {
   AGENT_IDS,
   AGENT_ROLE,
@@ -38,10 +35,6 @@ function getConfiguredIngressSource(agentId) {
 
 function getConfiguredRole(agentId) {
   return normalizeString(getRuntimeAgentConfig(agentId)?.role)?.toLowerCase() || null;
-}
-
-function getCardRole(agentId) {
-  return normalizeString(getAgentCard(agentId)?.role)?.toLowerCase() || null;
 }
 
 function getConfiguredBooleanFlag(agentId, key) {
@@ -227,14 +220,6 @@ export function listRuntimeAgentIds() {
   return [...runtimeAgentConfigs.keys()];
 }
 
-export function getPlanDispatchOrigin() {
-  return runtimePlannerDispatchOrigin;
-}
-
-export function getRuntimeAgentConfigVersion() {
-  return runtimeAgentConfigVersion;
-}
-
 export function listGatewayAgentIds() {
   const explicit = [];
   for (const [agentId] of runtimeAgentConfigs.entries()) {
@@ -284,10 +269,6 @@ export function isProtectedAgentId(agentId) {
 
 export function registerRuntimeAgents(config) {
   runtimeAgentConfigs.clear();
-  runtimePlannerDispatchOrigin = normalizeString(config?.agents?.dispatchOrigin)
-    || normalizeString(config?.graph?.dispatchOrigin)
-    || null;
-  runtimeAgentConfigVersion += 1;
   const agents = Array.isArray(config?.agents?.list) ? config.agents.list : [];
   for (const agent of agents) {
     const agentId = normalizeString(agent?.id);

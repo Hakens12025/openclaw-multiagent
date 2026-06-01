@@ -83,8 +83,6 @@
 | [Wiki 替代纯备忘录](decisions/wiki-over-memo-only.md) | code=WHAT, memo=RAW, wiki=WHY | 04-09 |
 | [runtime-bridge 收编进 delivery](decisions/runtime-bridge-into-delivery.md) | delivery:terminal + system_action return variants | 04-08 |
 | [产物整包流转](decisions/artifact-package-flow.md) | 产物随 contract 整包流到下游 inbox，agent 只读自己 inbox | 05-31 |
-| [wake 提示词数据驱动接入 role-spec](decisions/wake-prompt-role-driven.md) | wake 提示词从 role-spec 派生 per-role 个性（全英文，SOUL 同源），消除「6 role 只 2 种」分裂 + 删死字段 dispatchInstruction | 05-31 |
-| [检测到的环 ≠ 受控 loop](decisions/cycle-vs-registered-loop.md) | 有环=授权拓扑；注册成 LoopSpec 才是受控 loop；前端不自动注册；环自带 limit 复用 budget governance 不造第二套 | 05-31 |
 
 ## 状态与元信息
 

@@ -20,7 +20,6 @@ SOUL.md 定义一个 Agent "是谁"：
 - SOUL 是 AgentBinding 的投影，不是真值源
 - SOUL 是通用机器：只写通用行为，领域知识通过 skills 注入
 - Skills = 可注册、可替换、按任务条件触发的方法文档
-- **两种唤醒，两份提示词**：用户直连用 SOUL.md；系统派工（contract session）时 SOUL 被 `before_prompt_build` 替换为 wake 提示词。两份**同从 role-spec 派生** per-role 个性（persona/qualityBar/operatingPrinciples），**全英文同源**。详见 [wake 提示词数据驱动](../decisions/wake-prompt-role-driven.md)
 
 **违规信号：** SOUL 中出现具体数据文件名、领域专属字段说明、领域特有检查项 → 说明领域知识泄漏进了身份层。
 
@@ -39,7 +38,6 @@ SOUL.md 定义一个 Agent "是谁"：
 | [Skill Boundary](skill-boundary.md) | Skills 注入能力，SOUL 定义身份，二者分离 |
 | [Token Economy](token-economy.md) | SOUL 瘦身直接节省 token |
 | [Workspace Guidance](workspace-guidance.md) | SOUL 是 workspace 中优先级最高的文件 |
-| [wake 提示词数据驱动](../decisions/wake-prompt-role-driven.md) | 系统派工时 SOUL 被 contract-override 替换；两份提示词同从 role-spec 派生，全英文 |
 
 ## 演化
 
@@ -48,7 +46,6 @@ SOUL.md 定义一个 Agent "是谁"：
 3. 备忘录68：确立三层语义切分（role-spec/SOUL、skill、runtime/hooks/harness）
 4. 核心设计指标：通用机原则固化 — SOUL 只写通用行为
 5. 持续瘦身中：把领域知识迁移到 skills
-6. 2026-05-31：role-spec 与 SOUL 模板全英文化；系统派工 wake 提示词数据驱动接入 role-spec（per-role 个性 + outputDirectives），消除「6 role 只 2 种 wake 提示词」真值分裂，删死字段 dispatchInstruction（源: [wake 提示词数据驱动](../decisions/wake-prompt-role-driven.md)）
 
 ## 当前状态
 

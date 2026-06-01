@@ -107,9 +107,9 @@ function buildDefaultRuntimeState(automationSpec) {
     lastAutomationDecision: null,
     pendingReworkGuidance: null,
     recentHarnessRuns: [],
-    // P4 死链 c：governanceSnapshot = ProfileLifecycle 算出的收紧治理参数（经 resolveGovernance 消费）。
-    // governanceSnapshotDisabled = 全局熔断（异常 snapshot 一键回 spec 默认）。
-    // profileLifecycle = 对象链尾段（第 11 概念）只读快照。
+    // governanceSnapshot：当前生效的治理参数快照（由 resolveGovernance 消费；缺省 null=用 spec 默认）。
+    // governanceSnapshotDisabled：全局熔断开关，true 时忽略 snapshot 回退到 spec 默认。
+    // profileLifecycle：profile 生命周期只读快照（streak/trustLevel 等）。
     governanceSnapshot: null,
     governanceSnapshotDisabled: false,
     profileLifecycle: null,

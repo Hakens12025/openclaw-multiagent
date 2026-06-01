@@ -125,24 +125,34 @@ function describeEffect(surfaceId, payload = {}) {
 function renderProposals() {
   const host = document.getElementById("cpProposals");
   if (!host) return;
-  const rows = state.proposals
-    .map((p) => ({ p, tier: tierOf(p.riskLevel, p.confirmation) }))
-    .sort((a, b) => b.tier.n - a.tier.n);
+  // ⑤ Phase4: operator 自动提案(suggest-only) + 人工 change-set 草稿，合并按危险分级排。
+  const autoProposals = Array.isArray(state.review?.operatorProposals) ? state.review.operatorProposals : [];
+  const autoRows = autoProposals.map((p) => ({
+    p: {
+      surfaceId: p.suggestedSurface || p.category,
+      summary: p.reason,
+      status: `operator 建议 · ${p.confidence || "?"} 信心`,
+      payload: p.suggestedPayload,
+      _auto: true,
+    },
+    tier: tierOf(p.riskLevel, p.confirmation),
+  }));
+  const draftRows = state.proposals.map((p) => ({ p, tier: tierOf(p.riskLevel, p.confirmation) }));
+  const rows = [...autoRows, ...draftRows].sort((a, b) => b.tier.n - a.tier.n);
   const intro = `<div class="cp-section-head">提案</div>
     <div class="cp-card cp-intro">
-      <div class="cp-text"><strong>提案 = operator 分析系统后提议的改动</strong>(改 graph/agent/loop/skill 等),按危险分级 T1-4,可 diff/apply/一键回滚。这是"自进化"闭环:operator 当大脑提改进,你审批。</div>
+      <div class="cp-text"><strong>提案 = operator 分析系统后提议的改动</strong>(改 graph/agent/loop/skill 等),按危险分级 T1-4。这是"自进化"闭环:operator 当大脑提改进,<strong>你审批后</strong>经 change-set apply→verify 落地(operator 只建议、不自动改)。</div>
     </div>`;
   if (rows.length === 0) {
     host.innerHTML = intro + `<div class="cp-empty">
-      暂无提案。<br><br>operator <strong>自动生成提案</strong>(每轮分析→提优化项)是 <strong>⑤ Phase4,尚未接线</strong>。<br>
-      接线后这里会按危险分级列出 operator 提议的改动 + "改完变成什么样" + diff + 一键 apply/回滚。<br>
-      当前也会显示任何已存在的 change-set 草稿。
+      暂无提案。operator <strong>自动提案(⑤ Phase4)已接线</strong>:当自治回路出现信任升档 / 连续失败 / 收敛信号时,这里按危险分级列出 operator 的建议(治理收紧 / 人工介入 / 技能沉淀)。<br>
+      当前无触发信号,也无人工 change-set 草稿。
     </div>`;
     return;
   }
   host.innerHTML = intro + rows.map(({ p, tier }) => `
     <div class="cp-card cp-tier cp-tier-${tier.n}">
-      <div class="cp-line"><span>${esc(p.surfaceId || p.id)}</span><strong>T${tier.n} ${esc(tier.key)}</strong></div>
+      <div class="cp-line"><span>${esc(p.surfaceId || p.id)}${p._auto ? ' <em>(operator 自动)</em>' : ''}</span><strong>T${tier.n} ${esc(tier.key)}</strong></div>
       <div class="cp-text"><strong>改完:</strong>${esc(describeEffect(p.surfaceId, p.changeSet?.payload || p.payload))}</div>
       <div class="cp-text">${esc(p.summary || p.title || "")}</div>
       <div class="cp-line"><span>STATUS</span><strong>${esc(p.status || "draft")}</strong></div>

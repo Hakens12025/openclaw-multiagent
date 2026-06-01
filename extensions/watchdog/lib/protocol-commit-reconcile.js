@@ -1,4 +1,4 @@
-import { access, realpath } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   getTrackingState,
@@ -17,8 +17,19 @@ import {
 } from "./routing/dispatch-runtime-state.js";
 import { onAgentDone as dispatchGraphPolicyOnAgentDone } from "./routing/dispatch-graph-policy.js";
 
-const PROTOCOL_COMMIT_RECONCILE_GRACE_MS = 400;
+// agent_end 权威：真 agent_end(LLM 会话结束)先提交+路由, reconcile 只作长窗兜底——
+// 仅当 agent 写了 runtime_result 却长时间(>30s)既无后续工具调用、也没 fire agent_end(卡住)
+// 才由 reconcile 收尾。短窗(原 400ms)会卡进 LLM 写 runtime_result→写交付物的思考间隙、
+// 抢在 agent 真结束前提交, 导致后写的交付物被归档丢失(researcher 'session archived' 根因之一)。
+let PROTOCOL_COMMIT_RECONCILE_GRACE_MS = 30000;
 const PROTOCOL_COMMIT_DEFERRED_RELEASE_MS = 4000;
+
+// 测试缝：把 30s 兜底窗调小，避免时序测试真等 30s（生产恒为默认 30000，从不调用此函数）。
+export function __setProtocolCommitReconcileGraceMsForTest(ms) {
+  const next = Number(ms);
+  PROTOCOL_COMMIT_RECONCILE_GRACE_MS = Number.isFinite(next) && next > 0 ? next : 30000;
+}
+
 const pendingProtocolCommitTimers = new Map();
 const pendingProtocolCommitDeferredReleases = new Map();
 
@@ -36,6 +47,15 @@ async function fileExists(filePath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function fileMtimeMs(filePath) {
+  try {
+    const stats = await stat(filePath);
+    return stats.mtimeMs;
+  } catch {
+    return null;
   }
 }
 
@@ -244,6 +264,19 @@ async function runProtocolCommitReconcileNow({
   }
   if (commitInfo.allowMissing !== true && !await fileExists(commitInfo.commitPath)) {
     return { reconciled: false, reason: "commit_file_missing" };
+  }
+
+  // 防陈旧产物收割：只认本合约绑定(startMs)之后写入的 runtime_result。
+  // 否则上一个任务残留在 outbox 的旧 runtime_result 会被当作本轮结果提前提交+路由，
+  // 在本轮 agent 真正写出产物前就推进 loop（reviewer 空审、"session archived" 根因）。
+  if (commitInfo.allowMissing !== true) {
+    const contractStartMs = Number(trackingState.startMs) || 0;
+    if (contractStartMs > 0) {
+      const commitMtimeMs = await fileMtimeMs(commitInfo.commitPath);
+      if (commitMtimeMs !== null && commitMtimeMs < contractStartMs) {
+        return { reconciled: false, reason: "commit_file_stale" };
+      }
+    }
   }
 
   logger?.info?.(

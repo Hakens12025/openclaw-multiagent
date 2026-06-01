@@ -1,38 +1,5 @@
 # Wiki Operation Log
 
-## [2026-05-31] ingest | v120-stable 环自带 limit + skill 因果链沉淀 + 检测环≠受控loop
-
-- concepts/loop.md — 是什么加「检测到的环≠受控loop」「环自带limit」两块；LoopSpec 增声明式 maxRounds；演化加 v120 行；当前状态加 registered loop 自带 round 上限兜底
-- concepts/skill-boundary.md — 演化 6：skill 可从已验证成功 HarnessRun 自动沉淀（因果链 When/Pro/Con，EvaluationResult 评判非 LLM 自评，区别 Hermes 自评）
-- concepts/self-governance-loop.md — 当前状态加 v120「能力固化」闭环末环（skill 随使用自增长）
-- decisions/cycle-vs-registered-loop.md — 新建：有环=授权拓扑≠driven loop；前端不自动注册（entry/conclude 猜不出）；环自带 limit 复用 budget governance 不造第二套；否决自动注册/裸环并行 governor
-
-代码核实（code wins）：`lib/loop/{loop-budget,graph-loop-registry,loop-round-runtime,loop-session-normalize}.js` + `admin-surface-graph-operations.js`（composeGraphLoop 转发 entry/信号/maxRounds）+ `dashboard-graph.{js,css}` + `automation-skill-precipitation.js`。全 gate 1544/1544，loop-spec 单测 7/7，loop-platform 结构 1/1，researcher1→worker-e→reviewer1 已注册 active maxRounds=4。
-源: 备忘录120 + commit 3dd81b7（v120-stable）。
-
-## [2026-05-31] ingest | wake 提示词数据驱动接入 role-spec（已实施，方案 A）
-
-提案落地（见同日 proposal 记录）。wake/SOUL 全英文化 + role 个性数据驱动同源。
-
-- decisions/wake-prompt-role-driven.md — 状态 提案→ACCEPTED；补收法决策（(b)+全英文）、改后数据流、实施结果（3 生产文件 + 7 测试英文化 + 2 mock 清理）、范围注记（范围 1）
-- concepts/soul-identity.md — 关键区分加「两种唤醒，两份提示词」；和谁交互加 wake 提示词行；演化加 2026-05-31 行
-- index.md — 决策表该行去「提案」前缀
-
-代码核实（code wins）：
-- `buildContractSessionSystemPrompt`（`hooks/before-prompt-build.js` 真实注入）从 role-spec 派生 `## Role` + `outputDirectives`；`getDispatchInstruction` 改前生产零消费（确认死字段）已删。
-- 完整串行门 **1544/0**。范围(1)：executor/reviewer 产出 bullet 仍同，差异在 `## Role`；reviewer `[BLOCKING]` 格式块仍只在 SOUL。
-源: 讨论 2026-05-31 + 本次实施 commit（待打 tag）。
-
-## [2026-05-31] proposal | wake 提示词数据驱动接入 role-spec（待 review）
-
-调研发现真值分裂：系统派工(wake)提示词与 role-spec/SOUL 设计脱节——wake 实际只 2 种(planner / 其余 5 个共用)，per-role 个性(reviewer 的 [BLOCKING]、researcher 的证据原则)在 wake 时全失效；`dispatchInstruction` 是死字段(仅 4 个测试消费，`lib/` 生产零消费，framework 不读)。
-
-- decisions/wake-prompt-role-driven.md — 新增提案(方案 A)：`buildContractSessionSystemPrompt` 从 role-spec 数据驱动派生 per-role 个性段 + 用 `getDispatchInstruction(role)` 替代 `if(role===PLANNER)` 特化分支 + 死字段接活。否决 B(两套提示词合一，SOUL.md 文件 vs 内联替换载体不同需单独手术)/C(只清死字段，放弃 wake 设计)。
-- index.md — 决策表加该提案行（标「提案(待实施)」）。
-
-状态：待用户 review 批准；批准+实施后升 ACCEPTED 并编译 concepts/soul-identity.md（补「wake 时 SOUL 被 contract-override 替换、且该提示词同样应从 role-spec 派生」缺失事实）。
-调研真值：`lib/contract-session-prompt-override.js` / `lib/role-spec-registry.js` / `lib/soul-template-builder.js` / `lib/agent/agent-session-system-prompt.js`；消费链 grep 确认 `getDispatchInstruction` 生产零消费。
-
 ## [2026-05-31] ingest | v115 四关节自治回路物理闭合（三死链全修）
 
 备忘录120 计划的回路落地：三死链全部接通，端到端闭环已断言。

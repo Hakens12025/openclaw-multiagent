@@ -448,7 +448,8 @@ testWithGlobalLoopRuntime("startLoopRound does not inject implicit stage truth w
     assert.equal("phases" in contract, false);
     assert.equal("stagePlan" in contract, false);
     assert.equal("stageRuntime" in contract, false);
-    assert.match(contract?.output || "", /\/control-plane\/output\/TC-/);
+    // outbox 统一(f7769b5): loop contract 不再预置中央 output 字段；agent 写 outbox/。
+    assert.equal("output" in contract, false);
   } finally {
     await saveGraph(originalGraph);
     await saveGraphLoopRegistry(originalLoopRegistry);

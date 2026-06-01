@@ -45,5 +45,3 @@ P-1 现状基线普查（事实地基，无普查不动代码）→ P0 HarnessMo
 ## 当前状态
 
 **v115：自治回路物理闭合**——三死链全修，端到端闭环判据已断言。harness 灵魂落地（见 [Harness](harness.md) Run-Shape Map / 反逼 / Meta-harness 闸）。余 P5（operator 经 CLI-system 闭环）/ P6（God-role 清理、Agent-Group）按计划推进。源: `docs/PLAN-four-joint-self-governance-2026-05-31.md` + 各阶段 commit。
-
-**v120：补上"能力固化"闭环末环**——成功且验证过的 HarnessRun 经 EvaluationResult 评判（verdict pass/improved + score≥阈值 + successStreak≥2 + gate 过）自动沉淀为可复用 skill（因果链 Pro/Con + 证据，`lib/automation/automation-skill-precipitation.js`，best-effort 不阻塞主流程）。这正是愿景里"能力是否值得固化沉淀成正式对象"的落地，使 skill 随使用自增长（"用得越多越顺"）。详见 [Skill Boundary](skill-boundary.md) 演化 6。

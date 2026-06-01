@@ -259,8 +259,12 @@ async function completeLoopStageWithPlannerOutput(agentId, inboxContract, {
     updatedAt: Date.now(),
   }, logger);
 
+  // outbox 统一(f7769b5): planner 把简报(带 [STAGE] markers)写进 outbox/，不再写中央 contract.output。
+  // 「只发 stage markers」= 交付物是 [STAGE] 简报；runtime_result 不带显式 transition，验证 runtime 仍按图边推进。
+  const outboxDir = join(agentWorkspace(agentId), "outbox");
+  await mkdir(outboxDir, { recursive: true });
   await writeFile(
-    persistedContract.output,
+    join(outboxDir, "result.md"),
     markdown || [
       "[STAGE] 收敛问题",
       "- 目标：明确任务边界",
@@ -275,6 +279,13 @@ async function completeLoopStageWithPlannerOutput(agentId, inboxContract, {
     ].join("\n"),
     "utf8",
   );
+  await writeFile(runtimeResultPath(agentId), JSON.stringify(buildStageResult({
+    stage: inboxContract.pipelineStage?.stage || agentId,
+    pipelineId: inboxContract.pipelineStage?.pipelineId || null,
+    loopId: inboxContract.pipelineStage?.loopId || null,
+    loopSessionId: inboxContract.pipelineStage?.loopSessionId || null,
+    round: inboxContract.pipelineStage?.round || 1,
+  }), null, 2), "utf8");
 
   const trackingState = createTrackingState({
     sessionKey: `synthetic:${agentId}:${inboxContract.id}:planner-output`,
@@ -292,7 +303,7 @@ async function completeLoopStageWithPlannerOutput(agentId, inboxContract, {
       success: true,
       synthetic: true,
       protocolBoundary: "canonical_outbox_commit",
-      commitType: "output_only",
+      commitType: "runtime_result",
     },
     ctx: {
       sessionKey: trackingState.sessionKey,

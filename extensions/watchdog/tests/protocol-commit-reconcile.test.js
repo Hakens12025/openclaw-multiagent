@@ -22,7 +22,12 @@ import {
   classifyCanonicalProtocolCommit,
   clearProtocolCommitReconcileState,
   flushProtocolCommitDeferredRelease,
+  __setProtocolCommitReconcileGraceMsForTest,
 } from "../lib/protocol-commit-reconcile.js";
+
+// 228a22a 把兜底窗 400ms→30s（agent_end 权威）。本文件验证 reconcile 逻辑本身，
+// 不验证 30s 这个常量，故把窗调小，避免每个时序用例真等 30s。文件进程隔离，不影响他处。
+__setProtocolCommitReconcileGraceMsForTest(50);
 import {
   clearTrackingStore,
   rememberTrackingState,

@@ -2,11 +2,7 @@ import { normalizeString } from "./core/normalize.js";
 import { agentWorkspace } from "./state.js";
 import { parseAgentContractSessionKey } from "./session-keys.js";
 import { RUNTIME_RESULT_FILE } from "./protocol-primitives.js";
-import {
-  getRoleSoulProfile,
-  getRoleOutputDirectives,
-  renderRolePersonaLines,
-} from "./role-spec-registry.js";
+import { AGENT_ROLE } from "./agent/agent-metadata.js";
 
 function resolveContractSession({ agentId, sessionKey } = {}) {
   const normalizedAgentId = normalizeString(agentId);
@@ -21,9 +17,24 @@ export function shouldOverrideContractSessionPrompt({ agentId, sessionKey } = {}
   return resolveContractSession({ agentId, sessionKey }) != null;
 }
 
-// contract session(系统派工)实际跑的系统提示词，替代 SOUL。role 个性（## Role）与产出指令
-// （## Current Contract 的产出 bullet）都从 role-spec 数据驱动派生，与 SOUL 模板同源 —— 真值唯一。
-// 全英文、正向措辞（过 contract-session 守卫）。
+// 产出指令按角色分流（这是 contract session 实际跑的系统提示词，替代 SOUL，
+// 是最直接的产出约束层）：planner 产工作简报 + [STAGE] 阶段计划（成品交执行节点），
+// 其余角色产用户交付物（并先读上游简报）。全英文、正向措辞（过 contract-session 守卫）。
+function buildOutputDirectives(role) {
+  if (normalizeString(role) === AGENT_ROLE.PLANNER) {
+    return [
+      "- Your artifact is a working brief for the downstream executor, not the finished report.",
+      "- Write the brief as an outline: task understanding (1-2 sentences), key considerations (bullet hints), the deliverable outline as section headings with one line of guidance each, constraints, and acceptance criteria.",
+      "- Include `[STAGE]` markers in the brief, one stage per verifiable delivery boundary, each with goal / deliverable / done-criteria.",
+      "- The downstream executor reads your brief and produces the final deliverable; you hand over the brief and stage plan.",
+    ];
+  }
+  return [
+    "- When `inbox/contract.json` lists `upstreamPackages`, read those upstream packages under `inbox/` as your brief and input for this contract.",
+    "- Write the user-facing deliverable artifact.",
+  ];
+}
+
 export async function buildContractSessionSystemPrompt({
   agentId,
   role = null,
@@ -35,7 +46,6 @@ export async function buildContractSessionSystemPrompt({
 
   const normalizedAgentId = normalizeString(agentId);
   const resolvedWorkspaceDir = normalizeString(workspaceDir) || agentWorkspace(normalizedAgentId);
-  const profile = getRoleSoulProfile(role);
 
   return [
     "You are running inside OpenClaw.",
@@ -44,18 +54,12 @@ export async function buildContractSessionSystemPrompt({
     `Contract: \`${contractSession.contractId}\``,
     `Workspace: \`${resolvedWorkspaceDir}\``,
     "",
-    "## Role",
-    "",
-    profile.summary,
-    ...renderRolePersonaLines(role),
-    "",
     "## Current Contract",
     "",
     "- First read `inbox/contract.json` as the contract truth.",
-    "- When `inbox/contract.json` lists `upstreamPackages`, read those upstream packages under `inbox/` as your brief and input for this contract.",
     "- Use the current wake message for wake metadata: contract id and output path.",
     "- Use `runtimeContext.currentTime` from that file for date/time questions.",
-    ...getRoleOutputDirectives(role).map((directive) => `- ${directive}`),
+    ...buildOutputDirectives(role),
     `- Write \`outbox/${RUNTIME_RESULT_FILE}\` for runtime status metadata.`,
     "- Runtime consumes status metadata; the user-facing answer lives in the artifact.",
     "- `primaryArtifactPath` points to the main user-facing artifact.",

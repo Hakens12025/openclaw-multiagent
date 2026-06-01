@@ -12,6 +12,7 @@ import {
   SYSTEM_ACTION_STATUS,
 } from "../core/runtime-status.js";
 import { startLoopRound } from "../loop/loop-round-runtime.js";
+import { normalizePositiveInteger } from "../loop/loop-budget.js";
 import {
   isActionAllowedForRole,
   resolveDisallowedActionReason,
@@ -28,10 +29,14 @@ export function resolveStartLoopParams(normalizedAction, contractData) {
     : {};
   const startAgent = normalizeString(params.startAgent);
   const requestedTask = normalizeString(params.requestedTask);
+  // loop-limit：agent 经 [ACTION] start_loop 也能在开始时给（缺省 fall-through 到 LoopSpec/DEFAULT）。
+  // 顶层 maxRounds 被 resolveLoopStartBudget 读取（命令 > LoopSpec > DEFAULT）。
+  const maxRounds = normalizePositiveInteger(params.maxRounds, null);
 
   return {
     ...(startAgent ? { startAgent } : {}),
     ...(requestedTask ? { requestedTask } : {}),
+    ...(maxRounds != null ? { maxRounds } : {}),
   };
 }
 

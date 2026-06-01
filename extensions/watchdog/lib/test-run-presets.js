@@ -3,7 +3,6 @@ import {
   SINGLE_CASES,
   CONCURRENT_CASES,
 } from "./formal-runtime/suite-single.js";
-import { LOOP_PLATFORM_CASES } from "./formal-runtime/suite-loop-platform.js";
 import { DIRECT_SERVICE_CASES } from "./formal-runtime/suite-direct-service.js";
 
 export const DEV_TEST_PRESETS = listFormalTestPresets();
@@ -30,10 +29,6 @@ export function collectConcurrentCases(caseIds) {
   return collectCases(caseIds, CONCURRENT_CASES, "concurrent");
 }
 
-export function collectLoopPlatformCases(caseIds) {
-  return collectCases(caseIds, LOOP_PLATFORM_CASES, "loop-platform");
-}
-
 export function collectDirectServiceCases(caseIds) {
   return collectCases(caseIds, DIRECT_SERVICE_CASES, "direct-service");
 }
@@ -45,8 +40,6 @@ export function resolvePresetCases(preset) {
       return collectSingleCases(caseIds);
     case "concurrent":
       return collectConcurrentCases(caseIds);
-    case "loop-platform":
-      return collectLoopPlatformCases(caseIds);
     case "direct-service":
       return collectDirectServiceCases(caseIds);
     default:
@@ -93,7 +86,6 @@ function resolveAdHocCasePreset(caseId) {
   const candidates = [
     { suite: "single", transport: "isolated", collect: collectSingleCases },
     { suite: "concurrent", transport: "isolated", collect: collectConcurrentCases },
-    { suite: "loop-platform", transport: "runtime", collect: collectLoopPlatformCases },
     { suite: "direct-service", transport: "runtime", collect: collectDirectServiceCases },
   ];
   for (const candidate of candidates) {

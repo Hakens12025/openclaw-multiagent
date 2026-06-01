@@ -1,4 +1,4 @@
-// Suite runner functions: single, concurrent, loop-platform, direct-service
+// Suite runner functions: single, concurrent, direct-service
 
 import { broadcast } from "./transport/sse.js";
 import { EVENT_TYPE } from "./core/event-types.js";
@@ -12,12 +12,10 @@ import { listRuntimeAgentIds } from "./agent/agent-identity.js";
 import { listResolvedGraphLoops } from "./loop/graph-loop-registry.js";
 import { createQQTestReplyTo } from "./formal-test-qq-target.js";
 import { runSingleTest, SINGLE_CASES, summarizeTestDiagnosis } from "./formal-runtime/suite-single.js";
-import { runLoopPlatformTest } from "./formal-runtime/suite-loop-platform.js";
 import { runDirectServiceCase } from "./formal-runtime/suite-direct-service.js";
 import {
   collectConcurrentCases,
   collectDirectServiceCases,
-  collectLoopPlatformCases,
   collectSingleCases,
 } from "./test-run-presets.js";
 import {
@@ -299,34 +297,6 @@ export async function runConcurrentSuite(run, preset, sse) {
         await sleep(2000);
       }
     }
-  }
-}
-
-export async function runLoopPlatformSuite(run, preset, sse) {
-  const tasks = collectLoopPlatformCases(preset.caseIds);
-  run.totalCases = tasks.length;
-
-  for (const tc of tasks) {
-    run.status = "running";
-    run.currentCaseId = tc.id;
-    run.currentCaseMessage = tc.description || tc.id;
-    emitRunEvent(EVENT_TYPE.TEST_CASE_STARTED, run, { caseId: tc.id, message: tc.description || tc.id, mode: "loop-platform" });
-
-    await performCleanReset(run, null, { includeResearchState: true });
-    run.status = "running";
-
-    const result = await runLoopPlatformTest(tc, sse);
-    run.caseResults.push(result);
-    applyRunStats(run);
-    emitRunEvent(EVENT_TYPE.TEST_CASE_FINISHED, run, {
-      caseId: tc.id,
-      message: tc.description || tc.id,
-      mode: "loop-platform",
-      pass: result.pass,
-      blocked: result.blocked === true,
-      duration: result.duration,
-      contractId: result.contractId || null,
-    });
   }
 }
 

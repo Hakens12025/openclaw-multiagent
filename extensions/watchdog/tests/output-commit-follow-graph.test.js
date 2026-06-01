@@ -130,9 +130,14 @@ test("output_commit on loop shared contract stays observational and must not adv
       updatedAt: Date.now(),
     }, logger);
 
+    // outbox 统一(f7769b5): agent 把交付物写进 outbox/，不再写中央 contract.output。
+    const entryOutboxDir = join(agentWorkspace(ENTRY_AGENT), "outbox");
+    await mkdir(entryOutboxDir, { recursive: true });
     await writeFile(
-      entryInboxContract.output,
-      `# ${ENTRY_AGENT} output\n\n本阶段完成，等待 runtime 依据唯一 loop 出边推进到 ${NEXT_AGENT}。\n`,
+      join(entryOutboxDir, "runtime_result.json"),
+      JSON.stringify({
+        output: `# ${ENTRY_AGENT} output\n\n本阶段完成，等待 runtime 依据唯一 loop 出边推进到 ${NEXT_AGENT}。\n`,
+      }),
       "utf8",
     );
 

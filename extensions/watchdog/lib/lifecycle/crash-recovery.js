@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { agentWorkspace, atomicWriteFile, CONTRACTS_DIR, isWorker } from "../state.js";
+import { agentWorkspace, atomicWriteFile, CONTRACTS_DIR } from "../state.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import { readContractSnapshotByPath, updateContractStatus, mutateContractSnapshot } from "../contracts.js";
@@ -239,7 +239,8 @@ export async function handleCrashRecovery({
   }
 
   // Retry-scheduled sessions must keep the agent reservation. Stop QQ typing only.
-  if (isWorker(agentId)) {
+  // 按合约状态判据，不按角色（qqTypingStop 对无 typing 的合约是安全 no-op）。
+  if (trackingState?.contract?.id) {
     qqTypingStop(trackingState?.contract?.id);
   }
 

@@ -602,6 +602,7 @@ function showEdgeContextMenu(e, edge) {
 function highlightCycles() {
   // Always reconcile the register button (it removes itself when no unregistered cycle remains).
   renderCycleRegistrationButton();
+  renderGroupComposeButton();
 
   document.querySelectorAll('.runtime-graph-node .svg-node-box.in-cycle').forEach(el => {
     el.classList.remove('in-cycle');
@@ -771,6 +772,162 @@ async function submitCycleRegistration({ cycle, entrySelect, concludeInput, maxR
     }
   } catch (e) {
     toast('REGISTER FAILED: ' + e.message, 'error');
+    submitBtn.disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMPOSE AGENT GROUP (#46) — AgentGroup 是宏：展开成带 groupId 的内部边 + GroupSession +
+// outputMode 聚合策略。与 loop 注册分离的独立 modal（多字段 members/entry/outputMode/内部边）。
+// 经 graph.group.compose（apply surface），dispatcher 不感知 group。
+// ══════════════════════════════════════════════════════════════════════════════
+
+function renderGroupComposeButton() {
+  if (document.getElementById('graphGroupComposeBtn')) return;
+  const toolbar = document.querySelector('.runtime-graph-toolbar');
+  if (!toolbar) return;
+  const btn = document.createElement('button');
+  btn.id = 'graphGroupComposeBtn';
+  btn.className = 'graph-cycle-register-btn';
+  btn.textContent = 'COMPOSE GROUP';
+  btn.title = '把一组 agent 装配成 AgentGroup（内部边 + outputMode 聚合）';
+  btn.addEventListener('click', openGroupComposeModal);
+  toolbar.appendChild(btn);
+}
+
+function openGroupComposeModal() {
+  closeContextMenu();
+  document.getElementById('graphGroupComposeModal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'graphGroupComposeModal';
+  overlay.className = 'graph-loop-modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'graph-loop-modal';
+
+  const title = document.createElement('div');
+  title.className = 'graph-loop-modal-title';
+  title.textContent = 'COMPOSE AGENT GROUP';
+  modal.appendChild(title);
+
+  const addField = (labelText, inputEl) => {
+    const label = document.createElement('label');
+    label.className = 'graph-loop-modal-label';
+    label.textContent = labelText;
+    modal.appendChild(label);
+    inputEl.classList.add('graph-loop-modal-input');
+    modal.appendChild(inputEl);
+  };
+
+  const membersInput = document.createElement('textarea');
+  membersInput.rows = 2;
+  membersInput.placeholder = 'planner, worker, worker2（逗号或换行分隔，≥2）';
+  addField('MEMBERS (≥2)', membersInput);
+
+  const entryInput = document.createElement('input');
+  entryInput.type = 'text';
+  entryInput.placeholder = 'default：第一个成员';
+  addField('ENTRY (optional · 聚合收口点)', entryInput);
+
+  const outputModeSelect = document.createElement('select');
+  for (const mode of ['aggregate', 'passthrough', 'race']) {
+    const opt = document.createElement('option');
+    opt.value = mode;
+    opt.textContent = mode;
+    outputModeSelect.appendChild(opt);
+  }
+  addField('OUTPUT MODE', outputModeSelect);
+
+  const edgesInput = document.createElement('textarea');
+  edgesInput.rows = 3;
+  edgesInput.placeholder = '每行一条组内边：planner -> worker（端点须为成员；可空）';
+  addField('INTERNAL EDGES (optional)', edgesInput);
+
+  const groupIdInput = document.createElement('input');
+  groupIdInput.type = 'text';
+  groupIdInput.placeholder = 'default：group-<成员拼接>';
+  addField('GROUP ID (optional)', groupIdInput);
+
+  const labelInput = document.createElement('input');
+  labelInput.type = 'text';
+  labelInput.placeholder = 'review_group';
+  addField('LABEL (optional)', labelInput);
+
+  const actions = document.createElement('div');
+  actions.className = 'graph-loop-modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'graph-loop-modal-btn';
+  cancelBtn.textContent = 'CANCEL';
+  cancelBtn.addEventListener('click', () => overlay.remove());
+  actions.appendChild(cancelBtn);
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'graph-loop-modal-btn primary';
+  submitBtn.textContent = 'COMPOSE';
+  submitBtn.addEventListener('click', () => submitGroupCompose({
+    membersInput, entryInput, outputModeSelect, edgesInput, groupIdInput, labelInput, overlay, submitBtn,
+  }));
+  actions.appendChild(submitBtn);
+
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function parseGroupInternalEdges(raw) {
+  return String(raw || '')
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const m = line.split(/\s*-+>\s*/);
+      if (m.length !== 2) return null;
+      const from = m[0].trim();
+      const to = m[1].trim();
+      return from && to ? { from, to } : null;
+    })
+    .filter(Boolean);
+}
+
+async function submitGroupCompose({ membersInput, entryInput, outputModeSelect, edgesInput, groupIdInput, labelInput, overlay, submitBtn }) {
+  const members = String(membersInput.value || '')
+    .split(/[\n,]+/g).map((s) => s.trim()).filter(Boolean);
+  if (members.length < 2) {
+    toast('GROUP 需要至少 2 个成员', 'warn');
+    return;
+  }
+  const entry = entryInput.value.trim();
+  const internalEdges = parseGroupInternalEdges(edgesInput.value);
+  const groupId = groupIdInput.value.trim();
+  const label = labelInput.value.trim();
+  const body = {
+    members,
+    outputMode: outputModeSelect.value,
+    ...(entry ? { entry } : {}),
+    ...(internalEdges.length ? { internalEdges } : {}),
+    ...(groupId ? { groupId } : {}),
+    ...(label ? { label } : {}),
+  };
+
+  submitBtn.disabled = true;
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  try {
+    const r = await fetch(`/watchdog/graph/group/compose?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      toast(`GROUP COMPOSED: ${data.groupId || groupId || members.join('+')}`, 'success');
+      overlay.remove();
+      await loadGraph();
+    } else {
+      toast('COMPOSE FAILED: ' + (data.error || 'unknown'), 'warn');
+      submitBtn.disabled = false;
+    }
+  } catch (e) {
+    toast('COMPOSE FAILED: ' + e.message, 'error');
     submitBtn.disabled = false;
   }
 }

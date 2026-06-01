@@ -123,6 +123,9 @@ export const AGENT_END_MAIN_STAGES = Object.freeze([
   // Reads output once, extracts all marker types, merges mutations into single write.
   defineAgentEndStage({
     id: "extract_output_markers",
+    // 只在 success=true 时提取 marker：失败的 agent 产出的是错误信息而非有效 marker。
+    // 需有可定位的 contract（primaryOutputPath / contractId / trackingState.contract.id 任一）；
+    // run() 内对 null contractId/output 有兜底 return，故此 match 只做粗筛。
     match(context) {
       return context.event.success === true
         && Boolean(context.executionObservation?.primaryOutputPath || context.executionObservation?.contractId || context.trackingState?.contract?.id);

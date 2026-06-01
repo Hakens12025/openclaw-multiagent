@@ -14,7 +14,6 @@ import {
   waitForIdle,
 } from "./formal-runtime/infra.js";
 import { runSingleTest, summarizeTestDiagnosis } from "./formal-runtime/suite-single.js";
-import { summarizeLoopPlatformDiagnosis } from "./formal-runtime/suite-loop-platform.js";
 import { summarizeFormalCheckpointDiagnosis } from "./formal-runtime/formal-report.js";
 import { runGlobalTestEnvironmentSerial } from "./formal-runtime/test-locks.js";
 import { writeTestRunArtifacts } from "./test-run-artifacts.js";
@@ -38,7 +37,6 @@ import {
   performCleanReset,
   runSingleSuite,
   runConcurrentSuite,
-  runLoopPlatformSuite,
   runDirectServiceSuite,
 } from "./test-run-suites.js";
 
@@ -126,9 +124,6 @@ export async function withPreservedRuntimeGraph(callback) {
 }
 
 function summarizeRunDiagnosis(suite, result) {
-  if (suite === "loop-platform") {
-    return summarizeFormalCheckpointDiagnosis(result, summarizeLoopPlatformDiagnosis);
-  }
   if (suite === "direct-service") {
     return summarizeFormalCheckpointDiagnosis(result);
   }
@@ -214,7 +209,7 @@ async function executeRun(run, preset, logger) {
         emitRunEvent(EVENT_TYPE.TEST_RUN_STARTED, run);
 
         await ensureGatewayOnline();
-        await performCleanReset(run, logger, { includeResearchState: preset.suite === "loop-platform" });
+        await performCleanReset(run, logger, { includeResearchState: false });
 
         sse = new SSEClient();
         await sse.connect();
@@ -224,8 +219,6 @@ async function executeRun(run, preset, logger) {
           await runSingleSuite(run, preset, sse, logger);
         } else if (preset.suite === "concurrent") {
           await runConcurrentSuite(run, preset, sse);
-        } else if (preset.suite === "loop-platform") {
-          await runLoopPlatformSuite(run, preset, sse);
         } else if (preset.suite === "direct-service") {
           await runDirectServiceSuite(run, preset, sse);
         } else {

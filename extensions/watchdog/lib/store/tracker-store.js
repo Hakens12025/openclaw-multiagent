@@ -191,20 +191,6 @@ export function hasRunningTrackingSessionForAgent(agentId) {
   return false;
 }
 
-export function hasOtherRunningTrackingSessionForAgent(agentId, sessionKey) {
-  const normalizedAgentId = normalizeAgentId(agentId);
-  const normalizedSessionKey = normalizeSessionKey(sessionKey);
-  if (!normalizedAgentId) return false;
-
-  for (const [trackedSessionKey, trackedState] of tracker.entries()) {
-    if (normalizedSessionKey && trackedSessionKey === normalizedSessionKey) continue;
-    if (trackedState?.agentId === normalizedAgentId && isRunningTrackingStatus(trackedState?.status)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export function listOtherRunningTrackingSessionsForAgent(agentId, sessionKey) {
   const normalizedAgentId = normalizeAgentId(agentId);
   const normalizedSessionKey = normalizeSessionKey(sessionKey);

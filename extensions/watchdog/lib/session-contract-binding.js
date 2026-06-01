@@ -16,7 +16,6 @@ import {
   hasDispatchTarget,
 } from "./routing/dispatch-runtime-state.js";
 import { toTrackingContract } from "./session-tracking-state.js";
-import { ensureWorkspaceContractOutputAlias } from "./runtime-contract-output-alias.js";
 import { AGENT_ROLE, getAgentIdentitySnapshot } from "./agent/agent-identity.js";
 import { getQQTarget, qqNotify, qqTypingStart, hasQQPassiveReplyTarget } from "./channel-notify.js";
 
@@ -165,11 +164,6 @@ export async function bindPendingWorkerContract({
 
   const { contract, path } = pending;
   trackingState.contract = toTrackingContract(contract, path);
-  await ensureWorkspaceContractOutputAlias({
-    agentId,
-    contractOutput: trackingState.contract.output,
-    logger,
-  });
   notifyTrackingContractClaim(sessionKey, trackingState.contract.id);
   await updateContractStatus(path, CONTRACT_STATUS.RUNNING, logger);
   await claimDispatchTargetContract({ contractId: contract.id, agentId, logger });
@@ -240,11 +234,6 @@ export async function bindInboxContractEnvelope({
 
     const binding = await resolveTrackingEnvelopeBinding(contract, contractPath);
     trackingState.contract = toTrackingContract(binding.contract, binding.path);
-    await ensureWorkspaceContractOutputAlias({
-      agentId,
-      contractOutput: trackingState.contract.output,
-      logger,
-    });
     if (
       !isDirectRequest
       && isCanonicalSharedContractBinding(contract?.id, binding.path)

@@ -10,7 +10,7 @@ import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
 import { agentWorkspace, apiRef, cfg, runtimeAgentConfigs, setApiRef } from "../lib/state.js";
 import { INTENT_TYPES, createDirectRequestEnvelope } from "../lib/protocol-primitives.js";
 import { EVENT_TYPE } from "../lib/core/event-types.js";
-import { buildContractSessionSystemPrompt } from "../lib/contract-session-prompt-override.js";
+import { getDispatchInstruction } from "../lib/role-spec-registry.js";
 import {
   SEMANTIC_WORKFLOWS,
   inferSemanticWorkflow,
@@ -187,7 +187,7 @@ test("reviewer guidance keeps review semantics without embedding shared-contract
 
     assert.match(soul, /\[BLOCKING\]/);
     assert.match(soul, /\[SUGGESTION\]/);
-    assert.match(soul, /Current Session Boundary/);
+    assert.match(soul, /当前会话边界/);
     assert.doesNotMatch(soul, /inbox\/contract\.json/);
     assert.doesNotMatch(soul, /outbox\/stage_result\.json/);
     assert.doesNotMatch(soul, /outbox\/contract_result\.json/);
@@ -211,27 +211,26 @@ test("execution soul stays role-only while dispatch instructions carry the contr
     });
 
     const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    const wakePrompt = await buildContractSessionSystemPrompt({
-      agentId: "worker-boundary",
-      role: AGENT_ROLE.EXECUTOR,
-      sessionKey: "agent:worker-boundary:contract:c-delivery",
-      workspaceDir,
-    });
+    const dispatchInstruction = getDispatchInstruction(AGENT_ROLE.EXECUTOR);
 
     assert.doesNotMatch(soul, /inbox\/contract\.json/);
     assert.doesNotMatch(soul, /outbox\/runtime_result\.json/);
     assert.doesNotMatch(soul, /outbox\/stage_result\.json/);
     assert.doesNotMatch(soul, /outbox\/contract_result\.json/);
     assert.doesNotMatch(soul, /HEARTBEAT_OK/);
-    // 派工运行协议现在活在 wake 提示词（contract-session override，系统派工），不在 SOUL（身份层）。
-    assert.match(wakePrompt, /inbox\/contract\.json/);
-    assert.match(wakePrompt, /user-facing deliverable/i);
-    assert.match(wakePrompt, /outbox\/runtime_result\.json/);
-    assert.doesNotMatch(wakePrompt, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(wakePrompt, /outbox\/contract_result\.json/);
-    assert.doesNotMatch(wakePrompt, /contract\.output/);
-    assert.doesNotMatch(wakePrompt, /\[ACTION\]/);
-    assert.doesNotMatch(wakePrompt, /[\u4e00-\u9fff]/u);
+    assert.match(dispatchInstruction, /Complete the current contract/i);
+    assert.match(dispatchInstruction, /Read inbox\/contract\.json/);
+    assert.match(dispatchInstruction, /deliver the result/i);
+    assert.match(dispatchInstruction, /user-facing deliverable/i);
+    assert.match(dispatchInstruction, /outbox\/runtime_result\.json/);
+    assert.doesNotMatch(dispatchInstruction, /outbox\/stage_result\.json/);
+    assert.doesNotMatch(dispatchInstruction, /outbox\/contract_result\.json/);
+    assert.doesNotMatch(dispatchInstruction, /contract\.output/);
+    assert.doesNotMatch(dispatchInstruction, /\[ACTION\]/);
+    assert.doesNotMatch(dispatchInstruction, /不要只回原句或一个词/);
+    assert.doesNotMatch(dispatchInstruction, /问候类任务至少/);
+    assert.doesNotMatch(dispatchInstruction, /不要只在聊天里回答/);
+    assert.doesNotMatch(dispatchInstruction, /[\u4e00-\u9fff]/u);
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
   }

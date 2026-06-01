@@ -57,6 +57,7 @@ import {
 import {
   mutateGraphEdge,
   composeGraphLoop,
+  composeGraphGroup,
   deleteGraphLoop,
   repairGraphLoop,
 } from "./admin-surface-graph-operations.js";
@@ -264,6 +265,7 @@ const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
   "graph.edge.add": (args) => mutateGraphEdge({ ...args, mode: "add" }),
   "graph.edge.delete": (args) => mutateGraphEdge({ ...args, mode: "delete" }),
   "graph.loop.compose": composeGraphLoop,
+  "graph.group.compose": composeGraphGroup,
   "graph.loop.delete": deleteGraphLoop,
   "graph.loop.repair": repairGraphLoop,
   "skills.create": authorSkillSurface,

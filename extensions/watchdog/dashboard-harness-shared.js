@@ -16,11 +16,6 @@ const UI_COPY = {
     view_drift: "漂移图",
     placeholder_next: "后续",
     loading: "正在加载塑形套件看板...",
-    merged_placed_title: "用到此方案的落点 / agent",
-    merged_runs_title: "运行历史",
-    merged_no_placed: "暂无落点使用此方案",
-    merged_no_runs: "暂无运行记录",
-    merged_profile_empty: "从左侧选择一个塑形方案查看详情",
     load_failed: "加载失败",
     load_empty: "当前还没有可展示的塑形套件数据。",
     label_modules: "模块",
@@ -171,11 +166,6 @@ const UI_COPY = {
     view_drift: "DRIFT",
     placeholder_next: "NEXT",
     loading: "Loading shaping suite dashboard...",
-    merged_placed_title: "Placements / agents using this profile",
-    merged_runs_title: "Run history",
-    merged_no_placed: "No placement uses this profile yet",
-    merged_no_runs: "No run records yet",
-    merged_profile_empty: "Select a shaping profile on the left to view details",
     load_failed: "Load Failed",
     load_empty: "No shaping suite data is available yet.",
     label_modules: "Modules",
@@ -580,6 +570,16 @@ export function renderSummaryCards(counts = {}) {
         <strong>${esc(formatCount(counts.failingHarnessAutomations))}</strong>
         <small>${esc(tx("summary_failing"))}</small>
       </div>
+    </div>
+  `;
+}
+
+export function renderPlaceholder(titleKey, copyKey, counts = {}) {
+  return `
+    ${renderSummaryCards(counts)}
+    <div class="harness-placeholder">
+      <div class="harness-placeholder-title">${esc(tx(titleKey))}</div>
+      <div class="harness-placeholder-copy">${esc(tx(copyKey))}</div>
     </div>
   `;
 }

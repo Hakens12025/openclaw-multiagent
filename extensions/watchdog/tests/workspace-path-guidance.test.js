@@ -9,7 +9,7 @@ import {
   syncAgentWorkspaceGuidance,
 } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
-import { buildContractSessionSystemPrompt } from "../lib/contract-session-prompt-override.js";
+import { getDispatchInstruction } from "../lib/role-spec-registry.js";
 
 test("execution-layer soul guidance defers IO details to wake + platform docs", async () => {
   // v5.1 Task 1/7: SOUL no longer hardcodes inbox/outbox paths.
@@ -35,8 +35,8 @@ test("execution-layer soul guidance defers IO details to wake + platform docs", 
       });
 
       const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-      assert.match(soul, /Current Session Boundary/);
-      assert.match(soul, /system wake message and the platform docs/);
+      assert.match(soul, /当前会话边界/);
+      assert.match(soul, /以本轮系统唤醒信息和平台文档为准/);
       assert.doesNotMatch(soul, /read\(path: "inbox\/contract\.json"\)/);
       assert.doesNotMatch(soul, /绝不能写成 `\/inbox\/contract\.json`/);
     } finally {
@@ -45,7 +45,7 @@ test("execution-layer soul guidance defers IO details to wake + platform docs", 
   }
 });
 
-test("contract-session wake prompt carries role identity + minimal entrypoint", async () => {
+test("dispatch instructions carry minimal contract-session entrypoint", () => {
   const expectations = [
     { role: AGENT_ROLE.PLANNER, matcher: /stage plan/i },
     { role: AGENT_ROLE.EXECUTOR, matcher: /deliverable/i },
@@ -54,21 +54,16 @@ test("contract-session wake prompt carries role identity + minimal entrypoint", 
   ];
 
   for (const entry of expectations) {
-    const aid = `wake-${entry.role}`;
-    const wake = await buildContractSessionSystemPrompt({
-      agentId: aid,
-      role: entry.role,
-      sessionKey: `agent:${aid}:contract:c-wake`,
-      workspaceDir: `/ws/${aid}`,
-    });
-    assert.match(wake, entry.matcher);
-    assert.match(wake, /inbox\/contract\.json/);
-    assert.match(wake, /upstreamPackages/u, "should tell every role to read upstream artifact packages");
-    assert.match(wake, /outbox\/runtime_result\.json/u);
-    assert.match(wake, /Runtime consumes status metadata/u);
-    assert.doesNotMatch(wake, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(wake, /outbox\/contract_result\.json/);
-    assert.doesNotMatch(wake, /[\u4e00-\u9fff]/u);
+    const instruction = getDispatchInstruction(entry.role);
+    assert.match(instruction, entry.matcher);
+    assert.match(instruction, /Read inbox\/contract\.json/);
+    assert.match(instruction, /upstreamPackages/u, "应提示读上游产物包（产物随 contract 流转）");
+    assert.match(instruction, /outbox\/runtime_result\.json/u);
+    assert.match(instruction, /Runtime consumes status metadata/u);
+    assert.doesNotMatch(instruction, /outbox\/stage_result\.json/);
+    assert.doesNotMatch(instruction, /outbox\/contract_result\.json/);
+    assert.doesNotMatch(instruction, /不要写成/);
+    assert.doesNotMatch(instruction, /[\u4e00-\u9fff]/u);
   }
 });
 

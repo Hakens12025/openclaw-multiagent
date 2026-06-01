@@ -16,7 +16,6 @@ import { refreshTrackingProjection } from "../stage-projection.js";
 import { recordTaskHistory } from "../store/task-history-store.js";
 import { onAgentDone as dispatchGraphPolicyOnAgentDone } from "../routing/dispatch-graph-policy.js";
 import { syncTrackingRuntimeStageProgress } from "../runtime-stage-progress.js";
-import { AGENT_ROLE, getAgentRole } from "../agent/agent-identity.js";
 import { qqTypingStop } from "../channel-notify.js";
 
 export const SESSION_FINALIZE_MODE = Object.freeze({
@@ -42,8 +41,8 @@ export async function finalizeAgentSession({
   );
   const emitTerminalTracking = mode !== SESSION_FINALIZE_MODE.RETRY_SUSPEND;
 
-  // Dispatch runtime release (no dispatch — dispatch-graph-policy is sole dispatch authority)
-  if (trackingState && getAgentRole(agentId) === AGENT_ROLE.EXECUTOR && trackingState.contract?.id && emitTerminalTracking) {
+  // 停 QQ typing：按合约状态判据，不按角色（qqTypingStop 对无 typing 的合约是安全 no-op）。
+  if (trackingState && trackingState.contract?.id && emitTerminalTracking) {
     qqTypingStop(trackingState.contract.id);
   }
   if (!retainAgentReservation && trackingState && hasDispatchTarget(agentId)) {

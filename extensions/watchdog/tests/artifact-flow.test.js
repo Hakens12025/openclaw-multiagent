@@ -34,6 +34,7 @@ import {
 } from "../lib/lifecycle/artifact-store.js";
 import { buildWakeMessage } from "../lib/routing/dispatch-graph-policy.js";
 import { loadGraph, getEdgesTo } from "../lib/agent/agent-graph.js";
+import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
 import { agentWorkspace } from "../lib/state-agent-helpers.js";
 import { AGENT_END_MAIN_STAGES } from "../lib/lifecycle/agent-end-stage-definitions.js";
 
@@ -151,18 +152,20 @@ test("saveAgentArtifact：无产物 / 缺参 → no-op；非法入参 → 不抛
 // ── 4. copyUpstreamArtifactsToInbox 上游整包流入 ──────────────────────────────
 
 test("copyUpstreamArtifactsToInbox：上游整包（多文件）→ inbox/upstream/<producer>/ 全部出现 + packages 返回", async () => {
-  // 真实 graph：planner→worker（planner 是 worker 的上游）。先确认拓扑。
-  const graph = await loadGraph();
-  assert.ok(getEdgesTo(graph, "worker").map((e) => e.from).includes("planner"), "前置：planner 应是 worker 上游");
-
+  // 自建 graph fixture：planner→worker（planner 是 worker 的上游）。
+  // 不依赖 live 拓扑——live 拓扑可被有意更改；测试自建 fixture + 用后恢复，保证隔离。
+  const originalGraph = await loadGraph();
   const cid = `tc-art-up-${Date.now()}`;
-  const [reportPath, dataPath] = await writeOutputs(cid, [
-    [`report.md`, "PLANNER 给下游的计划"],
-    [`data.json`, '{"n":2}'],
-  ]);
   const upstreamRoot = join(agentWorkspace("worker"), "inbox", "upstream");
-  await rm(upstreamRoot, { recursive: true, force: true });
+  let reportPath;
+  let dataPath;
   try {
+    await saveGraph({ edges: [{ from: "planner", to: "worker", label: "test-upstream" }] });
+    [reportPath, dataPath] = await writeOutputs(cid, [
+      [`report.md`, "PLANNER 给下游的计划"],
+      [`data.json`, '{"n":2}'],
+    ]);
+    await rm(upstreamRoot, { recursive: true, force: true });
     // planner 多文件整包独立保存
     await saveAgentArtifact({ contractId: cid, agentId: "planner", artifactPaths: [reportPath, dataPath], primaryOutputPath: reportPath });
     // worker 启动 → 上游 planner 整包流入 worker inbox/upstream/planner/
@@ -175,8 +178,9 @@ test("copyUpstreamArtifactsToInbox：上游整包（多文件）→ inbox/upstre
     assert.equal(existsSync(join(pkgDir, "manifest.json")), true, "manifest 应随包流入（agent 据此知道清单/主交付物）");
     assert.equal(readFileSync(join(pkgDir, `${cid}-report.md`), "utf8"), "PLANNER 给下游的计划");
   } finally {
-    await rm(reportPath, { force: true });
-    await rm(dataPath, { force: true });
+    await saveGraph(originalGraph);
+    if (reportPath) await rm(reportPath, { force: true });
+    if (dataPath) await rm(dataPath, { force: true });
     await rm(artifactDir(cid), { recursive: true, force: true });
     await rm(upstreamRoot, { recursive: true, force: true });
   }

@@ -13,7 +13,6 @@ import { getAgentRole } from "../lib/agent/agent-identity.js";
 import { getToolRestrictions } from "../lib/capability/capability-preset-registry.js";
 import { agentWorkspace } from "../lib/state.js";
 import { canonicalizeContractOutputPath } from "../lib/runtime-contract-output-alias.js";
-import { resolveWorkspaceContractOutputAliasPath } from "../lib/runtime-contract-output-alias.js";
 import { classifyRuntimeControlPayload } from "../lib/runtime-user-facing-output.js";
 import { parseAgentContractSessionKey } from "../lib/session-keys.js";
 import { readCachedContractSnapshotById } from "../lib/store/contract-store.js";
@@ -66,16 +65,10 @@ function buildOwnInboxContractHint(ownInboxContractPath) {
   return "请读取相对路径 inbox/contract.json。";
 }
 
-function buildContractOutputWriteHint(agentId, contractOutput) {
-  const normalizedOutput = normalizePath(contractOutput);
-  const aliasPath = resolveWorkspaceContractOutputAliasPath(agentId, normalizedOutput);
-  if (!normalizedOutput && !aliasPath) {
-    return "请直接写入本轮约定的结果文件。";
-  }
-  if (normalizedOutput && aliasPath) {
-    return `请直接写入结果路径：${normalizedOutput}；当前工作区等价别名：${aliasPath}。`;
-  }
-  return `请直接写入结果路径：${normalizedOutput || aliasPath}。`;
+function buildContractOutputWriteHint() {
+  // 统一约定：agent 只写 outbox/inbox。交付物写进 outbox/（文件名自定），系统整包收集并流转给下游/用户。
+  // 中央 output 路径由系统内部管理，agent 面只暴露 outbox（output 与 outbox 易混，曾有 agent 把 output 误当写入路径）。
+  return "请把最终交付物写进 outbox/(文件名自定)。";
 }
 
 function buildRuntimeResultCommitHint() {

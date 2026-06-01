@@ -26,7 +26,6 @@ const EXPECTED_PRESET_IDS = [
   "concurrent",
   "mixed-concurrency",
   "queue-pressure",
-  "loop-platform",
   "direct-service",
   "direct-service-matrix",
 ];
@@ -157,7 +156,6 @@ test("formal runtime has no tests-directory re-export facade files", async () =>
     "suite-single.js",
     "suite-loop.js",
     "suite-loop-direct.js",
-    "suite-loop-platform.js",
     "suite-direct-service.js",
   ];
 

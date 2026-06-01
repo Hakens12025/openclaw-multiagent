@@ -84,22 +84,6 @@ export function getToolRestrictions(role) {
   return TOOL_RESTRICTIONS[role] || null;
 }
 
-export function getCapabilityToolPreset(role) {
-  return [...readCapabilityPreset(role).tools];
-}
-
-export function getCapabilityOutputPreset(role) {
-  return [...readCapabilityPreset(role).outputFormats];
-}
-
-export function getCapabilityOutboxCommitKinds(role) {
-  return [...readCapabilityPreset(role).outboxCommitKinds];
-}
-
-export function getCapabilityRouterHandlerId(role) {
-  return normalizeString(readCapabilityPreset(role).routerHandlerId) || null;
-}
-
 export function getCapabilityDirectoryOrder(role) {
   return readCapabilityPreset(role).directoryOrder || readCapabilityPreset(AGENT_ROLE.AGENT).directoryOrder;
 }

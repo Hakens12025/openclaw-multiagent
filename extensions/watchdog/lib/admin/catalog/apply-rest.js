@@ -276,6 +276,18 @@ export const APPLY_REST_SURFACES = [
     summary: "按给定顺序把多个 agent 连接成闭环，并一次性刷新 BUILDING-MAP / PLATFORM-GUIDE。",
   },
   {
+    id: "graph.group.compose",
+    stage: "apply",
+    risk: "structural",
+    method: "POST",
+    path: "/watchdog/graph/group/compose",
+    operatorPhase: "O2",
+    operatorExecutable: true,
+    confirmation: "changeset",
+    status: "active",
+    summary: "把一组 agent 装配成 AgentGroup（宏展开为带 groupId 的内部边 + GroupSession + outputMode 聚合策略）。",
+  },
+  {
     id: "graph.loop.delete",
     stage: "apply",
     risk: "structural",

@@ -210,25 +210,30 @@ export async function handleSuccessfulTrackingCompletion(context) {
     const graphTerminalOutcome = deferredSystemAction
       ? null
       : resolveGraphTerminalOutcome(context.graphRouteResult);
-    const resolvedOutcome = deferredSystemAction
-      ? {
-          terminalOutcome: {
-            status: CONTRACT_STATUS.COMPLETED,
-            reason: `deferred via ${systemActionResult.actionType}`,
-            source: "system_action",
-          },
-          terminalStatus: CONTRACT_STATUS.COMPLETED,
-        }
-      : systemActionFailureOutcome
-        ? systemActionFailureOutcome
-        : graphTerminalOutcome
-          ? graphTerminalOutcome
-          : await resolveTerminalOutcome({
-            trackingState,
-            contractData: effectiveContractForOutcome,
-            executionObservation: effectiveExecutionObservation,
-            logger,
-          });
+    // 终态优先级（短路顺序与原嵌套三元完全一致）：deferred > systemAction失败 > graph终态 > 兜底解析。
+    // await 仅在前三者全 falsy 时求值，异步边界不变。
+    let resolvedOutcome;
+    if (deferredSystemAction) {
+      resolvedOutcome = {
+        terminalOutcome: {
+          status: CONTRACT_STATUS.COMPLETED,
+          reason: `deferred via ${systemActionResult.actionType}`,
+          source: "system_action",
+        },
+        terminalStatus: CONTRACT_STATUS.COMPLETED,
+      };
+    } else if (systemActionFailureOutcome) {
+      resolvedOutcome = systemActionFailureOutcome;
+    } else if (graphTerminalOutcome) {
+      resolvedOutcome = graphTerminalOutcome;
+    } else {
+      resolvedOutcome = await resolveTerminalOutcome({
+        trackingState,
+        contractData: effectiveContractForOutcome,
+        executionObservation: effectiveExecutionObservation,
+        logger,
+      });
+    }
     const terminalOutcome = applyExecutionIncidentToTerminalOutcome(
       resolvedOutcome.terminalOutcome,
       executionIncident,

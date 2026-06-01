@@ -96,7 +96,7 @@ test("runtime reset resyncs managed workspace guidance so stale planner SOUL no 
     assert.equal(result.ok, true);
 
     const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    assert.match(soul, /Current Session Boundary/);
+    assert.match(soul, /当前会话边界/);
     assert.doesNotMatch(soul, /inbox\/contract\.json/);
     assert.doesNotMatch(soul, /outbox\/stage_result\.json/);
     assert.doesNotMatch(soul, /HEARTBEAT_OK/);

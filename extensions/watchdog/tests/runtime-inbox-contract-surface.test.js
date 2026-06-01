@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
-import { resolveWorkspaceContractOutputAliasPath } from "../lib/runtime-contract-output-alias.js";
 import { routeWorkerInbox } from "../lib/routing/runtime-mailbox-inbox-handlers.js";
 import { dispatchTargetStateMap } from "../lib/state.js";
 
@@ -87,10 +86,9 @@ test("routeWorkerInbox stages a task-facing contract surface without planningCon
 
     assert.equal(staged.id, contractId);
     assert.equal(staged.task, "现在几点了");
-    assert.equal(
-      staged.outputAlias,
-      resolveWorkspaceContractOutputAliasPath(agentId, sharedContract.output),
-    );
+    // outbox 统一(f7769b5): agent 面向投影去掉 output/outputAlias，agent 写 outbox/。
+    assert.equal("outputAlias" in staged, false);
+    assert.equal("output" in staged, false);
     assert.deepEqual(staged.stageRuntime, sharedContract.stageRuntime);
     assert.deepEqual(staged.runtimeContext, sharedContract.runtimeContext);
     assert.equal("replyTo" in staged, false);

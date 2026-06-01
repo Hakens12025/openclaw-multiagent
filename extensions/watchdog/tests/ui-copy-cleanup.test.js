@@ -276,7 +276,6 @@ test("tracker timeout late-completion recovery uses loop runtime naming", () => 
 
 test("formal loop runtime cases avoid retired pipeline labels", () => {
   const sources = {
-    loopPlatform: readFileSync(new URL("../lib/formal-runtime/suite-loop-platform.js", import.meta.url), "utf8"),
     loopDirect: readFileSync(new URL("../lib/formal-runtime/suite-loop-direct.js", import.meta.url), "utf8"),
   };
 
