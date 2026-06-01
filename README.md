@@ -59,7 +59,7 @@ bash start.sh
 
 - **传送带** —— graph 的边是「谁能投给谁」的授权，不是时序。agent 之间从不直接通信，全靠平台按 graph 搬运 inbox/outbox。回路里绝不硬编码 agent 名字。
 - **Contract** —— 每个任务是一份合约，带着 assignee 和 replyTo，落进 agent 的 `inbox/contract.json`。
-- **SOUL 通用机** —— agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程），领域知识全部通过 skill 注入。换个领域就是换套 skill，SOUL 一字不改。
+- **SOUL 通用机** —— agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程），agent有不同的Role，比如researcher、excutor、reviewer、planner、bridge。不同的Role才是各个agent的特有知识，同时可可自定义skill 注入。换个领域就是换套 Role，SOUL 一字不改。
 
 ## 设计小巧思
 
