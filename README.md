@@ -63,14 +63,14 @@ bash start.sh
 
 ## 设计小巧思
 
-用户消息和系统内派工渠道分开，用户可以直接和系统内任意agent交流，同时可让某agent直接派工去往某个agent，或者是某个设计好的loop，完成后自动回流消息
-用户消息和系统派工消息使用不同的prompt，系统派工prompt为专用的wake-agent-message，更加对应agent在系统中的角色
-以contract为核心的session机制，同一contract在各agent之间session编号一致，便于上下文保留
-多agent协作时，前一agent会生成context消息，以便后一agent上手开工
-harness设计为模块化，harness本身严格规范设计，倒闭operator设计和编写严格的harness模块
-使用使用heartbeat方法避开了openclaw多并发缓慢的问题
-自带test-runner，3种预设test，在对系统，prompt进行修改后可直接复核质量
-存在operator这个meta-agent，负责系统治理，全操作使用harness和CLI system进行，无法直接edit代码，保证治理合规
+- 用户消息和系统内派工渠道分开，用户可以直接和系统内任意agent交流，同时可让某agent直接派工去往某个agent，或者是某个设计好的loop，完成后自动回流消息
+- 用户消息和系统派工消息使用不同的prompt，系统派工prompt为专用的wake-agent-message，更加对应agent在系统中的角色
+- 以contract为核心的session机制，同一contract在各agent之间session编号一致，便于上下文保留
+- 多agent协作时，前一agent会生成context消息，以便后一agent上手开工
+- harness设计为模块化，harness本身严格规范设计，倒闭operator设计和编写严格的harness模块
+- 使用使用heartbeat方法避开了openclaw多并发缓慢的问题
+- 自带test-runner，3种预设test，在对系统，prompt进行修改后可直接复核质量
+- 存在operator这个meta-agent，负责系统治理，全操作使用harness和CLI system进行，无法直接edit代码，保证治理合规
 
 ```
 Gateway        加载 openclaw.json，注册插件
