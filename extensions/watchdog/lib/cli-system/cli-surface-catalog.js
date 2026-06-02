@@ -288,6 +288,18 @@ export const CLI_SYSTEM_STATIC_SURFACES = Object.freeze([
     summary: "封装 ProfileLifecycle 尾段只读投影（trustLevel/status/streak + governance 熔断），作为 operator 观测自治治理状态的正式入口（P4 死链 c 接口补全，只读不碰决策路径）。",
   },
   {
+    id: "inspect.structure_preview",
+    family: "inspect",
+    source: "runtime_inspect",
+    risk: "read",
+    method: "QUERY",
+    path: "structure_preview",
+    status: "active",
+    operatorExecutable: false,
+    executable: true,
+    summary: "封装结构快照投影（projectStructureAfter）：给定待应用的 surface 改动（options.surfaceId + options.payload），非破坏性算出改动后的结构（edgeDiff added/removed + current/projected edges+loops），供 operator/守门方在 apply 前 CLI 预览新结构。只读不碰 live。",
+  },
+  {
     id: "inspect.active_loop_session",
     family: "inspect",
     source: "runtime_inspect",

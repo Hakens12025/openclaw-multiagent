@@ -8,6 +8,7 @@ import {
   readAgentDefaultsRegistry,
 } from "../capability/capability-registry.js";
 import { callOpenAICompatiblePlanner } from "../llm-planner.js";
+import { EXECUTABLE_OPERATOR_PLAN_INTENTS } from "./operator-plan.js";
 import { normalizeRecord, normalizeString, uniqueStrings, compactText } from "../core/normalize.js";
 import { buildOperatorKnowledgeContext } from "./operator-knowledge.js";
 import { loadSnapshotCoreData } from "./operator-snapshot.js";
@@ -38,18 +39,14 @@ function summarizeSurfaceForBrain(surface) {
   };
 }
 
+// Slim per-agent summary (token 少量): just id + role + model. The in/out edges + role-summary live
+// in the Agent Map fragment (operator-knowledge.js buildAgentMapFragment); the skill catalog is in
+// context.skills. The old description(140)+effectiveSkills(12)+4 flags dump was the heavy reading cost.
 function summarizeAgentForBrain(agent) {
   return {
     id: normalizeString(agent?.id) || "unknown",
-    name: normalizeString(agent?.name) || normalizeString(agent?.id) || "unknown",
     role: normalizeString(agent?.role) || null,
     model: normalizeString(agent?.model) || null,
-    description: compactText(agent?.description, 140),
-    skills: Array.isArray(agent?.effectiveSkills) ? agent.effectiveSkills.slice(0, 12) : [],
-    gateway: agent?.gateway === true,
-    protected: agent?.protected === true,
-    ingressSource: normalizeString(agent?.ingressSource) || null,
-    specialized: agent?.specialized === true,
   };
 }
 
@@ -209,6 +206,8 @@ function buildOperatorBrainSystemPrompt() {
     "Understand the user's request, then return a structured plan using provided cli-system surfaces or answer in advice_only mode with zero steps.",
     "Use context.agent/surface/schema ids exactly as provided.",
     "Plan only with executableSurfaces. For unsupported requests, use intent=advice_only with steps=[].",
+    "OpenClaw is a GENERAL multi-agent machine. A domain's missing capability (computation, backtesting, data parsing, a domain method) is something you BUILD, NOT a reason to refuse: grant the agent tools via agents.tools (e.g. bash to run calculations), author the domain method as a skill via skills.create, set role via agents.role, then compose the loop (graph.loop.compose). Composing makes the loop structurally active; you do NOT start it. Reserve advice_only for requests that genuinely cannot be expressed with ANY provided surface — never merely because a domain needs a specialized agent. Default to BUILDING a runnable structure (the human refines it later) over giving advice.",
+    "You DESIGN the control plane; you do NOT run the user's concrete one-off task. A composed loop being structurally active (its authorization edges / LoopSpec exist, not yet running) is the CORRECT end state of a build plan. End a build plan at the structure (agents.create / graph.edge.add / graph.loop.compose / graph.group.compose / harness via automations) + agent content (agents.role, agents.tools e.g. bash, agents.description, agents.constraints, domain method authored as a skill via skills.create then attached via agents.skills) + an inspect.structure_preview. Do NOT append runtime.loop.start carrying the user's concrete task as requestedTask: the one-off task is dispatched to the built structure SEPARATELY downstream by the user/ingress — for any structure it arrives in the entry agent's inbox; for a loop the user may explicitly trigger runtime.loop.start. Emit runtime.loop.start only when the user EXPLICITLY asks to run/resume an already-built loop now — never as the mandatory tail of a build.",
     "executableSurfaces include apply (write) and verify (test_runs.start / test.inject) surfaces. When you mutate the platform, you may append a verify step to confirm the change (inspect -> apply -> verify governance loop).",
     "Graph edges are directional. Proposed graph changes must appear as graph surface steps.",
     "Use conversation and planningFocus to resolve clear follow-up references.",
@@ -226,6 +225,33 @@ function buildOperatorBrainSystemPrompt() {
       steps: [{ surfaceId: "one of executableSurfaces ids", title: "short title", summary: "why this step exists", payload: {} }],
     }, null, 2),
   ].join("\n");
+}
+
+// Reliability: minimax-m2.5 intermittently returns a BUILD intent with empty steps[] (it "decided"
+// to build but emitted nothing), or malformed JSON. A plan is "degenerate" when it declares an
+// executable build intent yet carries zero steps. advice_only/empty and null-intent are NOT
+// degenerate (legitimate no-build → no wasteful retry).
+export function isDegeneratePlannerPlan(rawPlan) {
+  const plan = normalizeRecord(rawPlan);
+  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+  return EXECUTABLE_OPERATOR_PLAN_INTENTS.has(normalizeString(plan.intent)) && steps.length === 0;
+}
+
+// Single retry for a degenerate or unparseable plan — converts the observed "several calls return
+// empty steps" flakiness into a recoverable single re-ask. A network/socket error (UND_ERR_SOCKET,
+// abort) is rethrown after the first call so the retry NEVER masks a provider/GLM-socket failure;
+// only PLANNER_JSON_PARSE_FAILED + degenerate-but-parsed trigger the re-ask.
+export async function callPlannerWithSingleRetry(plannerArgs) {
+  try {
+    const first = await callOpenAICompatiblePlanner(plannerArgs);
+    if (!isDegeneratePlannerPlan(first)) return first;
+  } catch (error) {
+    if (error?.code !== "PLANNER_JSON_PARSE_FAILED") throw error;
+  }
+  return callOpenAICompatiblePlanner({
+    ...plannerArgs,
+    userPrompt: `${plannerArgs.userPrompt}\n\nReturn a complete valid JSON plan with non-empty steps; do not declare a build intent with empty steps.`,
+  });
 }
 
 export async function planWithOperatorBrain({ message, history = [], currentPlan = null, logger = null } = {}) {
@@ -247,19 +273,26 @@ export async function planWithOperatorBrain({ message, history = [], currentPlan
 
   const surfaces = listOperatorExecutableCliSystemSurfaces({ includeTemplates: true });
   const [knowledge, planningFocus] = await Promise.all([
-    buildOperatorKnowledgeContext({ requestText, graph, loops, loopSessions, skills, surfaces }),
+    buildOperatorKnowledgeContext({ requestText, agents, graph, loops, loopSessions, skills, surfaces }),
     Promise.resolve(buildOperatorPlanningFocus({ agents, loops, loopSessions, conversation: history, currentPlan })),
   ]);
 
   const context = buildBrainContext({ requestText, modelRef: modelRef.fullRef, agentDefaults, agents, skills, models, surfaces, graph, loops, loopSessions, knowledge, history, currentPlan, planningFocus, testReports, harnessRuns, automationRuntimes });
 
   logger?.info?.(`[watchdog] operator-brain planning with ${modelRef.fullRef}`);
-  const rawPlan = await callOpenAICompatiblePlanner({
+  const rawPlan = await callPlannerWithSingleRetry({
     model: modelRef.modelId,
     baseUrl: modelRef.baseUrl,
     apiKey: modelRef.apiKey,
     systemPrompt: buildOperatorBrainSystemPrompt(),
-    userPrompt: ["Plan or answer based on this live platform context.", "Use advice_only for low-confidence execution.", JSON.stringify(context, null, 2)].join("\n\n"),
+    userPrompt: ["Plan or answer based on this live platform context.", "If the request describes agents, a workflow, a loop, or a pipeline to build, you MUST emit build steps — agent content (agents.create + agents.role / agents.skills / agents.tools / agents.description) and structure (graph.edge.add / graph.loop.compose). That is a SUPPORTED build request: do NOT return advice_only with empty steps for it. Reuse existing agents/skills where they fit. Use advice_only ONLY when no provided surface can express the request.", JSON.stringify(context, null, 2)].join("\n\n"),
+    // Build-planning is heavy reasoning over a large live context (not a quick chat) and emits a
+    // multi-step plan — the default 45s aborts mid-generation on a loaded provider. Give it room;
+    // the dashboard shows a pending state while it plans.
+    timeoutMs: 120000,
+    // Reasoning models (e.g. glm-5.1) spend tokens on reasoning_content BEFORE emitting the plan
+    // in content; 4096 can leave the plan JSON empty/truncated. Budget for reasoning + the plan.
+    maxTokens: 8192,
   });
 
   return { ok: true, source: "operator_brain_llm", plannerModel: modelRef.fullRef, context, plan: normalizeRecord(rawPlan) };

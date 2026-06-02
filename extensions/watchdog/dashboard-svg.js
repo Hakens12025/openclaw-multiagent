@@ -61,6 +61,52 @@ function placeNode(id, x, y, w = NODE_W, h = NODE_H) {
   nodePositions[id] = { x: snap(x), y: snap(y), w, h };
 }
 
+// Collision avoidance — keep agent-cards from overlapping so a freshly-generated agent doesn't land
+// on top of an existing card (looks nicer). Each card is treated as a circle: center = (x+w/2, y+h/2),
+// r = max(w,h)/2 + padding. User-dragged cards (in savedPositions) are FIXED anchors — only
+// auto-placed cards move, and they avoid the anchors. A few relaxation passes push overlaps apart.
+function resolveNodeCollisions() {
+  const ids = Object.keys(nodePositions);
+  const isFixed = (id) => Object.prototype.hasOwnProperty.call(savedPositions, id);
+  const radius = (p) => Math.max(p.w, p.h) / 2 + 8;
+  const cx = (p) => p.x + p.w / 2;
+  const cy = (p) => p.y + p.h / 2;
+  for (let pass = 0; pass < 16; pass += 1) {
+    let moved = false;
+    for (let i = 0; i < ids.length; i += 1) {
+      for (let j = i + 1; j < ids.length; j += 1) {
+        const A = nodePositions[ids[i]];
+        const B = nodePositions[ids[j]];
+        const aFixed = isFixed(ids[i]);
+        const bFixed = isFixed(ids[j]);
+        if (aFixed && bFixed) continue; // both user-placed → don't fight the user's layout
+        let dx = cx(B) - cx(A);
+        let dy = cy(B) - cy(A);
+        let dist = Math.hypot(dx, dy);
+        const minDist = radius(A) + radius(B);
+        if (dist >= minDist) continue;
+        if (dist < 0.01) { dx = 1; dy = 0.3; dist = Math.hypot(dx, dy); } // coincident → nudge apart
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const overlap = minDist - dist;
+        const aShare = aFixed ? 0 : (bFixed ? 1 : 0.5);
+        const bShare = bFixed ? 0 : (aFixed ? 1 : 0.5);
+        A.x = snap(A.x - ux * overlap * aShare);
+        A.y = snap(A.y - uy * overlap * aShare);
+        B.x = snap(B.x + ux * overlap * bShare);
+        B.y = snap(B.y + uy * overlap * bShare);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  for (const id of ids) {
+    if (isFixed(id)) continue;
+    nodePositions[id].x = Math.max(0, nodePositions[id].x);
+    nodePositions[id].y = Math.max(0, nodePositions[id].y);
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // BUILD RUNTIME GRAPH SVG
 // ══════════════════════════════════════════════════════════════════════════════
@@ -125,6 +171,10 @@ export function buildRuntimeGraphSVG(agents) {
   for (const [id, saved] of Object.entries(savedPositions)) {
     if (nodePositions[id]) { nodePositions[id].x = snap(saved.x); nodePositions[id].y = snap(saved.y); }
   }
+
+  // Push auto-placed cards off any overlaps (new agents avoid existing cards). Edge paths below
+  // recompute from the adjusted nodePositions, so routing stays consistent.
+  resolveNodeCollisions();
 
   const laidOutNodeIds = [
     ...bridgeNodes.map((agent) => agent.id),

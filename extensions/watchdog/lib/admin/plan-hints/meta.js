@@ -22,6 +22,10 @@ export const SURFACE_DEFAULT_PAYLOADS = Object.freeze({
     id: "",
     role: "agent",
   },
+  "skills.create": {
+    skillId: "",
+    description: "",
+  },
   "agents.defaults.skills": {
     skills: [],
   },

@@ -1,4 +1,3 @@
-import { detectCycles } from "../agent/agent-graph.js";
 import { retrieveOperatorKnowledgeNotes } from "./operator-knowledge-library.js";
 import { normalizeString } from "../core/normalize.js";
 import { getSemanticSkillSpec } from "../semantic-skill-registry.js";
@@ -6,6 +5,14 @@ import { getSemanticSkillSpec } from "../semantic-skill-registry.js";
 const MAX_SELECTED_FRAGMENTS = 6;
 
 const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
+  {
+    id: "new-task-workflow",
+    title: "New Task Handling Workflow",
+    sourcePath: "skills/operator-new-task/SKILL.md",
+    priority: 10,
+    tags: ["新任务", "新项目", "项目", "task", "project", "建立", "搭建", "处理", "loop", "回路", "结构", "agent", "因子", "新建", "处理流程", "实战"],
+    summary: "面对全新项目按 6 步设计(operator 只设计结构与 agent 内容, 不替用户跑具体任务): ①读项目(数据经 task/inbox 送达, agent 沙箱只读 inbox 不漫游文件系统) ②分析(需要哪些角色/单次还是迭代环/领域缺口) ③步骤分解(每阶段可验证交付物+完成标准) ④建结构(agents.create + graph.edge.add 线性/graph.loop.compose 回路带 maxRounds/graph.group.compose 组) ⑤特色化(领域知识走 skills.create+agents.skills 注入, 配 agents.role/tools/description/constraints; SOUL/wake-message 由 role+skill 自动组装、不直接编辑, 工作目录平台按 agentId 派生、agent 用相对 inbox/outbox; 不硬编码领域进 SOUL) ⑥完成→用 inspect.structure_preview 给用户预览改动后结构(不要 emit 拍快照 step, 平台破坏性 apply 前自动拍)。⑦交付边界: operator 的交付物止于「结构 active + agent 内容(role/skill/tools) + inspect.structure_preview 预览」, 不携带也不注入用户的具体一次性任务。loop 结构 active(不自己跑)是正确终态——「跑」是用户的下游动作, 不是 operator 的 plan step: 线性管线由用户/ingress(webui/qq)把任务随 contract 投进入口 agent inbox, 传送带逐跳推进; 回路由用户在下游显式触发 runtime.loop.start(requestedTask=用户真实任务)。operator 绝不在 build plan 末尾 emit runtime.loop.start 携带用户具体任务(该 surface 仅用于治理已建好的 loop)。改系统一律经 CLI-system surface(plan→execute→apply→verify)。建好结构=设计交付完成; 跑由用户下游触发。",
+  },
   {
     id: "operator-boundary",
     title: "Operator Boundary",
@@ -94,6 +101,14 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     tags: ["operator", "inspect", "apply", "verify", "surface", "治理", "闭环", "test_runs", "回灌"],
     summary: "operator 主动治理走 inspect→apply→verify 闭环：先用 inspect.* surface 读真值（runtime/work_items/profile_lifecycle/automation 等），再经 apply surface 落地改动（P2.5 已通 cli-surface-executor 四道门），最后可用 verify surface（test_runs.start / test.inject）主动验证并回看结果。apply 类 change-set 经 commit 路径时受 P3 强制 verify 门（verify 不过不能 commit）。",
   },
+  {
+    id: "harness-build",
+    title: "Harness Build (装 harness 到迭代 loop)",
+    sourcePath: "skills/harness-build/SKILL.md",
+    priority: 8,
+    tags: ["harness", "harness化", "迭代", "质量", "门控", "gate", "guard", "collector", "normalizer", "review", "判别", "GAN", "收敛", "module", "automations", "test门", "schema"],
+    summary: "迭代/质量门控 loop 需要 harness(纯线性一次性管线不需要)。harness=平台提供的治理模块包住每个 round, 4 kind 共 10 个: guard(budget/tool_access/scope) collector(artifact/trace) gate(artifact/schema/test) normalizer(eval_input/failure)。选模块=基线(4 kind 各一: guard.budget+collector.artifact+gate.artifact+normalizer.failure)+按需补强(有测试加 gate.test, 结构化产物加 gate.schema, 调试加 collector.trace, 不可信工具加 guard.tool_access/scope)。组装=先 graph.loop.compose 建结构, 再 automations.create 挂 harness(entry.targetAgent=loop入口/entry.message=任务/harness.moduleRefs 或 harness.profileId); 不手设 mode/assuranceLevel(harness-registry 自动派生)。红线: operator 只挑 moduleRef 粒度, 不写模块实现、不当第二 planner。",
+  },
 ]);
 
 function normalizeText(value) {
@@ -134,42 +149,38 @@ function summarizeExecutableCapabilities(surfaces) {
     .filter(Boolean);
 }
 
-function buildDynamicGraphFragment(graph, loops = []) {
+// Agent Map — the compact, system-generated view of the live structure operator plans against.
+// Head (id/title/tags) is fixed; body is generated from live config + graph: per agent
+// {id[role] model · in-edges · out-edges} + active-loop status. This is the *only* place operator
+// reads agents/edges, replacing the verbose per-agent dump (description + skills×12 + flags) — a
+// small, sufficient reading cost to wire agents (符合 token 少量原则).
+function buildAgentMapFragment(agents = [], graph = {}, loops = []) {
   const edges = Array.isArray(graph?.edges) ? graph.edges : [];
-  const cycles = detectCycles(graph);
+  const agentList = Array.isArray(agents) ? agents : [];
+  const inEdges = (id) => edges.filter((e) => normalizeString(e?.to) === id).map((e) => normalizeString(e?.from)).filter(Boolean);
+  const outEdges = (id) => edges.filter((e) => normalizeString(e?.from) === id).map((e) => normalizeString(e?.to)).filter(Boolean);
+  const lines = agentList.map((a) => {
+    const id = normalizeString(a?.id) || "?";
+    const role = normalizeString(a?.role) || "agent";
+    const model = normalizeString(a?.model) || "默认模型";
+    const ins = inEdges(id);
+    const outs = outEdges(id);
+    return `${id}[${role}] ${model} · in←${ins.length ? ins.join(",") : "—"} · out→${outs.length ? outs.join(",") : "—"}`;
+  });
   const registeredLoops = Array.isArray(loops) ? loops : [];
   const activeLoops = registeredLoops.filter((loop) => loop?.active === true);
-  if (edges.length === 0) {
-    return {
-      id: "live-graph-state",
-      title: "Live Graph State",
-      sourcePath: "runtime graph",
-      priority: 9,
-      tags: ["graph", "edge", "loop", "协作", "回路", "reviewer", "worker", "controller"],
-      summary: registeredLoops.length > 0
-        ? `当前 live graph 有向边数量为 0；已登记 ${registeredLoops.length} 个 LoopSpec，active 数量为 0。agent 协作需要先补显式边。`
-        : "当前 live graph 有向边数量为 0。agent 协作需要先补显式边。",
-    };
-  }
-  if (activeLoops.length === 0) {
-    return {
-      id: "live-graph-state",
-      title: "Live Graph State",
-      sourcePath: "runtime graph",
-      priority: 8,
-      tags: ["graph", "edge", "loop", "协作", "回路"],
-      summary: registeredLoops.length > 0
-        ? `当前 live graph 有 ${edges.length} 条有向边，并登记了 ${registeredLoops.length} 个 LoopSpec，但当前没有 active loop。现阶段的 agent 协作仍属于单次有向委派。`
-        : `当前 live graph 有 ${edges.length} 条有向边，cycle 数量为 0。现阶段的 agent 协作属于单次有向委派。`,
-    };
-  }
+  const loopLine = activeLoops.length
+    ? `active loop: ${activeLoops.map((l) => `${normalizeString(l?.id)}(entry:${normalizeString(l?.entryAgentId) || "?"})`).join("; ")}`
+    : (registeredLoops.length ? `已登记 ${registeredLoops.length} 个 loop，0 个 active` : "无 active loop");
   return {
-    id: "live-graph-state",
-    title: "Live Graph State",
-    sourcePath: "runtime graph",
-    priority: 8,
-    tags: ["graph", "edge", "loop", "协作", "回路", "cycle"],
-    summary: `当前 live graph 有 ${edges.length} 条有向边，登记了 ${registeredLoops.length} 个 LoopSpec，其中 ${activeLoops.length} 个处于 active。原始 cycle 检测数为 ${cycles.length}；已登记且成环的 loop 由 loop runtime 处理。`,
+    id: "agent-map",
+    title: "Agent Map (live)",
+    sourcePath: "runtime graph + config",
+    priority: 9,
+    tags: ["agent", "map", "graph", "edge", "in", "out", "入边", "出边", "role", "model", "loop", "回路", "结构", "协作", "reviewer", "worker", "controller"],
+    summary: agentList.length
+      ? `当前 agent 结构（每行 id[role] model · 入边 · 出边）：\n${lines.join("\n")}\n${loopLine}。图边共 ${edges.length} 条。建结构=补缺的 graph.edge.add / graph.loop.compose；优先复用已存在的 agent，不重复造。`
+      : `当前没有已注册 agent；图边 ${edges.length} 条。先 agents.create，再用 graph.edge.add / graph.loop.compose 连结构。`,
   };
 }
 
@@ -245,6 +256,7 @@ function buildNotableSkillGuidance(skills) {
 
 export async function buildOperatorKnowledgeContext({
   requestText,
+  agents,
   graph,
   loops,
   loopSessions,
@@ -254,7 +266,7 @@ export async function buildOperatorKnowledgeContext({
   const request = tokenizeRequest(requestText);
   const fragments = [
     ...STATIC_KNOWLEDGE_FRAGMENTS,
-    buildDynamicGraphFragment(graph, loops),
+    buildAgentMapFragment(agents, graph, loops),
     buildLoopRuntimeFragment(loopSessions),
     buildDynamicCapabilityFragment(surfaces),
   ].filter(Boolean);

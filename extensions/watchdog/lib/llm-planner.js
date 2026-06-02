@@ -2,6 +2,27 @@ import { normalizeRecord, normalizeString } from "./core/normalize.js";
 
 const DEFAULT_PLANNER_TIMEOUT_MS = 45000;
 
+// undici's default headersTimeout/bodyTimeout is 300s. A loaded REASONING model (e.g. glm-5.1) can
+// exceed that to first byte → UND_ERR_SOCKET / UND_ERR_HEADERS_TIMEOUT ("fetch failed") even though
+// our AbortController would still be ticking. We can't import undici (0 deps), so derive a long-timeout
+// Agent from the global dispatcher's own constructor. Wall-clock stays governed by the AbortController;
+// when the symbol is absent (non-undici runtime) this returns null and the fetch is unchanged.
+let cachedPlannerDispatcher;
+function resolvePlannerDispatcher() {
+  if (cachedPlannerDispatcher !== undefined) return cachedPlannerDispatcher;
+  cachedPlannerDispatcher = null;
+  try {
+    const sym = Object.getOwnPropertySymbols(globalThis).find((s) => s.description === "undici.globalDispatcher.1");
+    const AgentCtor = sym ? globalThis[sym]?.constructor : null;
+    if (typeof AgentCtor === "function") {
+      cachedPlannerDispatcher = new AgentCtor({ headersTimeout: 0, bodyTimeout: 0, keepAliveTimeout: 600000 });
+    }
+  } catch {
+    cachedPlannerDispatcher = null;
+  }
+  return cachedPlannerDispatcher;
+}
+
 function buildChatCompletionsUrl(baseUrl) {
   const normalized = normalizeString(baseUrl);
   if (!normalized) return null;
@@ -42,6 +63,61 @@ function extractJsonText(text) {
   return normalized;
 }
 
+// Defensive repair for truncated / trailing-comma JSON (glm-style streams cut off mid-output).
+// String-aware single pass: drop trailing commas before closers, close an unterminated string,
+// strip a dangling colon/comma at the end, then append matching closers for still-open containers.
+// Best-effort — salvages the common "cut off at the end" case; unsalvageable input still throws below.
+export function repairTruncatedJsonText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return raw;
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  let out = "";
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; continue; }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j += 1;
+      if (j >= raw.length || raw[j] === "}" || raw[j] === "]") continue; // drop trailing comma
+      out += ch;
+      continue;
+    }
+    if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+    out += ch;
+  }
+  if (inString) out += '"';
+  out = out.replace(/[,:]\s*$/, "");
+  for (let i = stack.length - 1; i >= 0; i -= 1) out += stack[i] === "{" ? "}" : "]";
+  return out;
+}
+
+// Parse planner JSON; on failure attempt a structural repair, then on second failure throw a
+// CODED error so the caller can distinguish "model returned unparseable plan" (→ invalid-plan
+// fallback) from "brain unavailable" (→ network/provider fallback). Conflating them mislabels bugs.
+export function parsePlannerJson(jsonText) {
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    try {
+      return JSON.parse(repairTruncatedJsonText(jsonText));
+    } catch (err) {
+      const error = new Error(`planner JSON parse failed after repair: ${err.message}`);
+      error.code = "PLANNER_JSON_PARSE_FAILED";
+      throw error;
+    }
+  }
+}
+
 export async function callOpenAICompatiblePlanner({
   model,
   baseUrl,
@@ -50,7 +126,7 @@ export async function callOpenAICompatiblePlanner({
   userPrompt,
   timeoutMs = DEFAULT_PLANNER_TIMEOUT_MS,
   temperature = 0.1,
-  maxTokens = 1800,
+  maxTokens = 4096,
 }) {
   const endpoint = buildChatCompletionsUrl(baseUrl);
   if (!endpoint) throw new Error("planner missing provider baseUrl");
@@ -58,6 +134,7 @@ export async function callOpenAICompatiblePlanner({
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const dispatcher = resolvePlannerDispatcher();
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -72,6 +149,7 @@ export async function callOpenAICompatiblePlanner({
         ],
       }),
       signal: controller.signal,
+      ...(dispatcher ? { dispatcher } : {}),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -80,7 +158,7 @@ export async function callOpenAICompatiblePlanner({
     const content = extractAssistantText(payload);
     const jsonText = extractJsonText(content);
     if (!jsonText) throw new Error("planner returned empty content");
-    return JSON.parse(jsonText);
+    return parsePlannerJson(jsonText);
   } finally {
     clearTimeout(timeout);
   }

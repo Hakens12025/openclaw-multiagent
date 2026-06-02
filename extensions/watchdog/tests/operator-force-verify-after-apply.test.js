@@ -122,3 +122,25 @@ test("operator plan with forceVerify=false skips the gate (configurable)", async
   assert.equal(step.verification.required, false);
   assert.equal(sinkCalls.filter((c) => c.surfaceId === "test_runs.start").length, 0, "no forced verify when opted out");
 });
+
+// E3 — a verify that FAILS to start must surface at plan level (verificationSummary), so the operator
+// chat can warn the user the change was applied-but-NOT-verified (instead of an ok:true silence).
+test("operator plan exposes verificationSummary when a forced verify fails to start", async () => {
+  sinkCalls.length = 0;
+  failVerifyStart = true;
+  const out = await executeOperatorExecutablePlan({
+    plan: {
+      intent: "platform_mutation",
+      summary: "verify-surface e2e",
+      steps: [{ surfaceId: "agents.policy", title: "policy", summary: "change", payload: { agentId: "a1" } }],
+    },
+  });
+  failVerifyStart = false;
+  assert.equal(out.ok, true, "apply still succeeds; only verify failed to start");
+  assert.deepEqual(out.verificationSummary, {
+    total: 1,
+    failedToStart: 1,
+    anyFailedToStart: true,
+    failedSurfaceIds: ["agents.policy"],
+  });
+});

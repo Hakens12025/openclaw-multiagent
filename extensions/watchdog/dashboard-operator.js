@@ -3,8 +3,6 @@ import { on } from './dashboard-bus.js';
 import { esc, toast } from './dashboard-common.js';
 import {
   closeSettingsMenu,
-  describeGraphRouteProgression,
-  humanizeGraphRouteProgressReason,
   loadAgentMeta,
 } from './dashboard.js';
 import { loadGraph } from './dashboard-graph.js';
@@ -16,10 +14,13 @@ const operatorState = {
   interruptingLoop: false,
   canExecute: false,
   plan: null,
-  messages: [],
+  messages: [],          // bound to the active session's messages array (by reference)
+  sessions: [],          // [{ id, title, messages:[], createdAt }] — like web-AI topics, persisted in localStorage
+  activeSessionId: null,
   snapshot: null,
   graph: null,
 };
+const OPERATOR_SESSIONS_KEY = 'openclaw.operator.sessions.v1';
 let operatorSnapshotRefreshTimer = null;
 let operatorPlanAbortController = null;
 
@@ -49,47 +50,7 @@ function ensureOperatorShell() {
         </div>
         <button class="operator-close" type="button" aria-label="Close" onclick="toggleOperatorWindow(false)">\u00D7</button>
       </div>
-      <div class="operator-summary">
-        <div class="operator-summary-card">
-          <span class="operator-summary-label">STATE</span>
-          <strong id="operatorStateText">--</strong>
-        </div>
-        <div class="operator-summary-card">
-          <span class="operator-summary-label">AGENTS</span>
-          <strong id="operatorAgentsCount">--</strong>
-        </div>
-        <div class="operator-summary-card">
-          <span class="operator-summary-label">ACTIVE</span>
-          <strong id="operatorWorkItemsCount">--</strong>
-        </div>
-        <div class="operator-summary-card">
-          <span class="operator-summary-label">GRAPH</span>
-          <strong id="operatorGraphCount">--</strong>
-        </div>
-        <div class="operator-summary-card">
-          <span class="operator-summary-label">LOOPS</span>
-          <strong id="operatorLoopsText">--</strong>
-        </div>
-        <div class="operator-summary-card">
-          <span class="operator-summary-label">ACTIONS</span>
-          <strong id="operatorActionsCount">--</strong>
-        </div>
-      </div>
-      <div class="operator-runtime-strip">
-        <div class="operator-runtime-card">
-          <span class="operator-summary-label">ACTIVE LOOP</span>
-          <strong id="operatorLoopRuntimeText">--</strong>
-          <div class="operator-runtime-detail" id="operatorLoopRuntimeDetail">No active loop session.</div>
-          <div class="operator-runtime-actions">
-            <button class="operator-loop-btn" id="operatorInterruptLoopBtn" type="button" onclick="interruptOperatorLoopFromUI()">INTERRUPT LOOP</button>
-          </div>
-        </div>
-        <div class="operator-runtime-card">
-          <span class="operator-summary-label">LATEST PROGRESSION</span>
-          <strong id="operatorProgressText">--</strong>
-          <div class="operator-runtime-detail" id="operatorProgressDetail">No recent runtime graph progression.</div>
-        </div>
-      </div>
+      <div class="operator-session-bar" id="operatorSessionBar"></div>
       <div class="operator-body">
         <div class="operator-conversation" id="operatorConversation"></div>
         <div class="operator-plan-panel">
@@ -128,6 +89,7 @@ function operatorToast(message, type = 'info') {
 function pushOperatorMessage(role, text, meta = {}) {
   const body = String(text || '').trim();
   if (!body) return;
+  loadOperatorSessions(); // guarantee an active session exists + operatorState.messages is bound to it
   operatorState.messages.push({
     role,
     text: body,
@@ -136,9 +98,92 @@ function pushOperatorMessage(role, text, meta = {}) {
     limitations: Array.isArray(meta.limitations) ? meta.limitations : [],
     assumptions: Array.isArray(meta.assumptions) ? meta.assumptions : [],
   });
+  // Cap IN PLACE (splice, not slice-reassign) so the array reference stays === the active session's
+  // messages array (otherwise the session binding breaks and history is lost).
   if (operatorState.messages.length > 24) {
-    operatorState.messages = operatorState.messages.slice(-24);
+    operatorState.messages.splice(0, operatorState.messages.length - 24);
   }
+  // Persist the active session + auto-title it from its first user message (web-AI style).
+  const session = operatorState.sessions.find((s) => s.id === operatorState.activeSessionId);
+  if (session) {
+    if (role === 'user' && (!session.title || session.title === '新会话')) {
+      session.title = body.slice(0, 18) + (body.length > 18 ? '…' : '');
+    }
+    saveOperatorSessions();
+    renderOperatorSessionBar();
+  }
+}
+
+// ── Operator sessions (web-AI-style topics; localStorage-persisted so operator keeps the built
+// structure/snapshot in a topic's history instead of rebuilding from scratch each time) ──
+function bindActiveSessionMessages() {
+  const session = operatorState.sessions.find((s) => s.id === operatorState.activeSessionId) || operatorState.sessions[0] || null;
+  operatorState.messages = session ? session.messages : [];
+}
+
+function loadOperatorSessions() {
+  if (operatorState.sessions.length) { bindActiveSessionMessages(); return; } // already loaded this page-load
+  try {
+    const parsed = JSON.parse(localStorage.getItem(OPERATOR_SESSIONS_KEY) || 'null');
+    if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length) {
+      operatorState.sessions = parsed.sessions.map((s) => ({
+        id: s.id, title: s.title || '会话',
+        messages: Array.isArray(s.messages) ? s.messages : [],
+        createdAt: s.createdAt || Date.now(),
+      }));
+      operatorState.activeSessionId = operatorState.sessions.some((s) => s.id === parsed.activeSessionId)
+        ? parsed.activeSessionId : operatorState.sessions[0].id;
+    }
+  } catch { /* corrupt storage → fall through to a fresh session */ }
+  if (!operatorState.sessions.length) {
+    operatorState.sessions = [{ id: `S${Date.now()}`, title: '新会话', messages: [], createdAt: Date.now() }];
+    operatorState.activeSessionId = operatorState.sessions[0].id;
+  }
+  bindActiveSessionMessages();
+}
+
+function saveOperatorSessions() {
+  try {
+    localStorage.setItem(OPERATOR_SESSIONS_KEY, JSON.stringify({
+      activeSessionId: operatorState.activeSessionId,
+      sessions: operatorState.sessions.slice(-20), // cap stored topics
+    }));
+  } catch { /* storage full / unavailable — non-fatal */ }
+}
+
+function renderOperatorSessionBar() {
+  const host = document.getElementById('operatorSessionBar');
+  if (!host) return;
+  const opts = operatorState.sessions.map((s) =>
+    `<option value="${esc(s.id)}"${s.id === operatorState.activeSessionId ? ' selected' : ''}>${esc(s.title || s.id)}</option>`).join('');
+  host.innerHTML = `
+    <span class="operator-session-label">会话</span>
+    <select class="operator-session-select" onchange="switchOperatorSessionFromUI(this.value)" aria-label="operator 会话">${opts}</select>
+    <button class="operator-session-new" type="button" onclick="newOperatorSessionFromUI()" title="新建会话">+ 新会话</button>`;
+}
+
+export function switchOperatorSessionFromUI(id) {
+  if (!id || id === operatorState.activeSessionId) return;
+  if (!operatorState.sessions.some((s) => s.id === id)) return;
+  operatorState.activeSessionId = id;
+  bindActiveSessionMessages();
+  clearCurrentOperatorPlan();
+  saveOperatorSessions();
+  renderOperatorSessionBar();
+  renderOperatorConversation();
+  renderOperatorPlan();
+}
+
+export function newOperatorSessionFromUI() {
+  const session = { id: `S${Date.now()}`, title: '新会话', messages: [], createdAt: Date.now() };
+  operatorState.sessions.push(session);
+  operatorState.activeSessionId = session.id;
+  bindActiveSessionMessages();
+  clearCurrentOperatorPlan();
+  saveOperatorSessions();
+  renderOperatorSessionBar();
+  renderOperatorConversation();
+  renderOperatorPlan();
 }
 
 function buildOperatorPlannerHistory(limit = 8) {
@@ -202,117 +247,6 @@ function renderOperatorConversation() {
     </div>`;
   }).join('');
   host.scrollTop = host.scrollHeight;
-}
-
-function formatLoopRuntimeDetail(activeLoopSession) {
-  if (!activeLoopSession) {
-    return {
-      title: '--',
-      detail: 'No active loop session.',
-    };
-  }
-
-  const stage = activeLoopSession.currentStage ? String(activeLoopSession.currentStage).toUpperCase() : 'ACTIVE';
-  const round = Number.isFinite(activeLoopSession.round) ? `R${activeLoopSession.round}` : 'R?';
-  const runtimeStatus = String(activeLoopSession.runtimeStatus || activeLoopSession.status || 'active').toUpperCase();
-  return {
-    title: `${stage} // ${round}`,
-    detail: `${activeLoopSession.loopId || 'unknown loop'} // ${runtimeStatus}`,
-  };
-}
-
-function formatLatestProgressionDetail(snapshot) {
-  const progression = snapshot?.loops?.latestProgression || null;
-  const ui = describeGraphRouteProgression(progression);
-  if (!progression || !ui) {
-    return {
-      title: '--',
-      detail: 'No recent runtime graph progression.',
-      tone: 'idle',
-    };
-  }
-
-  const detailParts = [
-    progression.contractId ? `contract ${progression.contractId}` : null,
-    progression.pipelineId ? `loop ${progression.pipelineId}` : null,
-    progression.loopId ? `loop ${progression.loopId}` : null,
-    progression.reason ? humanizeGraphRouteProgressReason(progression.reason) : null,
-    progression.error || null,
-  ].filter(Boolean);
-
-  return {
-    title: ui.text,
-    detail: detailParts.join(' // ') || ui.title || 'Runtime progression visible.',
-    tone: ui.tone || 'idle',
-  };
-}
-
-function renderOperatorSummary() {
-  const snapshot = operatorState.snapshot;
-  const graph = operatorState.graph;
-  const stateText = snapshot?.summary?.state || '--';
-  const agentCount = snapshot?.agents?.counts?.total;
-  const workItemCount = snapshot?.summary?.activeWorkItems;
-  const edgeCount = Array.isArray(graph?.edges) ? graph.edges.length : null;
-  const cycleCount = Array.isArray(graph?.cycles) ? graph.cycles.length : null;
-  const activeLoopSession = getActiveLoopSession();
-  const registeredLoopCount = Array.isArray(graph?.loops)
-    ? graph.loops.length
-    : snapshot?.loops?.counts?.registered;
-  const activeLoopCount = Array.isArray(graph?.loops)
-    ? graph.loops.filter((loop) => loop?.active === true).length
-    : snapshot?.loops?.counts?.active;
-  const operatorActionCount = snapshot?.surfaces?.counts?.operatorExecutable;
-
-  const stateEl = document.getElementById('operatorStateText');
-  const agentsEl = document.getElementById('operatorAgentsCount');
-  const workItemsEl = document.getElementById('operatorWorkItemsCount');
-  const graphEl = document.getElementById('operatorGraphCount');
-  const loopsEl = document.getElementById('operatorLoopsText');
-  const actionsEl = document.getElementById('operatorActionsCount');
-  const loopRuntimeEl = document.getElementById('operatorLoopRuntimeText');
-  const loopRuntimeDetailEl = document.getElementById('operatorLoopRuntimeDetail');
-  const progressEl = document.getElementById('operatorProgressText');
-  const progressDetailEl = document.getElementById('operatorProgressDetail');
-  const interruptLoopBtn = document.getElementById('operatorInterruptLoopBtn');
-  if (stateEl) stateEl.textContent = String(stateText).toUpperCase();
-  if (agentsEl) agentsEl.textContent = agentCount == null ? '--' : String(agentCount);
-  if (workItemsEl) workItemsEl.textContent = workItemCount == null ? '--' : String(workItemCount);
-  if (graphEl) {
-    graphEl.textContent = edgeCount == null
-      ? '--'
-      : `${edgeCount} EDGE${edgeCount === 1 ? '' : 'S'}${cycleCount ? ` / ${cycleCount} LOOP` : ''}`;
-  }
-  if (loopsEl) {
-    if (activeLoopSession) {
-      const stage = activeLoopSession.currentStage ? String(activeLoopSession.currentStage).toUpperCase() : 'ACTIVE';
-      const round = Number.isFinite(activeLoopSession.round) ? ` R${activeLoopSession.round}` : '';
-      const runtimeStatus = activeLoopSession.runtimeStatus === 'broken' ? 'BROKEN ' : '';
-      loopsEl.textContent = `${runtimeStatus}${stage}${round}`;
-    } else if (registeredLoopCount) {
-      loopsEl.textContent = `${registeredLoopCount} REG / ${activeLoopCount || 0} ACTIVE`;
-    } else {
-      loopsEl.textContent = '--';
-    }
-  }
-  if (actionsEl) actionsEl.textContent = operatorActionCount == null ? '--' : String(operatorActionCount);
-  if (loopRuntimeEl || loopRuntimeDetailEl) {
-    const loopRuntime = formatLoopRuntimeDetail(activeLoopSession);
-    if (loopRuntimeEl) loopRuntimeEl.textContent = loopRuntime.title;
-    if (loopRuntimeDetailEl) loopRuntimeDetailEl.textContent = loopRuntime.detail;
-  }
-  if (progressEl || progressDetailEl) {
-    const latestProgress = formatLatestProgressionDetail(snapshot);
-    if (progressEl) {
-      progressEl.textContent = latestProgress.title;
-      progressEl.className = `operator-runtime-status ${latestProgress.tone || 'idle'}`;
-    }
-    if (progressDetailEl) progressDetailEl.textContent = latestProgress.detail;
-  }
-  if (interruptLoopBtn) {
-    interruptLoopBtn.disabled = operatorState.interruptingLoop || !activeLoopSession;
-    interruptLoopBtn.textContent = operatorState.interruptingLoop ? 'INTERRUPTING...' : 'INTERRUPT LOOP';
-  }
 }
 
 function buildOperatorAvailableActionsHtml() {
@@ -496,9 +430,7 @@ async function loadOperatorSnapshot() {
       fetch(`/watchdog/graph?token=${encodeURIComponent(token)}`),
     ]);
     if (snapshotRes.ok) operatorState.snapshot = await snapshotRes.json();
-    if (graphRes.ok) operatorState.graph = await graphRes.json();
-    renderOperatorSummary();
-    renderOperatorPlan();
+    if (graphRes.ok) operatorState.graph = await graphRes.json();    renderOperatorPlan();
   } catch (error) {
     console.warn('[operator] snapshot load failed:', error);
   }
@@ -611,7 +543,11 @@ export async function executeOperatorPlanFromUI() {
         return `${formatSurfaceDisplayId(entry.surfaceId, entry.surfaceId || '--')}${suffix}`;
       }).join(', ')
       : '';
-    pushOperatorMessage('assistant', `\u6267\u884C\u5B8C\u6210\uFF1A${payload.summary || 'operator plan applied'}\u3002${stepText ? ` surfaces: ${stepText}.` : ''}`);
+    const vs = payload.verificationSummary || null;
+    const verifyNote = vs && vs.anyFailedToStart
+      ? ` \u26A0 verify \u672A\u80FD\u542F\u52A8 (${vs.failedToStart}/${vs.total}): ${vs.failedSurfaceIds.map((id) => formatSurfaceDisplayId(id, id)).join(', ')} \u2014 \u6539\u52A8\u672A\u88AB\u9A8C\u8BC1\u3002`
+      : '';
+    pushOperatorMessage('assistant', `\u6267\u884C\u5B8C\u6210\uFF1A${payload.summary || 'operator plan applied'}\u3002${stepText ? ` surfaces: ${stepText}.` : ''}${verifyNote}`);
     operatorState.plan = payload.plan || null;
     operatorState.canExecute = false;
     renderOperatorConversation();
@@ -619,7 +555,11 @@ export async function executeOperatorPlanFromUI() {
     await loadOperatorSnapshot();
     await loadAgentMeta();
     await loadGraph();
-    operatorToast('Operator plan executed', 'success');
+    if (vs && vs.anyFailedToStart) {
+      operatorToast(`Applied, but verify failed to start for ${vs.failedToStart}/${vs.total} step(s)`, 'error');
+    } else {
+      operatorToast('Operator plan executed', 'success');
+    }
   } catch (error) {
     operatorToast(`Operator execute failed: ${error.message}`, 'error');
   } finally {
@@ -636,9 +576,7 @@ export async function interruptOperatorLoopFromUI() {
   }
   if (operatorState.interruptingLoop) return;
 
-  operatorState.interruptingLoop = true;
-  renderOperatorSummary();
-  try {
+  operatorState.interruptingLoop = true;  try {
     const token = operatorToken();
     const payload = {
       reason: 'operator_manual_interrupt',
@@ -671,9 +609,7 @@ export async function interruptOperatorLoopFromUI() {
   } catch (error) {
     operatorToast(`Loop interrupt failed: ${error.message}`, 'error');
   } finally {
-    operatorState.interruptingLoop = false;
-    renderOperatorSummary();
-  }
+    operatorState.interruptingLoop = false;  }
 }
 
 export function toggleOperatorWindow(forceOpen) {
@@ -684,6 +620,8 @@ export function toggleOperatorWindow(forceOpen) {
   if (shell) shell.classList.toggle('open', operatorState.open);
   document.body.classList.toggle('operator-open', operatorState.open);
   if (operatorState.open) {
+    loadOperatorSessions();
+    renderOperatorSessionBar();
     renderOperatorConversation();
     renderOperatorPlan();
     loadOperatorSnapshot();
@@ -703,10 +641,9 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     toggleOperatorWindow();
   }
-  if (event.key === 'Enter' && !event.shiftKey && operatorState.open && document.activeElement?.id === 'operatorInput') {
-    event.preventDefault();
-    submitOperatorPlan();
-  }
+  // Enter does NOT auto-send: IME (中文输入法) composition-confirm Enter was being captured here and
+  // prematurely submitting a half-typed message. Submission is click-only (the PLAN button). Enter in
+  // the textarea now just inserts a newline.
 });
 
 setTimeout(() => {

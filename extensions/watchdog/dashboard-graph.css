@@ -761,3 +761,49 @@
     opacity: 0.5;
     cursor: default;
   }
+
+  /* ── STRUCTURE PREVIEW OVERLAY (#57) ───────────────────────────────────── */
+  /* 叠层不拦截鼠标(透传到底层图);记号本身画在此 <g> 里 */
+  .preview-overlay-layer { pointer-events: none; }
+
+  /* 改变区分区: 白色描边(SVG rect 支持 stroke);删/改/增各自色调叠加 */
+  .svg-node-box.preview-changed { stroke: var(--text-on-dark); stroke-width: 2; }
+  .svg-node-box.preview-removed { stroke: var(--accent-red); }
+  .svg-node-box.preview-modified { stroke: var(--accent-amber); }
+  .svg-node-box.preview-added { opacity: 0.4; stroke-dasharray: 4 3; }
+
+  /* 删除 agent: 红叉 */
+  .preview-x-line { stroke: var(--accent-red); stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
+  /* 修改 agent: 右上扳手气泡 */
+  .preview-wrench-bubble { fill: var(--accent-amber); stroke: var(--bg-primary); stroke-width: 1; }
+  .preview-wrench-icon { font-size: 9px; text-anchor: middle; dominant-baseline: middle; }
+
+  /* 边: 删除红虚线 + 中点叉; 新增半透明虚线 */
+  .graph-edge.preview-edge-removed { stroke: var(--accent-red); stroke-dasharray: 5 4; opacity: 0.7; }
+  .preview-edge-x { stroke: var(--accent-red); stroke-width: 2; stroke-linecap: round; opacity: 0.85; }
+  .graph-edge.preview-edge-added { stroke: var(--accent-green); stroke-dasharray: 5 4; opacity: 0.5; }
+
+  /* 预览状态条(toolbar 上方) */
+  .graph-preview-banner {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 6px 12px; margin-bottom: 6px;
+    background: var(--bg-dark-panel); border: 1px solid var(--accent-amber);
+    font-size: 12px; color: var(--text-secondary);
+    animation: previewBannerIn 0.18s ease-out;
+  }
+  @keyframes previewBannerIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .graph-preview-banner .preview-title { font-weight: 600; color: var(--accent-amber); letter-spacing: 0.5px; }
+  .graph-preview-banner .preview-stat { color: var(--text-primary); }
+  .graph-preview-banner .preview-newagents { color: var(--text-muted); }
+  .graph-preview-banner .preview-chip {
+    display: inline-block; padding: 1px 6px; margin-left: 4px;
+    border: 1px dashed var(--accent-green); color: var(--accent-green);
+    border-radius: 2px; opacity: 0.8;
+  }
+  .graph-preview-banner .graph-preview-exit {
+    margin-left: auto; padding: 3px 10px;
+    background: transparent; border: 1px solid var(--border-primary);
+    color: var(--text-secondary); cursor: pointer; font-size: 11px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .graph-preview-banner .graph-preview-exit:hover { color: var(--accent-orange); border-color: var(--accent-orange); }

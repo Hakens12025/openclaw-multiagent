@@ -26,6 +26,7 @@ import { summarizePendingSignalRegistry } from "../runtime/pending-signal-regist
 import { listLifecycleWorkItems } from "../contracts.js";
 import { listAdminChangeSets } from "../admin/admin-change-sets.js";
 import { listAutomationRuntimeStates, summarizeAutomationRuntimeRegistry } from "../automation/automation-runtime.js";
+import { projectStructureAfter } from "../control-plane/structure-snapshot.js";
 import { listTrackingStates } from "../store/tracker-store.js";
 import { getRecentTaskHistory } from "../store/task-history-store.js";
 import { loadCapabilityRegistry } from "../capability/capability-registry.js";
@@ -85,6 +86,10 @@ const INSPECT_SOURCES = Object.freeze({
   // 复用既有 summarizeAutomationRuntimeRegistry 投影，只在读路径裁出 trustLevel/status/
   // streak/governance 熔断，供 operator 观测自治治理状态。不碰执行与决策路径。
   "inspect.profile_lifecycle": (options = {}) => projectProfileLifecycle(options),
+  // inspect.structure_preview → 结构快照投影（projectStructureAfter）。给定待应用的 surface 改动
+  // (options.surfaceId + options.payload)，非破坏性算出改动后结构(edgeDiff + projected)，供 apply 前
+  // CLI 预览。只读不碰 live —— 守门方/operator 据此检测改动效果。
+  "inspect.structure_preview": (options = {}) => projectStructureAfter(options),
   // inspect.tracking_states → tracker store 全量 tracking state（无参，同步源；SSE 初始快照读路径）
   "inspect.tracking_states": () => listTrackingStates(),
   // inspect.recent_task_history → task-history store 近期记录（透传 limit，默认 10；SSE 历史快照读路径）

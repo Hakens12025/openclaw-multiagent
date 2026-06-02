@@ -166,10 +166,24 @@ function diffEdges(before, after) {
   };
 }
 
+// agent 级 diff（供主图预览叠层：新增半透明 / 删除画叉 / 修改画扳手气泡）。
+// added/removed 由 config.agents.list 投影前后比对; modified 由 agents.<field> surface 显式标记。
+function diffAgents(beforeList, afterList, modifiedIds = []) {
+  const idOf = (a) => a?.id;
+  const beforeIds = new Set((beforeList || []).map(idOf).filter(Boolean));
+  const afterIds = new Set((afterList || []).map(idOf).filter(Boolean));
+  return {
+    added: (afterList || []).map(idOf).filter((id) => id && !beforeIds.has(id)),
+    removed: (beforeList || []).map(idOf).filter((id) => id && !afterIds.has(id)),
+    modified: [...new Set((modifiedIds || []).filter(Boolean))].filter((id) => afterIds.has(id)),
+  };
+}
+
 export async function projectStructureAfter({ surfaceId, payload } = {}) {
   const current = await readTruths();
   const projected = JSON.parse(JSON.stringify(current)); // deep clone, never touch live
   let structural = false;
+  const modifiedAgentIds = [];
   const sid = norm(surfaceId);
   const p = payload && typeof payload === "object" ? payload : {};
 
@@ -200,14 +214,42 @@ export async function projectStructureAfter({ surfaceId, payload } = {}) {
   } else if (sid === "graph.edge.delete" && norm(p.from) && norm(p.to)) {
     structural = true;
     projected.graph.edges = (projected.graph.edges || []).filter((e) => !(e.from === p.from && e.to === p.to));
+  } else if (sid === "graph.group.compose") {
+    // group 宏展开的内部边投影（agents + internalEdges 进图）
+    structural = true;
+    const edges = projected.graph.edges || (projected.graph.edges = []);
+    for (const e of Array.isArray(p.internalEdges) ? p.internalEdges : []) {
+      const from = norm(e?.from); const to = norm(e?.to);
+      if (from && to && !edges.some((x) => x.from === from && x.to === to)) edges.push({ from, to, metadata: { groupId: norm(p.groupId) || "group" } });
+    }
+  } else if (sid === "agents.create" && norm(p.id)) {
+    structural = true;
+    const agentsCfg = projected.config.agents || (projected.config.agents = {});
+    const list = agentsCfg.list || (agentsCfg.list = []);
+    if (!list.some((a) => a?.id === norm(p.id))) {
+      list.push({ id: norm(p.id), role: norm(p.role) || "agent", ...(p.model ? { model: p.model } : {}) });
+    }
+  } else if ((sid === "agents.delete" || sid === "agents.hard_delete") && norm(p.agentId)) {
+    structural = true;
+    if (projected.config.agents?.list) {
+      projected.config.agents.list = projected.config.agents.list.filter((a) => a?.id !== norm(p.agentId));
+    }
+  } else if (sid.startsWith("agents.") && norm(p.agentId)) {
+    // 其他 agents.* 修改(role/skills/tools/model/heartbeat/description/...): 标记 agent 被修改(overlay 扳手气泡)。
+    structural = true;
+    modifiedAgentIds.push(norm(p.agentId));
   }
 
+  const agentDiff = structural
+    ? diffAgents(current.config?.agents?.list, projected.config?.agents?.list, modifiedAgentIds)
+    : null;
   return {
     surfaceId: sid,
     structural,
     edgeDiff: structural ? diffEdges(current.graph.edges, projected.graph.edges) : null,
+    agentDiff,
     current: { edges: current.graph.edges, loops: current.loopRegistry.loops },
     projected: { edges: projected.graph.edges, loops: projected.loopRegistry.loops },
-    note: structural ? null : "此 surface 暂无结构投影,仅 payload diff(v1 覆盖 graph 边/loop)。",
+    note: structural ? null : "此 surface 暂无结构投影,仅 payload diff(v1 覆盖 graph 边/loop/group + agents 增删改)。",
   };
 }

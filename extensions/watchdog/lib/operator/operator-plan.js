@@ -4,6 +4,7 @@ import {
 } from "../cli-system/cli-surface-registry.js";
 import { isOperatorExecutableSurfaceId } from "./operator-surface-policy.js";
 import { normalizeOrderedStringArray, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
+import { listAgentRegistry } from "../capability/capability-registry.js";
 
 export const OPERATOR_PLAN_INTENTS = Object.freeze([
   "create_agent",
@@ -232,15 +233,78 @@ export function normalizeOperatorPlan(plan) {
   };
 }
 
+// E2 — feasibility pre-flight. A graph/loop/group step that references an agent which neither
+// already exists nor is created by an EARLIER step in the same plan would half-apply then throw.
+// collectReferencedAgentIds returns the agent ids a step depends on (accepts array or newline/comma
+// string forms, since compose surfaces have no input-field alias-normalization for agentsText).
+function idsFromField(value) {
+  if (Array.isArray(value)) return value.map((v) => normalizeString(v)).filter(Boolean);
+  if (typeof value === "string") return value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
+function collectReferencedAgentIds(step) {
+  const sid = normalizeString(step?.surfaceId);
+  const p = normalizeRecord(step?.payload);
+  // Only STRUCTURE-CREATING surfaces are checked: a dangling edge/loop/group member half-applies the
+  // structure then throws. agents.* mutations + edge.delete are single ops that fail cleanly at the
+  // handler (no half-built structure), so they are intentionally out of scope — avoids false rejects.
+  if (sid === "graph.edge.add") {
+    return [normalizeString(p.from), normalizeString(p.to)].filter(Boolean);
+  }
+  if (sid === "graph.loop.compose" || sid === "graph.group.compose") {
+    return uniqueStrings([...idsFromField(p.agents), ...idsFromField(p.agentsText), ...idsFromField(p.members)]);
+  }
+  return [];
+}
+
+// Throws OPERATOR_PLAN_AGENT_INFEASIBLE (with .failures) if any step references an agent not known
+// by that point. Known = live agent registry + ids created by earlier agents.create steps in order.
+export async function assertOperatorPlanAgentFeasibility(normalizedPlan) {
+  const steps = Array.isArray(normalizedPlan?.steps) ? normalizedPlan.steps : [];
+  const known = new Set((await listAgentRegistry()).map((a) => normalizeString(a?.id)).filter(Boolean));
+  const failures = [];
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    for (const refId of collectReferencedAgentIds(step)) {
+      if (!known.has(refId)) failures.push({ stepIndex: i, surfaceId: normalizeString(step?.surfaceId), missingAgentId: refId });
+    }
+    if (normalizeString(step?.surfaceId) === "agents.create") {
+      const createdId = normalizeString(step?.payload?.id);
+      if (createdId) known.add(createdId);
+    }
+  }
+  if (failures.length > 0) {
+    const error = new Error(`operator plan references unknown agent(s): ${[...new Set(failures.map((f) => f.missingAgentId))].join(", ")}`);
+    error.code = "OPERATOR_PLAN_AGENT_INFEASIBLE";
+    error.failures = failures;
+    throw error;
+  }
+}
+
 export function normalizeOperatorBrainPlanResult(brainResult, requestText) {
   const source = normalizeRecord(brainResult?.plan);
   const rawIntent = normalizeString(source.intent);
-  const steps = Array.isArray(source.steps)
-    ? source.steps.map((step, index) => validatePlanStep(step, index))
-    : [];
+  // Resilient plan-path normalization: the model occasionally appends ONE hallucinated/unsupported
+  // step to an otherwise-valid build plan. The old `.map(validatePlanStep)` threw on the first bad
+  // step → the WHOLE plan was discarded → operator returned advice_only with zero steps (a good plan
+  // wasted). Drop only the bad step(s), keep the valid ones, and surface a warning. The EXECUTE path
+  // (normalizeOperatorPlan) stays strict — it only ever sees these already-validated steps.
+  const stepWarnings = [];
+  const steps = (Array.isArray(source.steps) ? source.steps : []).reduce((acc, step, index) => {
+    try {
+      acc.push(validatePlanStep(step, index));
+    } catch (err) {
+      const sid = normalizeString(normalizeRecord(step).surfaceId) || "未知 surface";
+      stepWarnings.push(`已跳过无法执行的步骤 #${index + 1}（${sid}）：${normalizeString(err?.message) || "invalid step"}`);
+    }
+    return acc;
+  }, []);
   const intent = steps.length > 0
     ? (rawIntent && rawIntent !== "advice_only" && rawIntent !== "unsupported" ? rawIntent : "platform_mutation")
-    : (rawIntent || "advice_only");
+    // 0 surviving steps: if we DROPPED bad steps, the model tried to build but nothing was executable →
+    // advice_only (the warnings explain what was dropped). Otherwise keep rawIntent (genuine no-build).
+    : (stepWarnings.length > 0 ? "advice_only" : (rawIntent || "advice_only"));
   const derived = collectPlanDerivedFields(steps, source.derived);
 
   if (steps.length > 0 && shouldPreferAdviceOnly(requestText, intent)) {
@@ -272,7 +336,7 @@ export function normalizeOperatorBrainPlanResult(brainResult, requestText) {
       || (steps.length > 0 ? "我整理出了一份可执行的 operator 计划。" : "我先给你一个不越权的建议。"),
     summary: normalizeString(source.summary)
       || (steps.length > 0 ? "生成 operator 计划" : "operator 建议"),
-    warnings: source.warnings,
+    warnings: uniqueStrings([...normalizeTextList(source.warnings), ...stepWarnings]),
     limitations: source.limitations,
     assumptions: source.assumptions,
     derived: {

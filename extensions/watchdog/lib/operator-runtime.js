@@ -27,7 +27,16 @@ export async function buildOperatorPlan({
       logger,
     });
   } catch (error) {
-    logger?.warn?.(`[watchdog] operator-brain unavailable, advice-only fallback: ${error.message}`);
+    // Distinguish "model responded but its JSON was unparseable" (invalid-plan) from
+    // "brain truly unavailable" (network/provider). Conflating them mislabels a planner
+    // output bug as an outage — see lib/llm-planner.js parsePlannerJson.
+    if (error?.code === "PLANNER_JSON_PARSE_FAILED") {
+      logger?.warn?.(`[watchdog] operator-brain returned unparseable JSON, invalid-plan fallback: ${error.message}`);
+      return buildOperatorInvalidPlanFallback({ requestText, error, brainResult: null });
+    }
+    // Surface the underlying cause (undici hides connection/TLS/body errors behind "fetch failed").
+    const cause = error?.cause ? ` | cause: ${error.cause.code || error.cause.message || error.cause}` : "";
+    logger?.warn?.(`[watchdog] operator-brain unavailable, advice-only fallback: ${error.message}${cause}`);
     return buildOperatorAdviceFallback({
       requestText,
       error,
@@ -53,6 +62,7 @@ export async function executeOperatorPlan({
   runtimeContext = null,
   dryRun = false,
   forceVerify = true,
+  explicitConfirm = false,
 } = {}) {
   return executeOperatorExecutablePlan({
     plan,
@@ -62,5 +72,7 @@ export async function executeOperatorPlan({
     dryRun,
     // ② 强制 verify 门默认开（评审要的「强制」）；可经调用方/config 显式关。
     forceVerify,
+    // C2 — 显式确认才放行破坏性(confirmation:explicit)surface；默认 false = 建议态拒绝执行。
+    explicitConfirm,
   });
 }

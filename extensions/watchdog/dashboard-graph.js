@@ -603,6 +603,7 @@ function highlightCycles() {
   // Always reconcile the register button (it removes itself when no unregistered cycle remains).
   renderCycleRegistrationButton();
   renderGroupComposeButton();
+  renderRunLoopButton();
 
   document.querySelectorAll('.runtime-graph-node .svg-node-box.in-cycle').forEach(el => {
     el.classList.remove('in-cycle');
@@ -777,6 +778,143 @@ async function submitCycleRegistration({ cycle, entrySelect, concludeInput, maxR
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// RUN A BUILT LOOP (downstream USER action) — operator DESIGNS the loop (structure
+// becomes active); RUNNING it with a concrete one-off task is the USER's action, not
+// operator's. Surfaces a button when an active loop exists and dispatches the real task
+// via runtime.loop.start (POST /watchdog/runtime/loop/start). operator never emits this.
+// ══════════════════════════════════════════════════════════════════════════════
+
+function getRunnableLoops() {
+  return (Array.isArray(graphLoops) ? graphLoops : []).filter((l) => l && l.active === true);
+}
+
+function renderRunLoopButton() {
+  const existing = document.getElementById('graphRunLoopBtn');
+  if (existing) existing.remove();
+
+  const runnable = getRunnableLoops();
+  if (runnable.length === 0) return;
+
+  const toolbar = document.querySelector('.runtime-graph-toolbar');
+  if (!toolbar) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'graphRunLoopBtn';
+  btn.className = 'graph-cycle-register-btn';
+  btn.textContent = runnable.length > 1 ? `运行 LOOP (${runnable.length})` : '运行 LOOP';
+  btn.title = runnable.map((l) => `${l.label || l.id} (entry: ${l.entryAgentId || '?'})`).join('\n');
+  btn.addEventListener('click', () => openRunLoopModal(runnable));
+  toolbar.appendChild(btn);
+}
+
+function openRunLoopModal(loops) {
+  closeContextMenu();
+  document.getElementById('graphRunLoopModal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'graphRunLoopModal';
+  overlay.className = 'graph-loop-modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'graph-loop-modal';
+
+  const title = document.createElement('div');
+  title.className = 'graph-loop-modal-title';
+  title.textContent = '运行 LOOP（投入真实任务）';
+  modal.appendChild(title);
+
+  const entryLine = document.createElement('div');
+  entryLine.className = 'graph-loop-modal-cycle';
+  modal.appendChild(entryLine);
+
+  const addField = (labelText, inputEl) => {
+    const label = document.createElement('label');
+    label.className = 'graph-loop-modal-label';
+    label.textContent = labelText;
+    modal.appendChild(label);
+    inputEl.classList.add('graph-loop-modal-input');
+    modal.appendChild(inputEl);
+  };
+
+  const loopSelect = document.createElement('select');
+  for (const loop of loops) {
+    const opt = document.createElement('option');
+    opt.value = loop.id;
+    opt.textContent = loop.label ? `${loop.label} (${loop.id})` : loop.id;
+    loopSelect.appendChild(opt);
+  }
+  const syncEntry = () => {
+    const loop = loops.find((l) => l.id === loopSelect.value) || loops[0];
+    entryLine.textContent = `ENTRY: ${loop && loop.entryAgentId ? loop.entryAgentId : '(default)'}`;
+  };
+  loopSelect.addEventListener('change', syncEntry);
+  addField('LOOP', loopSelect);
+  syncEntry();
+
+  const taskInput = document.createElement('textarea');
+  taskInput.rows = 4;
+  taskInput.placeholder = '把要 loop 处理的真实任务写在这里（requestedTask）';
+  addField('任务 (requestedTask)', taskInput);
+
+  const actions = document.createElement('div');
+  actions.className = 'graph-loop-modal-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'graph-loop-modal-btn';
+  cancelBtn.textContent = 'CANCEL';
+  cancelBtn.addEventListener('click', () => overlay.remove());
+  actions.appendChild(cancelBtn);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'graph-loop-modal-btn primary';
+  submitBtn.textContent = 'RUN';
+  submitBtn.addEventListener('click', () => submitRunLoop({ loops, loopSelect, taskInput, overlay, submitBtn }));
+  actions.appendChild(submitBtn);
+
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function submitRunLoop({ loops, loopSelect, taskInput, overlay, submitBtn }) {
+  const requestedTask = taskInput.value.trim();
+  if (!requestedTask) {
+    toast('请输入要运行的任务', 'warn');
+    return;
+  }
+  const loop = loops.find((l) => l.id === loopSelect.value) || loops[0];
+  const body = {
+    loopId: loop.id,
+    ...(loop.entryAgentId ? { startAgent: loop.entryAgentId } : {}),
+    requestedTask,
+    requestedSource: 'dashboard.run-loop',
+  };
+
+  submitBtn.disabled = true;
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  try {
+    const r = await fetch(`/watchdog/runtime/loop/start?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok !== false) {
+      toast(`LOOP STARTED: ${loop.entryAgentId || loop.id}`, 'success');
+      overlay.remove();
+      await loadGraph();
+    } else {
+      toast('RUN FAILED: ' + (data.error || data.action || 'unknown'), 'warn');
+      submitBtn.disabled = false;
+    }
+  } catch (e) {
+    toast('RUN FAILED: ' + e.message, 'error');
+    submitBtn.disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // COMPOSE AGENT GROUP (#46) — AgentGroup 是宏：展开成带 groupId 的内部边 + GroupSession +
 // outputMode 聚合策略。与 loop 注册分离的独立 modal（多字段 members/entry/outputMode/内部边）。
 // 经 graph.group.compose（apply surface），dispatcher 不感知 group。
@@ -930,6 +1068,113 @@ async function submitGroupCompose({ membersInput, entryInput, outputModeSelect, 
     toast('COMPOSE FAILED: ' + e.message, 'error');
     submitBtn.disabled = false;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STRUCTURE PREVIEW OVERLAY (#57): 在主图上叠加 operator 计划的结构改动预览。
+// diff = inspect.structure_preview / control-plane/preview 返回的
+//   { structural, edgeDiff:{added[],removed[]}, agentDiff:{added[],removed[],modified[]} }。
+// 删除 agent→顶层叉+白底边; 修改 agent→右上扳手气泡+白底边; 新增 agent→半透明(有位置时,否则 banner chip);
+// 删除边→画叉(红虚线); 新增边→半透明(两端有位置时); 改变区→白色底边分区(.preview-changed)。
+// ══════════════════════════════════════════════════════════════════════════════
+
+export function clearStructurePreviewOverlay() {
+  document.querySelectorAll('.preview-changed').forEach((el) => {
+    el.classList.remove('preview-changed', 'preview-removed', 'preview-modified', 'preview-added');
+  });
+  document.querySelectorAll('.preview-edge-removed').forEach((el) => el.classList.remove('preview-edge-removed'));
+  document.getElementById('previewOverlayLayer')?.remove(); // 绘制的 SVG 记号(叉/扳手/新增边)
+  document.getElementById('graphPreviewBanner')?.remove();
+}
+
+export function renderStructurePreviewOverlay(diff) {
+  clearStructurePreviewOverlay();
+  if (!diff || diff.structural === false) return;
+  const edgeDiff = diff.edgeDiff || { added: [], removed: [] };
+  const agentDiff = diff.agentDiff || { added: [], removed: [], modified: [] };
+  const svg = document.getElementById('runtimeGraphSvg');
+  // 专用叠层 <g>(置顶)→ 退出时一次性 remove。SVG rect 支持 CSS stroke/opacity,
+  // 但叉/扳手是伪元素无法在 SVG 渲染 → 必须画成真 SVG 元素进此层。
+  const layer = svg ? svgEl('g', { id: 'previewOverlayLayer', className: 'preview-overlay-layer' }, svg) : null;
+
+  const markNode = (agentId, cls, draw) => {
+    const box = document.getElementById(eid(agentId).nb);
+    if (box) box.classList.add('preview-changed', cls); // 白底边分区 + 半透明(CSS, SVG rect 支持)
+    const pos = nodePositions[agentId];
+    if (pos && layer && draw) draw(pos);
+  };
+  (agentDiff.removed || []).forEach((id) => markNode(id, 'preview-removed', (pos) => drawNodeX(layer, pos)));
+  (agentDiff.modified || []).forEach((id) => markNode(id, 'preview-modified', (pos) => drawWrenchBubble(layer, pos)));
+  (agentDiff.added || []).forEach((id) => markNode(id, 'preview-added', null)); // 已在图上→半透明; 未定位→banner chip
+
+  (edgeDiff.removed || []).forEach((key) => {
+    const el = graphEdgeElements.get(key);
+    if (el) el.classList.add('preview-edge-removed'); // 红虚线
+    if (layer) drawEdgeX(layer, key); // 叉在边中点
+  });
+  (edgeDiff.added || []).forEach((key) => {
+    const [from, to] = splitEdgeKey(key);
+    if (layer && nodePositions[from] && nodePositions[to]) {
+      svgEl('path', { className: 'graph-edge preview-edge-added', d: calcEdgePath(nodePositions[from], nodePositions[to]) }, layer);
+    }
+  });
+
+  renderPreviewBanner(edgeDiff, agentDiff);
+}
+
+function splitEdgeKey(key) {
+  const sep = key.includes('→') ? '→' : '->';
+  return key.split(sep).map((s) => s.trim());
+}
+
+// 删除 agent → 节点 bbox 上画红叉(两条对角线)。
+function drawNodeX(layer, pos) {
+  svgEl('line', { className: 'preview-x-line', x1: pos.x + 6, y1: pos.y + 6, x2: pos.x + pos.w - 6, y2: pos.y + pos.h - 6 }, layer);
+  svgEl('line', { className: 'preview-x-line', x1: pos.x + pos.w - 6, y1: pos.y + 6, x2: pos.x + 6, y2: pos.y + pos.h - 6 }, layer);
+}
+
+// 修改 agent → 右上角扳手气泡(圆 + 🔧)。
+function drawWrenchBubble(layer, pos) {
+  const cx = pos.x + pos.w - 8, cy = pos.y + 8;
+  svgEl('circle', { className: 'preview-wrench-bubble', cx, cy, r: 9 }, layer);
+  svgEl('text', { className: 'preview-wrench-icon', x: cx, y: cy + 4, textContent: '🔧' }, layer);
+}
+
+// 删除边 → 边中点画小叉。
+function drawEdgeX(layer, key) {
+  const [from, to] = splitEdgeKey(key);
+  const pf = nodePositions[from], pt = nodePositions[to];
+  if (!pf || !pt) return;
+  const mx = (pf.x + pf.w / 2 + pt.x + pt.w / 2) / 2;
+  const my = (pf.y + pf.h / 2 + pt.y + pt.h / 2) / 2;
+  const s = 7;
+  svgEl('line', { className: 'preview-edge-x', x1: mx - s, y1: my - s, x2: mx + s, y2: my + s }, layer);
+  svgEl('line', { className: 'preview-edge-x', x1: mx + s, y1: my - s, x2: mx - s, y2: my + s }, layer);
+}
+
+function renderPreviewBanner(edgeDiff, agentDiff) {
+  document.getElementById('graphPreviewBanner')?.remove();
+  const toolbar = document.querySelector('.runtime-graph-toolbar');
+  const host = toolbar?.parentNode || document.body;
+  const banner = document.createElement('div');
+  banner.id = 'graphPreviewBanner';
+  banner.className = 'graph-preview-banner';
+  const na = (agentDiff.added || []).length;
+  const nr = (agentDiff.removed || []).length;
+  const nm = (agentDiff.modified || []).length;
+  const ea = (edgeDiff.added || []).length;
+  const er = (edgeDiff.removed || []).length;
+  const positioned = new Set(Object.keys(nodePositions || {}));
+  const floatingAdds = (agentDiff.added || []).filter((id) => !positioned.has(id));
+  const chips = floatingAdds.map((id) => `<span class="preview-chip preview-chip-added">+${id}</span>`).join('');
+  banner.innerHTML = `
+    <span class="preview-title">结构预览</span>
+    <span class="preview-stat">agent +${na} / -${nr} / &#9998;${nm}</span>
+    <span class="preview-stat">边 +${ea} / -${er}</span>
+    ${chips ? `<span class="preview-newagents">新增: ${chips}</span>` : ''}
+    <button class="graph-preview-exit" type="button">退出预览</button>`;
+  banner.querySelector('.graph-preview-exit')?.addEventListener('click', clearStructurePreviewOverlay);
+  host.insertBefore(banner, host.firstChild);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

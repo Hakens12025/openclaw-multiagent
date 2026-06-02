@@ -23,6 +23,8 @@ import {
   cancelOperatorPlanFromUI,
   executeOperatorPlanFromUI,
   interruptOperatorLoopFromUI,
+  switchOperatorSessionFromUI,
+  newOperatorSessionFromUI,
 } from './dashboard-operator.js';
 
 // ── OC namespace (set up by inline script in HTML, fill it here) ──
@@ -46,6 +48,8 @@ window.submitOperatorPlan = submitOperatorPlan;
 window.cancelOperatorPlanFromUI = cancelOperatorPlanFromUI;
 window.executeOperatorPlanFromUI = executeOperatorPlanFromUI;
 window.interruptOperatorLoopFromUI = interruptOperatorLoopFromUI;
+window.switchOperatorSessionFromUI = switchOperatorSessionFromUI;
+window.newOperatorSessionFromUI = newOperatorSessionFromUI;
 window.closeSettingsMenu = closeSettingsMenu;
 window.openDevtools = openDevtools;
 window.setLang = setLang;

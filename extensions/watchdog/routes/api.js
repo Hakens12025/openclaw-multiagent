@@ -421,6 +421,8 @@ export function register(api, logger, deps) {
   registerPostActionRoute("/watchdog/operator/execute", async (payload) => executeOperatorPlan({
     plan: payload.plan,
     dryRun: payload.dryRun === true,
+    // C2 — only the human-approved execute carries explicitConfirm; absent ⇒ destructive steps refused.
+    explicitConfirm: payload.explicitConfirm === true,
     logger,
     onAlert: emitAlert,
     runtimeContext: buildAdminSurfaceRuntimeContext("operator.execute"),
