@@ -10,7 +10,7 @@
 [![platform](https://img.shields.io/badge/platform-macOS-lightgrey)](https://github.com/Hakens12025/openclaw-multiagent)
 [![node](https://img.shields.io/badge/node-22%2B-green)](https://nodejs.org/)
 
-[快速开始](#快速开始) · [它能做什么](#它能做什么) · [它怎么工作](#它怎么工作) · [文档](#文档)
+[快速开始](#快速开始) · [它能做什么](#它能做什么) · [它怎么工作](#它怎么工作) · [Operator 控制面](#operator-控制面) · [文档](#文档)
 
 </div>
 
@@ -62,6 +62,51 @@ bash start.sh
 - **传送带** —— graph 的边是「谁能投给谁」的授权，不是时序。agent 之间从不直接通信，全靠平台按 graph 搬运 inbox/outbox。回路里绝不硬编码 agent 名字。
 - **Contract** —— 每个任务是一份合约，带着 assignee 和 replyTo，落进 agent 的 `inbox/contract.json`。
 - **SOUL 通用机** —— agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程），agent有不同的Role，比如researcher、excutor、reviewer、planner、bridge。不同的Role才是各个agent的特有知识，同时可可自定义skill 注入。换个领域就是换套 Role，SOUL 一字不改。
+
+## Operator 控制面
+
+> 大多数多 agent 框架，要你**手写拓扑、手接边、手调 prompt**。OpenClaw 把这件事变成一句话：
+>
+> 「给 marketing 话题建一条 研究 → 撰写 → 评审 的回路，评审不过就重来」
+>
+> —— operator 理解你的意图、起草结构、在图上给你**预览**，你点同意，平台才真正动手。
+
+**operator 是一个 meta-agent（治理 agent）：它不干具体活，只设计系统本身**——agent 拓扑、角色、prompt、skill、loop / group 结构。具体任务永远是普通 agent 在传送带上完成的。**控制面（怎么搭）和数据面（怎么干）彻底分开**——这是它和「会自己改自己」的系统最根本的区别。
+
+#### 一句话 → 可运行结构，中间有四道关
+
+```
+你说一句话
+   │
+①  operator-brain     LLM 理解意图，起草结构方案（只设计，不执行）
+   │
+②  operator-plan      归一化 + 校验 + 可行性预检
+   │                  （引用的 agent 必须真实存在，或在本计划内被创建——杜绝悬空边）
+③  你审批             计划渲染成拓扑图上的 diff 预览叠层，加哪些 agent、连哪些边一目了然
+   │                  同意才继续，不满意就丢弃
+④  operator-executor  经 CLI-system 类型化接口落地；每步 apply 后平台强制 verify，多步失败整体回滚
+```
+
+#### 和现有架构不一样在哪
+
+| | 多数多 agent 系统 | OpenClaw operator |
+|---|---|---|
+| **改结构** | 手写拓扑，或框架自动改 / 自我进化（ADAS、AFlow、GPTSwarm…） | **建议优先 + 人工审批**：operator 出提案，你点同意，平台才落地 |
+| **落地方式** | 自由生成代码 / code-as-workflow | **类型化接口**：operator 只能产 `{surfaceId, payload}` 计划，**碰不到代码** |
+| **可信度** | 改完直接跑，对不对看运气 | **强制 verify 门**：每步 apply 后平台自动验回来，半途失败自动回滚 |
+| **优化依据** | 主观判断，或需要标注数据集 | **客观证据**：skill / 结构从 `EvaluationResult` 评判沉淀，origin-hash 去重 |
+| **系统知识** | 云向量库 RAG | **零依赖**：agent-map 是关键词打分的紧凑片段，极小本地模型也跑得起 |
+
+读操作全部经 `inspect.*`（数十个观测源，永远新鲜），写操作全部经 `apply.*`（带 `operatorExecutable` 权限标记 + verify），**零旁路**。operator 想改系统，和你在 WebUI 上点按钮，走的是**同一套被守卫的接口**——没有后门，没有特权通道。
+
+#### 附带的治理能力
+
+- **结构快照 / 回滚** —— 多步改动先拍快照，中途失败自动还原，绝不留半成品系统
+- **实时预览叠层** —— 应用前在拓扑图上叠出这次会加哪些 agent、连哪些边、删什么，不满意就不应用
+- **ProfileLifecycle 治理** —— 跟踪每个 agent 的可靠度（连续通过 → 信任等级 → 渐进收紧治理），退化时主动出优化提案，配全局熔断
+- **skill 自动沉淀** —— 跑通且被客观评判认可的经验，自动结晶成可复用 skill（Hermes 式自我进化，但每一步都有人审）
+
+> 一句话总结这套设计的取舍：**让强模型负责「该怎么搭」的创造力，让平台代码负责「能不能落地、对不对、能不能撤」的确定性。** 自主，但不失控。
 
 ## 设计小巧思
 
