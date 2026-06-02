@@ -17,14 +17,14 @@ metadata: {"clawdbot":{"emoji":"🔧"}}
     │
     ├─ HTTP/HTTPS 请求 → HTTPS_PROXY=localhost:8080
     │      └─ SSH -L 8080 → 云服务器:8080
-    │              └─ http-proxy.py → QQ API（出口 IP = 云服务器 120.79.201.198）
+    │              └─ http-proxy.py → QQ API（出口 IP = 云服务器 YOUR_REMOTE_HOST）
     │
     ├─ WebSocket → HttpsProxyAgent → localhost:8080（同上）
     │
     └─ QQ 平台回调 → SSH -R 18791 → 本机:18789（openclaw gateway）
 ```
 
-云服务器 IP：`120.79.201.198`
+云服务器 IP：`YOUR_REMOTE_HOST`
 
 ---
 
@@ -71,7 +71,7 @@ lsof -i :8080 | grep LISTEN
 ### 第三步：检查云服务器代理服务
 
 ```bash
-ssh root@120.79.201.198 "systemctl status http-proxy"
+ssh root@YOUR_REMOTE_HOST "systemctl status http-proxy"
 ```
 
 ### 第四步：验证完整代理链路
@@ -100,7 +100,7 @@ cat ~/.openclaw/openclaw.json | python3 -m json.tool | grep -A5 bindings
 ```bash
 # 清理现有进程
 pkill -f ssh-tunnel.sh
-pkill -f 'ssh.*18791.*120.79.201.198'
+pkill -f 'ssh.*18791.*YOUR_REMOTE_HOST'
 
 # 重启隧道
 bash ~/.openclaw/ssh-tunnel.sh >> /tmp/openclaw-ssh-tunnel.log 2>&1 &
@@ -111,16 +111,16 @@ echo "隧道 PID: $!"
 
 ```bash
 # 查找占用进程
-ssh root@120.79.201.198 "ss -tlnp | grep 18791"
+ssh root@YOUR_REMOTE_HOST "ss -tlnp | grep 18791"
 
 # 杀死占用进程
-ssh root@120.79.201.198 "kill \$(ss -tlnp | grep 18791 | grep -oP 'pid=\K[0-9]+')"
+ssh root@YOUR_REMOTE_HOST "kill \$(ss -tlnp | grep 18791 | grep -oP 'pid=\K[0-9]+')"
 ```
 
 ### 修复：重启云服务器代理
 
 ```bash
-ssh root@120.79.201.198 "systemctl restart http-proxy"
+ssh root@YOUR_REMOTE_HOST "systemctl restart http-proxy"
 ```
 
 ### 修复：完整重启流程
@@ -128,13 +128,13 @@ ssh root@120.79.201.198 "systemctl restart http-proxy"
 ```bash
 # 1. 清理本地隧道
 pkill -f ssh-tunnel.sh
-pkill -f 'ssh.*18791.*120.79.201.198'
+pkill -f 'ssh.*18791.*YOUR_REMOTE_HOST'
 
 # 2. 清理云服务器僵尸进程
-ssh root@120.79.201.198 "kill \$(ss -tlnp | grep 18791 | grep -oP 'pid=\K[0-9]+') 2>/dev/null; echo done"
+ssh root@YOUR_REMOTE_HOST "kill \$(ss -tlnp | grep 18791 | grep -oP 'pid=\K[0-9]+') 2>/dev/null; echo done"
 
 # 3. 重启云服务器代理（如需要）
-ssh root@120.79.201.198 "systemctl restart http-proxy"
+ssh root@YOUR_REMOTE_HOST "systemctl restart http-proxy"
 
 # 4. 重启本地隧道
 sleep 2
@@ -208,7 +208,7 @@ openclaw gateway run
 
 ```
 自动修复未能解决问题，请检查：
-1. 云服务器 120.79.201.198 是否可以 SSH 访问
+1. 云服务器 YOUR_REMOTE_HOST 是否可以 SSH 访问
 2. ~/.openclaw/ssh-tunnel.sh 脚本是否存在
 3. 查看隧道日志：cat /tmp/openclaw-ssh-tunnel.log
 ```
