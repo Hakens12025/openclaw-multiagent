@@ -14,8 +14,8 @@ test("composeAgentBinding uses top-level workspace when binding workspace is abs
     },
   });
 
-  assert.equal(binding.workspace.configured, "/Users/hakens/.openclaw/workspaces/drift-agent");
-  assert.equal(binding.workspace.effective, "/Users/hakens/.openclaw/workspaces/drift-agent");
+  assert.equal(binding.workspace.configured, "~/.openclaw/workspaces/drift-agent");
+  assert.equal(binding.workspace.effective, "~/.openclaw/workspaces/drift-agent");
 });
 
 test("guidance drift scan does not throw when workspace comes from top-level agent config", async () => {

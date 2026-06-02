@@ -44,7 +44,7 @@ test("direct-service topology exposes reviewer lane from current runtime truth",
 });
 
 test("direct-service probe prompt stays minimal and keeps the formal action marker in the result file flow", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/formal-runtime/suite-direct-service-prompts.js", "utf8");
+  const source = await readFile("~/.openclaw/extensions/watchdog/lib/formal-runtime/suite-direct-service-prompts.js", "utf8");
 
   assert.match(source, /先读取当前任务/);
   assert.match(source, /将结果文件写成下面这一行 \[ACTION\] marker/);

@@ -164,7 +164,7 @@ test("pool.js keeps enqueue/dequeue/release compatibility exports after refactor
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/worker-runtime-state.test.js tests/graph-router.test.js tests/pool.test.js
 ```
 
@@ -175,7 +175,7 @@ Expected:
 - [ ] **Step 5: Commit the red baseline**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/tests/worker-runtime-state.test.js extensions/watchdog/tests/graph-router.test.js extensions/watchdog/tests/pool.test.js
 git commit -m "test(pool): freeze worker runtime state extraction semantics"
 ```
@@ -403,7 +403,7 @@ export function ensurePendingContractQueued(contractId, api, logger) {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/worker-runtime-state.test.js tests/pool.test.js
 ```
 
@@ -414,7 +414,7 @@ Expected:
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/routing/worker-runtime-state.js extensions/watchdog/lib/routing/pool.js
 git commit -m "refactor(pool): extract worker runtime state owner"
 ```
@@ -528,7 +528,7 @@ return {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/worker-runtime-state.test.js tests/graph-router.test.js tests/pool.test.js tests/contractor-handoff-terminal.test.js
 ```
 
@@ -539,7 +539,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/routing/graph-router.js extensions/watchdog/lib/session-bootstrap.js extensions/watchdog/lib/lifecycle/runtime-lifecycle.js extensions/watchdog/lib/lifecycle/crash-recovery.js extensions/watchdog/index.js extensions/watchdog/routes/api.js extensions/watchdog/lib/operator/operator-snapshot-runtime.js
 git commit -m "refactor(runtime): rewire worker lifecycle to runtime state owner"
 ```
@@ -600,7 +600,7 @@ test("pool compat surface no longer exposes dispatch/retry internals", async () 
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/worker-runtime-state.test.js tests/graph-router.test.js tests/pool.test.js
 ```
 
@@ -612,7 +612,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/*.test.js
 ```
 
@@ -622,7 +622,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/routing/pool.js extensions/watchdog/tests/pool.test.js extensions/watchdog/tests/graph-router.test.js
 git commit -m "cleanup(pool): remove dead dispatch and retry internals"
 ```

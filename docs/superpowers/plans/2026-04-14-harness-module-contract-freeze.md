@@ -102,7 +102,7 @@ test("review harness modules stay within the four active runtime kinds", () => {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/harness-module-contract.test.js tests/review-harness-modules.test.js
 ```
 
@@ -166,7 +166,7 @@ import {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/harness-module-contract.test.js tests/review-harness-modules.test.js
 ```
 
@@ -185,7 +185,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/harness-module-contract.test.js tests/review-harness-modules.test.js tests/harness-run-store.test.js tests/harness-run-dedup.test.js tests/automation-harness-projection.test.js tests/terminal-truth-consumers.test.js
 ```
 

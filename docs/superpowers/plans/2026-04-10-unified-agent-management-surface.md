@@ -134,7 +134,7 @@ test("hardDeleteAgentDefinition removes workspace files from disk", async () => 
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/dashboard-agent-role-input.test.js tests/admin-surface-canonical-api.test.js tests/agent-delete-topology-cleanup.test.js tests/agent-role-validation.test.js
 ```
 
@@ -147,7 +147,7 @@ Expected:
 - [ ] **Step 6: Commit the red baseline**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/tests/dashboard-agent-role-input.test.js extensions/watchdog/tests/admin-surface-canonical-api.test.js extensions/watchdog/tests/agent-delete-topology-cleanup.test.js extensions/watchdog/tests/agent-role-validation.test.js
 git commit -m "test(agent-management): freeze canonical role and hard delete semantics"
 ```
@@ -201,7 +201,7 @@ export function normalizeAgentRoleDraft(value, fallback = DEFAULT_AGENT_ROLE) {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/dashboard-agent-role-input.test.js tests/agent-role-validation.test.js
 ```
 
@@ -211,7 +211,7 @@ Expected:
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/agent/agent-metadata.js extensions/watchdog/dashboard-agent-role-input.js extensions/watchdog/tests/dashboard-agent-role-input.test.js extensions/watchdog/tests/agent-role-validation.test.js
 git commit -m "fix(agent-management): enforce canonical role enum"
 ```
@@ -304,7 +304,7 @@ registerAdminSurfacePostRoute("/watchdog/agents/hard-delete", "agents.hard_delet
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/admin-surface-canonical-api.test.js tests/agent-delete-topology-cleanup.test.js
 ```
 
@@ -314,7 +314,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/agent/agent-admin-agent-operations.js extensions/watchdog/lib/admin/admin-surface-operations.js extensions/watchdog/lib/admin/admin-surface-catalog.js extensions/watchdog/routes/api.js extensions/watchdog/tests/admin-surface-canonical-api.test.js extensions/watchdog/tests/agent-delete-topology-cleanup.test.js
 git commit -m "feat(agent-management): add canonical hard delete operation"
 ```
@@ -379,7 +379,7 @@ loadAgentMeta();
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/dashboard-agent-role-input.test.js tests/admin-surface-canonical-api.test.js tests/agent-delete-topology-cleanup.test.js tests/agent-role-validation.test.js
 ```
 
@@ -389,7 +389,7 @@ Expected:
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/dashboard-ux.js extensions/watchdog/dashboard-agents.js
 git commit -m "feat(agent-management): unify quick delete and hard delete surfaces"
 ```
@@ -406,7 +406,7 @@ git commit -m "feat(agent-management): unify quick delete and hard delete surfac
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/dashboard-agent-role-input.test.js tests/admin-surface-canonical-api.test.js tests/agent-delete-topology-cleanup.test.js tests/agent-role-validation.test.js
 ```
 
@@ -418,7 +418,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/dashboard-stage-visibility.test.js tests/work-item-surface-semantics.test.js tests/runtime-tracking-work-item-semantics.test.js
 ```
 
@@ -432,7 +432,7 @@ Run:
 
 ```bash
 pkill -f 'openclaw-gateway' || true
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 nohup openclaw gateway run > /tmp/openclaw-gateway.log 2>&1 &
 ```
 

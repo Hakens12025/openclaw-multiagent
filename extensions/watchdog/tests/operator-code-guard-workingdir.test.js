@@ -29,7 +29,7 @@ test("operator is BLOCKED from editing code outside its own workspace (CLI-syste
   });
   const handler = hook();
   const result = await handler(
-    { toolName: "edit", params: { file_path: "/Users/hakens/.openclaw/extensions/watchdog/lib/state.js", oldText: "a", newText: "b" } },
+    { toolName: "edit", params: { file_path: "~/.openclaw/extensions/watchdog/lib/state.js", oldText: "a", newText: "b" } },
     { agentId: "operator", sessionKey: "agent:operator:main" },
   );
   assert.equal(result?.block, true, "operator must not edit code files directly");
@@ -42,7 +42,7 @@ test("operator is BLOCKED from writing platform config outside its workspace", a
   });
   const handler = hook();
   const result = await handler(
-    { toolName: "write", params: { file_path: "/Users/hakens/.openclaw/skills/some-skill/SKILL.md", content: "x" } },
+    { toolName: "write", params: { file_path: "~/.openclaw/skills/some-skill/SKILL.md", content: "x" } },
     { agentId: "operator", sessionKey: "agent:operator:main" },
   );
   assert.equal(result?.block, true);
@@ -67,7 +67,7 @@ test("the operator code guard is operator-specific (a non-operator agent is not 
   });
   const handler = hook();
   const result = await handler(
-    { toolName: "edit", params: { file_path: "/Users/hakens/some-external-project/main.js", oldText: "a", newText: "b" } },
+    { toolName: "edit", params: { file_path: "~/some-external-project/main.js", oldText: "a", newText: "b" } },
     { agentId: "worker-free", sessionKey: "agent:worker-free:main" },
   );
   assert.equal(result?.block, undefined, "executor (unrestricted) is not blocked by the operator-only code guard");
@@ -77,7 +77,7 @@ test("the operator code guard is operator-specific (a non-operator agent is not 
 test("reviewer may read inside contract.workingDir (external project root)", async () => {
   const agentId = `reviewer-workingdir-${Date.now()}`;
   const sessionKey = `agent:${agentId}:contract:test`;
-  const projectRoot = "/Users/hakens/some-external-project";
+  const projectRoot = "~/some-external-project";
   registerRuntimeAgents({
     agents: { list: [{ id: agentId, role: "reviewer", workspace: `~/.openclaw/workspaces/${agentId}`, model: { primary: "demo/rev" } }] },
   });
@@ -101,7 +101,7 @@ test("reviewer may read inside contract.workingDir (external project root)", asy
 
   // control: reading a path outside inbox/output/workingDir is still blocked for reviewer
   const blocked = await handler(
-    { toolName: "read", params: { path: "/Users/hakens/unrelated/elsewhere.txt" } },
+    { toolName: "read", params: { path: "~/unrelated/elsewhere.txt" } },
     { agentId, sessionKey },
   );
   assert.equal(blocked?.block, true, "reviewer reads outside contract scope stay blocked");
@@ -115,9 +115,9 @@ test("buildLoopContract carries a declared workingDir onto the contract", () => 
     loopSessionId: "LS-wd-test",
     startAgent: "a",
     requestedTask: "do the project work",
-    workingDir: "/Users/hakens/project-root",
+    workingDir: "~/project-root",
   });
-  assert.equal(contract.workingDir, "/Users/hakens/project-root");
+  assert.equal(contract.workingDir, "~/project-root");
   // and omitted cleanly when not declared
   const noWd = buildLoopContract({
     contractId: "TC-no-wd", loop: { id: "loop-y", nodes: ["a", "b"], entryAgentId: "a", continueSignal: "continue", concludeSignal: "conclude" },

@@ -87,7 +87,7 @@ test("loop cleanup leaves no active runtime references to context sidechannel", 
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node --test \
   extensions/watchdog/tests/system-action-context.test.js \
   extensions/watchdog/tests/loop-context-cleanup.test.js \
@@ -99,7 +99,7 @@ Expected: FAIL because production still imports `stage-context.js`, writes `cont
 - [ ] **Step 5: Commit the red test snapshot**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add \
   extensions/watchdog/tests/system-action-context.test.js \
   extensions/watchdog/tests/loop-context-cleanup.test.js \
@@ -201,7 +201,7 @@ async function handleWakeAgentAction(normalizedAction, {
 - [ ] **Step 3: Delete the active `stage-context.js` file**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 rm extensions/watchdog/lib/stage-context.js
 ```
 
@@ -210,7 +210,7 @@ rm extensions/watchdog/lib/stage-context.js
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node --test \
   extensions/watchdog/tests/system-action-context.test.js \
   extensions/watchdog/tests/loop-context-cleanup.test.js \
@@ -222,7 +222,7 @@ Expected: PASS. Active runtime no longer writes `context.json`; archived legacy 
 - [ ] **Step 5: Commit the retirement slice**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add \
   extensions/watchdog/lib/legacy/context-sidechannel/stage-context.js \
   extensions/watchdog/lib/system-action/system-action-runtime-handlers.js \
@@ -382,7 +382,7 @@ test("dispatch-runtime-state no longer exposes worker-only names", async () => {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node --test \
   extensions/watchdog/tests/worker-runtime-state.test.js \
   extensions/watchdog/tests/graph-router.test.js \
@@ -398,7 +398,7 @@ Expected: PASS. No graph-router-local queue owner remains; all consumers import 
 - [ ] **Step 7: Commit the unified dispatch owner slice**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add \
   extensions/watchdog/lib/routing/dispatch-runtime-state.js \
   extensions/watchdog/lib/routing/worker-runtime-state.js \
@@ -464,7 +464,7 @@ test("production runtime has no active imports of retired context or worker runt
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node --test \
   extensions/watchdog/tests/context-sidechannel-retirement.test.js \
   extensions/watchdog/tests/system-action-context.test.js \
@@ -485,7 +485,7 @@ Expected: PASS with no remaining active references to `stage-context.js` or `wor
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node extensions/watchdog/test-runner.js --preset single
 ```
 
@@ -494,7 +494,7 @@ Expected: the runner starts normally, no startup import error mentions `stage-co
 - [ ] **Step 4: Commit the verification sweep**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add \
   extensions/watchdog/tests/context-sidechannel-retirement.test.js \
   extensions/watchdog/tests/control-plane-worker-state-consumers.test.js

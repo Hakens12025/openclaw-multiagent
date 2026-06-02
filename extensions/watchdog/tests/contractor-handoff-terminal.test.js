@@ -807,7 +807,7 @@ test("invalid tool-error payload already written into contract.output fails term
   await writeFile(outputPath, JSON.stringify({
     status: "error",
     tool: "write",
-    file_path: "/Users/hakens/.openclaw/workspaces/worker2/outbox/runtime_result.json",
+    file_path: "~/.openclaw/workspaces/worker2/outbox/runtime_result.json",
   }, null, 2), "utf8");
 
   try {

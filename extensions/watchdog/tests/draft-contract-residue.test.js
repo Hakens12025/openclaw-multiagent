@@ -40,12 +40,12 @@ test("execution routing no longer exports planner draft inbox helpers", async ()
 
 test("control-plane source files no longer mention draftContracts residue", async () => {
   const fileChecks = [
-    ["state-collections", "/Users/hakens/.openclaw/extensions/watchdog/lib/state-collections.js"],
-    ["contract-flow-store", "/Users/hakens/.openclaw/extensions/watchdog/lib/store/contract-flow-store.js"],
-    ["state-persistence", "/Users/hakens/.openclaw/extensions/watchdog/lib/state-persistence.js"],
-    ["runtime-admin", "/Users/hakens/.openclaw/extensions/watchdog/lib/admin/runtime-admin.js"],
-    ["crash-recovery", "/Users/hakens/.openclaw/extensions/watchdog/lib/lifecycle/crash-recovery.js"],
-    ["runtime-mailbox-inbox-handlers", "/Users/hakens/.openclaw/extensions/watchdog/lib/routing/runtime-mailbox-inbox-handlers.js"],
+    ["state-collections", "~/.openclaw/extensions/watchdog/lib/state-collections.js"],
+    ["contract-flow-store", "~/.openclaw/extensions/watchdog/lib/store/contract-flow-store.js"],
+    ["state-persistence", "~/.openclaw/extensions/watchdog/lib/state-persistence.js"],
+    ["runtime-admin", "~/.openclaw/extensions/watchdog/lib/admin/runtime-admin.js"],
+    ["crash-recovery", "~/.openclaw/extensions/watchdog/lib/lifecycle/crash-recovery.js"],
+    ["runtime-mailbox-inbox-handlers", "~/.openclaw/extensions/watchdog/lib/routing/runtime-mailbox-inbox-handlers.js"],
   ];
 
   for (const [label, filePath] of fileChecks) {
@@ -61,10 +61,10 @@ test("control-plane source files no longer mention draftContracts residue", asyn
 
 test("execution routing source files no longer mention planner draft promotion flow", async () => {
   const fileChecks = [
-    ["contracts", "/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js"],
-    ["crash-recovery", "/Users/hakens/.openclaw/extensions/watchdog/lib/lifecycle/crash-recovery.js"],
-    ["runtime-mailbox-inbox-handlers", "/Users/hakens/.openclaw/extensions/watchdog/lib/routing/runtime-mailbox-inbox-handlers.js"],
-    ["before-start-ingress", "/Users/hakens/.openclaw/extensions/watchdog/lib/ingress/before-start-ingress.js"],
+    ["contracts", "~/.openclaw/extensions/watchdog/lib/contracts.js"],
+    ["crash-recovery", "~/.openclaw/extensions/watchdog/lib/lifecycle/crash-recovery.js"],
+    ["runtime-mailbox-inbox-handlers", "~/.openclaw/extensions/watchdog/lib/routing/runtime-mailbox-inbox-handlers.js"],
+    ["before-start-ingress", "~/.openclaw/extensions/watchdog/lib/ingress/before-start-ingress.js"],
   ];
 
   for (const [label, filePath] of fileChecks) {

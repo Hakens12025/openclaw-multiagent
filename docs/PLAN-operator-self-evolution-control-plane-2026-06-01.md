@@ -189,14 +189,14 @@ Each phase is independently revertable (delete the module/route/tab; no edits to
 ---
 
 **Files an engineer touches** (all absolute):
-- NEW `/Users/hakens/.openclaw/extensions/watchdog/lib/control-plane/structure-snapshot.js`
-- NEW `/Users/hakens/.openclaw/extensions/watchdog/lib/control-plane/proposal-tier.js`
-- NEW `/Users/hakens/.openclaw/extensions/watchdog/routes/control-plane.js`
-- NEW `/Users/hakens/.openclaw/extensions/watchdog/dashboard-control-plane.js`
-- EDIT `/Users/hakens/.openclaw/extensions/watchdog/lib/control-plane/control-plane-paths.js` (add `structureSnapshotsFile`)
-- EDIT `/Users/hakens/.openclaw/extensions/watchdog/lib/admin/admin-change-set-history.js` (add `reverted`/`revert_failed` to `resolveDraftStatus`, ~:115-143)
-- EDIT `/Users/hakens/.openclaw/extensions/watchdog/dashboard-devtools.js` (`VIEW_MODES`, `renderViewTabs`, `getActiveView`)
-- EDIT `/Users/hakens/.openclaw/extensions/watchdog/devtools.html` (script inject)
+- NEW `~/.openclaw/extensions/watchdog/lib/control-plane/structure-snapshot.js`
+- NEW `~/.openclaw/extensions/watchdog/lib/control-plane/proposal-tier.js`
+- NEW `~/.openclaw/extensions/watchdog/routes/control-plane.js`
+- NEW `~/.openclaw/extensions/watchdog/dashboard-control-plane.js`
+- EDIT `~/.openclaw/extensions/watchdog/lib/control-plane/control-plane-paths.js` (add `structureSnapshotsFile`)
+- EDIT `~/.openclaw/extensions/watchdog/lib/admin/admin-change-set-history.js` (add `reverted`/`revert_failed` to `resolveDraftStatus`, ~:115-143)
+- EDIT `~/.openclaw/extensions/watchdog/dashboard-devtools.js` (`VIEW_MODES`, `renderViewTabs`, `getActiveView`)
+- EDIT `~/.openclaw/extensions/watchdog/devtools.html` (script inject)
 
 **Reuse-verbatim (do NOT modify):** `saveConfig` (`agent-admin-store.js:95`), `saveGraph` (`agent-graph-mutations.js:34`), `saveGraphLoopRegistry` (`graph-loop-registry.js:123`), `writeAutomationStore` (`automation-registry.js:180`), `executeAdminChangeSet` (`admin-change-set-executor.js:30`), `evaluateCommitVerificationGate` (`admin-change-set-commit-gate.js:28`), `atomicWriteFile`/`withLock` (`state-file-utils.js:13,121`).
 ---

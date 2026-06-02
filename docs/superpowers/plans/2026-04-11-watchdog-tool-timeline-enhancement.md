@@ -53,7 +53,7 @@ test("buildProgressPayload exposes recent structured tool events", () => {
 Run:
 
 ```bash
-cd /Users/hakens/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
+cd ~/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
 node --test extensions/watchdog/tests/task-stage-runtime.test.js
 ```
 
@@ -90,7 +90,7 @@ test("track_progress event stream prefers structured tool timeline summary", () 
 Run:
 
 ```bash
-cd /Users/hakens/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
+cd ~/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
 node --test extensions/watchdog/tests/dashboard-stage-visibility.test.js
 ```
 
@@ -165,7 +165,7 @@ return {
 Run:
 
 ```bash
-cd /Users/hakens/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
+cd ~/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
 node --test extensions/watchdog/tests/task-stage-runtime.test.js
 ```
 
@@ -208,7 +208,7 @@ workItems[sessionKey] = {
 Run:
 
 ```bash
-cd /Users/hakens/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
+cd ~/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
 node --test extensions/watchdog/tests/dashboard-stage-visibility.test.js
 ```
 
@@ -231,7 +231,7 @@ Expected: PASS and rendered event body shows structured summary instead of a bar
 Run:
 
 ```bash
-cd /Users/hakens/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
+cd ~/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
 node --test \
   extensions/watchdog/tests/task-stage-runtime.test.js \
   extensions/watchdog/tests/dashboard-stage-visibility.test.js
@@ -244,7 +244,7 @@ Expected: PASS.
 Run:
 
 ```bash
-cd /Users/hakens/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
+cd ~/.config/superpowers/worktrees/openclaw/codex-tool-timeline-watchdog
 rg -n "track_progress|lastLabel" extensions/watchdog
 ```
 
@@ -262,7 +262,7 @@ Check:
 
 ## Execution Status (2026-04-11)
 
-Implemented and synced into the main repo at `/Users/hakens/.openclaw`.
+Implemented and synced into the main repo at `~/.openclaw`.
 
 Completed:
 
@@ -274,7 +274,7 @@ Completed:
 Verification in main repo:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node --test \
   extensions/watchdog/tests/tool-progress-payload.test.js \
   extensions/watchdog/tests/dashboard-stage-visibility.test.js \
@@ -284,7 +284,7 @@ node --test \
 Result: PASS (`20/20`).
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node --test \
   extensions/watchdog/tests/harness-run-dedup.test.js \
   extensions/watchdog/tests/harness-run-store.test.js \
@@ -296,14 +296,14 @@ node --test \
 Result: PASS (`27/27`).
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node extensions/watchdog/test-runner.js --preset single
 ```
 
 Result: PASS in `58.9s`, contract `TC-1775855387750`, output at `workspaces/controller/output/TC-1775855387750.md`.
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 node extensions/watchdog/test-runner.js --preset multi
 ```
 

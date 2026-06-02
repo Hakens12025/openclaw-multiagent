@@ -112,7 +112,7 @@ if (testCase.id === "operator-snapshot-actions-aligned") {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/cli-system-surface-registry.test.js tests/admin-surface-canonical-api.test.js tests/suite-operator.js
 ```
 
@@ -208,7 +208,7 @@ export function summarizeCliSystemSurfaces(filters = {}, options = {}) {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/cli-system-surface-registry.test.js
 ```
 
@@ -289,7 +289,7 @@ return {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/cli-system-surface-registry.test.js tests/admin-surface-canonical-api.test.js tests/suite-operator.js
 ```
 
@@ -301,7 +301,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/formal-test-surface.test.js tests/admin-surface-canonical-api.test.js tests/suite-operator.js
 ```
 

@@ -56,7 +56,7 @@ test("runtime result is the only agent-facing outbox result artifact", () => {
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/runtime-result-protocol.test.js
 ```
 
@@ -96,7 +96,7 @@ Do not keep `STAGE_RESULT`. Do not add a legacy alias.
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/runtime-result-protocol.test.js
 ```
 
@@ -105,7 +105,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/protocol-primitives.js extensions/watchdog/tests/runtime-result-protocol.test.js
 git commit -m "feat: define runtime result protocol constant"
 ```
@@ -267,7 +267,7 @@ test("collectWorkerOutbox rejects stage_result.json and contract_result.json as 
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/outbox-runtime-result-truth.test.js
 ```
 
@@ -342,7 +342,7 @@ Do not leave a fallback to `.md`, `stage_result.json`, or `contract_result.json`
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/outbox-runtime-result-truth.test.js
 ```
 
@@ -351,7 +351,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/routing/router-outbox-helpers.js extensions/watchdog/lib/routing/runtime-mailbox-outbox-handlers.js extensions/watchdog/tests/outbox-runtime-result-truth.test.js
 git commit -m "feat: make runtime_result the only worker outbox truth"
 ```
@@ -413,7 +413,7 @@ Use the actual exported observer function name in the file; do not invent a new 
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/before-tool-call-path-guard.test.js tests/protocol-commit-reconcile.test.js
 ```
 
@@ -458,7 +458,7 @@ In `extensions/watchdog/lib/protocol-commit-reconcile.js` and `extensions/watchd
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/before-tool-call-path-guard.test.js tests/protocol-commit-reconcile.test.js
 ```
 
@@ -467,7 +467,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/hooks/before-tool-call.js extensions/watchdog/hooks/after-tool-call.js extensions/watchdog/lib/protocol-commit-reconcile.js extensions/watchdog/lib/protocol-commit-observer.js extensions/watchdog/tests/before-tool-call-path-guard.test.js extensions/watchdog/tests/protocol-commit-reconcile.test.js
 git commit -m "feat: route protocol commits through runtime_result"
 ```
@@ -518,7 +518,7 @@ test("executor template uses runtime_result without single or multi file branche
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/contract-session-prompt-override.test.js tests/soul-template-builder.test.js
 ```
 
@@ -598,7 +598,7 @@ In `extensions/watchdog/lib/platform-doc-builder.js`, replace any generated plat
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/contract-session-prompt-override.test.js tests/soul-template-builder.test.js tests/delivery-semantics.test.js tests/protocol-doc-sync.test.js
 ```
 
@@ -607,7 +607,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/lib/contract-session-prompt-override.js extensions/watchdog/lib/soul-template-builder.js extensions/watchdog/lib/role-spec-registry.js extensions/watchdog/lib/platform-doc-builder.js extensions/watchdog/lib/semantic-skill-registry.js skills/platform-tools/SKILL.md extensions/watchdog/tests/contract-session-prompt-override.test.js extensions/watchdog/tests/soul-template-builder.test.js extensions/watchdog/tests/delivery-semantics.test.js extensions/watchdog/tests/protocol-doc-sync.test.js
 git commit -m "feat: teach agents runtime_result protocol"
 ```
@@ -631,7 +631,7 @@ git commit -m "feat: teach agents runtime_result protocol"
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 rg -n "stage_result\\.json|contract_result\\.json" extensions/watchdog/tests extensions/watchdog/lib hooks skills docs
 ```
 
@@ -672,7 +672,7 @@ Replacement assertion: those inputs are rejected and mention `runtime_result.jso
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test tests/outbox-stage-semantic-truth.test.js tests/evaluator-outbox-unification.test.js tests/runtime-loop-budget-governance.test.js tests/contractor-handoff-terminal.test.js tests/runtime-reset-guidance-sync.test.js tests/evaluator-result.test.js
 ```
 
@@ -683,7 +683,7 @@ Expected: PASS after fixture updates.
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 rg -n "stage_result\\.json|contract_result\\.json" extensions/watchdog/lib extensions/watchdog/hooks extensions/watchdog/tests skills docs
 ```
 
@@ -692,7 +692,7 @@ Expected: no matches, except this implementation plan file if it remains in the 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add extensions/watchdog/tests extensions/watchdog/lib extensions/watchdog/hooks skills docs
 git commit -m "test: migrate result fixtures to runtime_result"
 ```
@@ -709,7 +709,7 @@ git commit -m "test: migrate result fixtures to runtime_result"
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test \
   tests/runtime-result-protocol.test.js \
   tests/outbox-runtime-result-truth.test.js \
@@ -726,7 +726,7 @@ Expected: PASS.
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node --test \
   tests/delivery-semantics.test.js \
   tests/task-stage-runtime.test.js \
@@ -746,7 +746,7 @@ node --experimental-test-module-mocks --test <test-file>
 Run the existing guidance sync/takeover path used by this repo to rewrite managed `SOUL.md` and `HEARTBEAT.md`. If there is no CLI helper, restart watchdog with the current workspace guidance sync enabled and verify the files:
 
 ```bash
-rg -n "stage_result\\.json|contract_result\\.json|Role:|Sensitive external actions" /Users/hakens/.openclaw/workspaces
+rg -n "stage_result\\.json|contract_result\\.json|Role:|Sensitive external actions" ~/.openclaw/workspaces
 ```
 
 Expected: no active managed workspace prompt contains those strings.
@@ -760,7 +760,7 @@ Restart the OpenClaw gateway/watchdog service using the project’s normal comma
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node test-runner.js --case simple-01
 ```
 
@@ -778,7 +778,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw/extensions/watchdog
+cd ~/.openclaw/extensions/watchdog
 node test-runner.js --case complex-02
 ```
 
@@ -792,8 +792,8 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hakens/.openclaw
-rg -n "stage_result\\.json|contract_result\\.json" extensions/watchdog/lib extensions/watchdog/hooks extensions/watchdog/tests skills docs /Users/hakens/.codex/memories
+cd ~/.openclaw
+rg -n "stage_result\\.json|contract_result\\.json" extensions/watchdog/lib extensions/watchdog/hooks extensions/watchdog/tests skills docs ~/.codex/memories
 ```
 
 Expected: no active references. Historical memo references may remain only if clearly historical and outside runtime/prompt truth.
@@ -803,7 +803,7 @@ Expected: no active references. Historical memo references may remain only if cl
 If Step 1-7 required fixes:
 
 ```bash
-cd /Users/hakens/.openclaw
+cd ~/.openclaw
 git add <changed-files>
 git commit -m "fix: close runtime_result migration gaps"
 ```

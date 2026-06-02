@@ -23,9 +23,9 @@ Harness 是执行层工具箱，不是平台总控。
 
 当前代码里的正式入口：
 
-- [extensions/watchdog/lib/harness/harness-registry.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-registry.js)
-- [extensions/watchdog/lib/harness/harness-run.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-run.js)
-- [extensions/watchdog/lib/harness/harness-module-runner.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-module-runner.js)
+- [extensions/watchdog/lib/harness/harness-registry.js](~/.openclaw/extensions/watchdog/lib/harness/harness-registry.js)
+- [extensions/watchdog/lib/harness/harness-run.js](~/.openclaw/extensions/watchdog/lib/harness/harness-run.js)
+- [extensions/watchdog/lib/harness/harness-module-runner.js](~/.openclaw/extensions/watchdog/lib/harness/harness-module-runner.js)
 
 ## 冻结的模块接口
 

@@ -188,7 +188,7 @@ export function getHarnessModule(moduleId) {
 
 - [ ] **Step 4: Verify module loads**
 
-Run: `node -e "import('/Users/hakens/.openclaw/extensions/watchdog/lib/harness-registry.js').then(m => { console.log('modules:', m.listHarnessModules().length); console.log('legacy map:', Object.keys(m.LEGACY_MODULE_ID_MAP).length) })"`
+Run: `node -e "import('~/.openclaw/extensions/watchdog/lib/harness-registry.js').then(m => { console.log('modules:', m.listHarnessModules().length); console.log('legacy map:', Object.keys(m.LEGACY_MODULE_ID_MAP).length) })"`
 Expected: `modules: 10`, `legacy map: 23`
 
 ---
@@ -279,7 +279,7 @@ Delete `normalizeAssuranceLevel`, `VALID_ASSURANCE_LEVELS`, `deriveDefaultAssura
 
 - [ ] **Step 4: Verify profiles load correctly**
 
-Run: `node -e "import('/Users/hakens/.openclaw/extensions/watchdog/lib/harness-registry.js').then(m => m.listHarnessProfiles().forEach(p => console.log(p.id, p.moduleRefs.length, 'modules')))"`
+Run: `node -e "import('~/.openclaw/extensions/watchdog/lib/harness-registry.js').then(m => m.listHarnessProfiles().forEach(p => console.log(p.id, p.moduleRefs.length, 'modules')))"`
 Expected: 4 profiles, each with correct module count.
 
 ---
@@ -342,7 +342,7 @@ const START_PENDING_MODULES = new Set([
 
 - [ ] **Step 5: Verify evaluators load**
 
-Run: `node -e "import('/Users/hakens/.openclaw/extensions/watchdog/lib/harness-module-evaluators.js').then(() => console.log('OK'))"`
+Run: `node -e "import('~/.openclaw/extensions/watchdog/lib/harness-module-evaluators.js').then(() => console.log('OK'))"`
 Expected: OK (no import errors)
 
 ---
