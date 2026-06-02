@@ -84,7 +84,7 @@ bash start.sh
    │                  （引用的 agent 必须真实存在，或在本计划内被创建——杜绝悬空边）
 ③  你审批             计划渲染成拓扑图上的 diff 预览叠层，加哪些 agent、连哪些边一目了然
    │                  同意才继续，不满意就丢弃
-④  operator-executor  经 CLI-system 类型化接口落地；每步 apply 后平台强制 verify，多步失败整体回滚
+④  operator-executor  经 CLI-system 类型化接口落地；每步 apply 后强制启动一道 verify（把改动验回来）；多步 plan 中途某步失败 → 整体回滚到快照
 ```
 
 #### 和现有架构不一样在哪
@@ -93,11 +93,11 @@ bash start.sh
 |---|---|---|
 | **改结构** | 手写拓扑，或框架自动改 / 自我进化（ADAS、AFlow、GPTSwarm…） | **建议优先 + 人工审批**：operator 出提案，你点同意，平台才落地 |
 | **落地方式** | 自由生成代码 / code-as-workflow | **类型化接口**：operator 只能产 `{surfaceId, payload}` 计划，**碰不到代码** |
-| **可信度** | 改完直接跑，对不对看运气 | **强制 verify 门**：每步 apply 后平台自动验回来，半途失败自动回滚 |
+| **可信度** | 改完直接跑，对不对看运气 | **强制 verify 门**：每步 apply 后强制启动一道 verify 把改动验回来；多步 plan 中途某步失败 → 整体回滚到快照 |
 | **优化依据** | 主观判断，或需要标注数据集 | **客观证据**：skill / 结构从 `EvaluationResult` 评判沉淀，origin-hash 去重 |
 | **系统知识** | 云向量库 RAG | **零依赖**：agent-map 是关键词打分的紧凑片段，极小本地模型也跑得起 |
 
-读操作全部经 `inspect.*`（数十个观测源，永远新鲜），写操作全部经 `apply.*`（带 `operatorExecutable` 权限标记 + verify），**零旁路**。operator 想改系统，和你在 WebUI 上点按钮，走的是**同一套被守卫的接口**——没有后门，没有特权通道。
+读操作全部经 `inspect.*`（数十个观测源，永远新鲜），写操作全部经类型化 `apply.*` surface。operator 这条路额外多几道闸：`operatorExecutable` 权限校验 + 强制 verify + 多步快照/回滚；WebUI 的直接管理动作更轻，但和 operator **最终收口于同一个 admin-surface 节流点**——没有隐藏后门、没有第二条写路径。
 
 #### 附带的治理能力
 
@@ -114,7 +114,7 @@ bash start.sh
 - 用户消息和系统内派工渠道分开，用户可以直接和系统内任意agent交流，同时可让某agent直接派工去往某个agent，或者是某个设计好的loop，完成后自动回流消息
 - 用户消息和系统派工消息使用不同的prompt，系统派工prompt为专用的wake-agent-message，更加对应agent在系统中的角色
 - Prompt分情况组装，skill头部强制注入上下文，记忆系统使用openclaw默认记忆系统
-- 以contract为核心的session机制，同一contract在各agent之间session编号一致，便于上下文保留
+- 以 contract 为核心的 session 机制：每个 agent 对同一 contract 维持**自己的**会话（session key = `agent:<id>:contract:<cid>`），用 contract id 把跨 agent 的处理串起来——不是各 agent 共用一个 session，而是同一 contract 下各自保留上下文
 - 多agent协作时，前一agent会生成context消息，以便后一agent上手开工
 - harness设计为模块化，harness本身严格规范设计，倒逼operator设计和编写严格的harness模块
 - 使用使用heartbeat方法避开了openclaw多并发缓慢的问题
