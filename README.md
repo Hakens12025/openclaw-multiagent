@@ -65,7 +65,7 @@ bash start.sh
 
 ## Operator 控制面
 
-> 大多数多 agent 框架，要你**手写拓扑、手接边、手调 prompt**。OpenClaw 把这件事变成一句话：
+> 大多数多 agent 框架，要你**手写拓扑、手接边、手调 prompt**。OpenClaw-mulitagent-system-kksl 把这件事变成一句话：
 >
 > 「给 marketing 话题建一条 研究 → 撰写 → 评审 的回路，评审不过就重来」
 >
