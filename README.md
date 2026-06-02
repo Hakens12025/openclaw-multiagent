@@ -116,7 +116,7 @@ bash start.sh
 - Prompt分情况组装，skill头部强制注入上下文，记忆系统使用openclaw默认记忆系统
 - 以contract为核心的session机制，同一contract在各agent之间session编号一致，便于上下文保留
 - 多agent协作时，前一agent会生成context消息，以便后一agent上手开工
-- harness设计为模块化，harness本身严格规范设计，倒闭operator设计和编写严格的harness模块
+- harness设计为模块化，harness本身严格规范设计，倒逼operator设计和编写严格的harness模块
 - 使用使用heartbeat方法避开了openclaw多并发缓慢的问题
 - 设计了更好的排队系统，自动等待和自动派发更丝滑，相同contract享受相同session，同一agent再度处理该contract不会丢上下文
 - 自带test-runner，3种预设test，在对系统，prompt进行修改后可直接复核质量
