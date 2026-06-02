@@ -4,6 +4,8 @@
 
 **多 Agent 协作平台 —— 代码控制流程，LLM 负责内容。**
 
+-本项目基于@Openclaw 2026.03.02版本开发，后续未做适配，请注意
+
 [![status](https://img.shields.io/badge/status-WIP-orange)](https://github.com/Hakens12025/openclaw-multiagent)
 [![platform](https://img.shields.io/badge/platform-macOS-lightgrey)](https://github.com/Hakens12025/openclaw-multiagent)
 [![node](https://img.shields.io/badge/node-22%2B-green)](https://nodejs.org/)
