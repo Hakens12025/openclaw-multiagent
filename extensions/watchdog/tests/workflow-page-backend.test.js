@@ -386,7 +386,7 @@ test("readSessionSystemPrompt：合约会话 → source=contract-session-overrid
     assert.equal(r.injectedFiles.length, 1);
     const content = r.injectedFiles[0].content || "";
     assert.match(content, /You are running inside OpenClaw/, "应是合约会话系统提示词正文");
-    assert.match(content, /Contract: `TC-OVERRIDE-1`/, "含合约 id");
+    assert.doesNotMatch(content, /Contract: `TC-OVERRIDE-1`/, "合约 id 不内联(缓存稳定),由 inbox/wake 提供");
   } finally {
     await rm(join(OC_ROOT, "agents", agentId), { recursive: true, force: true });
   }
@@ -464,7 +464,7 @@ const apiRoutes = (() => {
     config: {},
   };
   const logger = { info() {}, warn() {}, error() {} };
-  registerApiRoutes(api, logger, { enqueueFn() {}, wakePlanner() {} });
+  registerApiRoutes(api, logger, {});
   return routes;
 })();
 

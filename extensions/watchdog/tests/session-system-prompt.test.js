@@ -375,7 +375,8 @@ test("readSessionSystemPrompt：合约会话 → activePath=dispatch-agent-awake
     assert.equal(r.source, "contract-session-override", "顶层=active=agent-awake");
     assert.ok(r.views, "应带双视图供对比");
     assert.equal(r.views.agentAwake?.available, true, "agent-awake 视图可用");
-    assert.match(r.views.agentAwake.injectedFiles[0].content, /Contract: `TC-DUAL`/, "agent-awake 含合约 id");
+    assert.match(r.views.agentAwake.injectedFiles[0].content, /You are running inside OpenClaw/, "agent-awake 正文在");
+    assert.doesNotMatch(r.views.agentAwake.injectedFiles[0].content, /Contract: `TC-DUAL`/, "agent-awake 不内联合约 id(缓存稳定),由 inbox/wake 提供");
     assert.equal(r.views.soul?.available, true, "soul 视图（对比用，本 session 未进上下文）也在");
     assert.ok(r.views.soul.injectedFiles.some((f) => f.name === "SOUL.md"), "soul 视图含 SOUL.md");
   } finally {

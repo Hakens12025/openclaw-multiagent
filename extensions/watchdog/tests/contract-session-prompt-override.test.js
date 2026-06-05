@@ -64,7 +64,8 @@ test("contract session prompt override keeps only minimal positive runtime guida
     assert.match(prompt, /You are running inside OpenClaw\./);
     assert.match(prompt, /Agent: `worker`/);
     assert.doesNotMatch(prompt, /Role:/);
-    assert.match(prompt, /Contract: `TC-1`/);
+    assert.doesNotMatch(prompt, /Contract: `TC-1`/, "contractId 不内联进系统提示词前缀(缓存稳定),由 inbox/wake 提供");
+    assert.match(prompt, /Use the current wake message for wake metadata: contract id and output path\./);
     assert.match(prompt, /First read `inbox\/contract\.json` as the contract truth\./);
     assert.doesNotMatch(prompt, /Use the current wake message as the task source\./);
     assert.match(prompt, /Write the user-facing deliverable artifact\./);
@@ -116,6 +117,44 @@ test("contract session prompt override tells executors to read upstream packages
   assert.match(prompt, /upstreamPackages/, "executor 应被指示先读上游产物包");
   assert.match(prompt, /Write the user-facing deliverable artifact\./, "executor 仍产用户交付物");
   assertNoNegativePromptCopy(prompt);
+});
+
+test("contract session prompt appends an optional per-agent WAKE.md override when present", async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-wake-"));
+  try {
+    await writeFile(join(workspaceDir, "WAKE.md"), "Always cite the source dataset id in the deliverable.");
+    const prompt = await buildContractSessionSystemPrompt({
+      agentId: "worker", role: "executor", workspaceDir, sessionKey: "agent:worker:contract:TC-7",
+    });
+    assert.match(prompt, /## Dispatch guidance \(WAKE\.md override\)/, "platform header is present (English)");
+    assert.match(prompt, /Always cite the source dataset id in the deliverable\./, "user WAKE.md body is appended verbatim");
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("contract session prompt is unchanged when no WAKE.md exists (override is opt-in)", async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-nowake-"));
+  try {
+    const prompt = await buildContractSessionSystemPrompt({
+      agentId: "worker", role: "executor", workspaceDir, sessionKey: "agent:worker:contract:TC-8",
+    });
+    assert.doesNotMatch(prompt, /WAKE\.md override/, "no override block without a WAKE.md");
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("WAKE.md is an OPTIONAL editable override — editable, but not expected/managed (no missing-nag)", async () => {
+  const { EDITABLE_GUIDANCE_FILES, OPTIONAL_GUIDANCE_FILES, GUIDANCE_FILES, getManagedGuidanceFilesForRole } =
+    await import("../lib/agent/agent-enrollment-discovery.js");
+  const { MANAGED_GUIDANCE_FILE_NAMES } = await import("../lib/agent/managed-guidance-files.js");
+  assert.ok(EDITABLE_GUIDANCE_FILES.includes("WAKE.md"), "in the read/write whitelist (editable)");
+  assert.ok(OPTIONAL_GUIDANCE_FILES.includes("WAKE.md"), "classified as an optional override");
+  assert.ok(!GUIDANCE_FILES.includes("WAKE.md"), "NOT in the expected/managed guidance set");
+  assert.ok(!getManagedGuidanceFilesForRole("executor").includes("WAKE.md"), "not per-role expected → a missing WAKE.md is never flagged");
+  assert.ok(!getManagedGuidanceFilesForRole("bridge").includes("WAKE.md"), "same for coordination roles");
+  assert.ok(!MANAGED_GUIDANCE_FILE_NAMES.includes("WAKE.md"), "NOT auto-managed → writer never auto-writes/removes it");
 });
 
 test("watchdog plugin registers the contract prompt override hook", async () => {
