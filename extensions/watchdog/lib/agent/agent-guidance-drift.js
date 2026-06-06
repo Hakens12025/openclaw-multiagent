@@ -18,7 +18,7 @@ import { loadConfig } from "./agent-admin-store.js";
 import { composeAgentBinding } from "../effective-profile-composer.js";
 import { normalizeString } from "../core/normalize.js";
 import { defaultAgentWorkspace } from "../state-agent-helpers.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../managed-doc-markers.js";
 import { getManagedGuidanceFilesForRole } from "./agent-enrollment-discovery.js";
 import { recordGuidanceDriftScan } from "./agent-guidance-drift-state.js";
 

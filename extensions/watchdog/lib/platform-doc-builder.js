@@ -8,7 +8,7 @@ import {
 import { getSemanticSkillSpec, listAutoInjectedAgentSkillRefs } from "./semantic-skill-registry.js";
 import { normalizeString, uniqueStrings } from "./core/normalize.js";
 import { AGENT_ROLE } from "./agent/agent-identity.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "./soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "./managed-doc-markers.js";
 import { PROTOCOL_ID } from "../protocol-registry.js";
 import {
   formatAgentIdList,

@@ -18,7 +18,7 @@ import {
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
 import { defaultAgentWorkspace } from "../state-agent-helpers.js";
 import { HOME, OC } from "../state-paths.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../managed-doc-markers.js";
 
 const GUIDANCE_FILES = Object.freeze([
   "SOUL.md",
@@ -30,7 +30,17 @@ const GUIDANCE_FILES = Object.freeze([
   "HEARTBEAT.md",
 ]);
 
-export { GUIDANCE_FILES };
+// OPTIONAL guidance: editable in the WebUI + accepted by the read/write whitelist, but NOT part of the
+// per-role "expected/managed" set — so a missing one is never flagged (it is opt-in). WAKE.md is the
+// wake-message override (contract-session-prompt-override appends it). It is deliberately NOT in
+// MANAGED_GUIDANCE_FILE_NAMES either → the writer never auto-creates/removes it; it stays user-authored.
+const OPTIONAL_GUIDANCE_FILES = Object.freeze(["WAKE.md"]);
+
+// The read/write/reveal whitelist = managed guidance ∪ optional overrides. Distinct from the
+// per-role EXPECTED set (getManagedGuidanceFilesForRole) which drives missing/attention accounting.
+const EDITABLE_GUIDANCE_FILES = Object.freeze([...new Set([...GUIDANCE_FILES, ...OPTIONAL_GUIDANCE_FILES])]);
+
+export { GUIDANCE_FILES, OPTIONAL_GUIDANCE_FILES, EDITABLE_GUIDANCE_FILES };
 
 const EXECUTION_LAYER_ROLES = new Set([
   AGENT_ROLE.EXECUTOR,

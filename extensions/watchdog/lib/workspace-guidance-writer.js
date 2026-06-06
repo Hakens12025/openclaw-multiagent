@@ -1,6 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { atomicWriteFile } from "./state-file-utils.js";
 import { AGENT_ROLE, normalizeAgentRole } from "./agent/agent-identity.js";
 import { composeEffectiveProfile } from "./effective-profile-composer.js";
 import { loadGraph } from "./agent/agent-graph.js";
@@ -9,11 +10,8 @@ import { composeEffectiveSkillRefs } from "./agent/agent-binding-policy.js";
 import { readStoredAgentBinding } from "./agent/agent-binding-store.js";
 import { listResolvedGraphLoops } from "./loop/graph-loop-registry.js";
 import { agentWorkspace } from "./state.js";
-import {
-  MANAGED_BOOTSTRAP_MARKER,
-  normalizeManagedDocContent,
-  buildSoulTemplate,
-} from "./soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER, normalizeManagedDocContent } from "./managed-doc-markers.js";
+import { buildSoulTemplate } from "./soul-template-builder.js";
 import {
   buildHeartbeatTemplate,
   buildAgentsTemplate,
@@ -60,7 +58,7 @@ async function writeManagedFile(filePath, content, {
     }
   }
 
-  await writeFile(filePath, normalizedContent);
+  await atomicWriteFile(filePath, normalizedContent);
   return true;
 }
 
@@ -86,7 +84,7 @@ async function writeSoulFile(filePath, content, {
     }
   }
 
-  await writeFile(filePath, normalizedContent);
+  await atomicWriteFile(filePath, normalizedContent);
   return true;
 }
 

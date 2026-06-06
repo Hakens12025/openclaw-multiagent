@@ -8,8 +8,8 @@ import { AGENT_ROLE } from "../lib/agent/agent-identity.js";
 import {
   buildBridgeSoulTemplate,
   buildSoulTemplate,
-  MANAGED_BOOTSTRAP_MARKER,
 } from "../lib/soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../lib/managed-doc-markers.js";
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import {
   backupWorkspaceGuidanceFiles,

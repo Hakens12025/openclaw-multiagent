@@ -6,13 +6,7 @@ import {
   getRoleSummary,
 } from "./role-spec-registry.js";
 
-const MANAGED_BOOTSTRAP_MARKER = "<!-- managed-by-watchdog:agent-bootstrap -->";
-export { MANAGED_BOOTSTRAP_MARKER };
-
-function normalizeManagedDocContent(content) {
-  return String(content || "").replace(/\r\n/g, "\n");
-}
-export { normalizeManagedDocContent };
+import { MANAGED_BOOTSTRAP_MARKER } from "./managed-doc-markers.js";
 
 function buildRolePrinciplesSection(role) {
   const profile = getRoleSoulProfile(role);

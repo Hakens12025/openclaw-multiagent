@@ -5,8 +5,8 @@ import { AGENT_ROLE } from "../lib/agent/agent-identity.js";
 import {
   buildSoulTemplate,
   buildBridgeSoulTemplate,
-  MANAGED_BOOTSTRAP_MARKER,
 } from "../lib/soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../lib/managed-doc-markers.js";
 
 test("buildSoulTemplate(BRIDGE) returns bridge template, not default", () => {
   const soul = buildSoulTemplate("bridge-x", AGENT_ROLE.BRIDGE);
