@@ -205,7 +205,6 @@ mock.module("../lib/store/tracker-store.js", {
 
 mock.module("../lib/role-spec-registry.js", {
   namedExports: {
-    getDispatchInstruction: () => "do the task",
     getRoleSummary: () => "planner summary",
   },
 });

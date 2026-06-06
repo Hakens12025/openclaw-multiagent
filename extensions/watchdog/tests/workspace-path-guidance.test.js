@@ -9,7 +9,6 @@ import {
   syncAgentWorkspaceGuidance,
 } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
-import { getDispatchInstruction } from "../lib/role-spec-registry.js";
 
 test("execution-layer soul guidance defers IO details to wake + platform docs", async () => {
   // v5.1 Task 1/7: SOUL no longer hardcodes inbox/outbox paths.
@@ -42,28 +41,6 @@ test("execution-layer soul guidance defers IO details to wake + platform docs", 
     } finally {
       await rm(workspaceDir, { recursive: true, force: true });
     }
-  }
-});
-
-test("dispatch instructions carry minimal contract-session entrypoint", () => {
-  const expectations = [
-    { role: AGENT_ROLE.PLANNER, matcher: /stage plan/i },
-    { role: AGENT_ROLE.EXECUTOR, matcher: /deliverable/i },
-    { role: AGENT_ROLE.RESEARCHER, matcher: /research/i },
-    { role: AGENT_ROLE.REVIEWER, matcher: /review/i },
-  ];
-
-  for (const entry of expectations) {
-    const instruction = getDispatchInstruction(entry.role);
-    assert.match(instruction, entry.matcher);
-    assert.match(instruction, /Read inbox\/contract\.json/);
-    assert.match(instruction, /upstreamPackages/u, "应提示读上游产物包（产物随 contract 流转）");
-    assert.match(instruction, /outbox\/runtime_result\.json/u);
-    assert.match(instruction, /Runtime consumes status metadata/u);
-    assert.doesNotMatch(instruction, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(instruction, /outbox\/contract_result\.json/);
-    assert.doesNotMatch(instruction, /不要写成/);
-    assert.doesNotMatch(instruction, /[\u4e00-\u9fff]/u);
   }
 });
 

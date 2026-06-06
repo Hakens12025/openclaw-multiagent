@@ -1,17 +1,17 @@
 import { AGENT_ROLE } from "./agent/agent-metadata.js";
 
-const CONTRACT_INBOX_READ_INSTRUCTION = "Read inbox/contract.json as the contract truth. If it lists upstreamPackages, read those upstream packages under inbox/ as the brief and input for this contract, then produce this contract's own deliverable from them.";
-const RUNTIME_METADATA_INSTRUCTION = "Runtime consumes status metadata; the user-facing answer lives in the artifact.";
-const SHARED_RUNTIME_RESULT_COMMIT_INSTRUCTION = `Write outbox/runtime_result.json for runtime status metadata. ${RUNTIME_METADATA_INSTRUCTION}`;
-const PLANNER_RUNTIME_RESULT_COMMIT_INSTRUCTION = `Write a working brief artifact for the downstream executor: your understanding of the task, key considerations, the deliverable's outline as section headings with one line of guidance each, constraints, and acceptance criteria. Keep it an outline and hand the prose to the executor. Include [STAGE] markers for stage tracking, and leave the final deliverable to the executor. Then write outbox/runtime_result.json for runtime status metadata. ${RUNTIME_METADATA_INSTRUCTION}`;
-const FINAL_OUTPUT_COMMIT_INSTRUCTION = `Write the user-facing deliverable artifact, then write outbox/runtime_result.json for runtime status metadata. ${RUNTIME_METADATA_INSTRUCTION}`;
-
-function joinDispatchInstruction(parts) {
-  return parts
-    .map((entry) => String(entry || "").trim())
-    .filter(Boolean)
-    .join(" ");
-}
+// ⑥wake 产出格式（per-role outputDirectives，数据驱动，替代旧 if(role===PLANNER) 硬分支）。
+// planner 产工作简报 + [STAGE]；其余角色产用户交付物。全英文正向措辞（过 contract-session 守卫）。
+const PLANNER_OUTPUT_DIRECTIVES = Object.freeze([
+  "- Your artifact is a working brief for the downstream executor, not the finished report.",
+  "- Write the brief as an outline: task understanding (1-2 sentences), key considerations (bullet hints), the deliverable outline as section headings with one line of guidance each, constraints, and acceptance criteria.",
+  "- Include `[STAGE]` markers in the brief, one stage per verifiable delivery boundary, each with goal / deliverable / done-criteria.",
+  "- The downstream executor reads your brief and produces the final deliverable; you hand over the brief and stage plan.",
+]);
+const DELIVERABLE_OUTPUT_DIRECTIVES = Object.freeze([
+  "- When `inbox/contract.json` lists `upstreamPackages`, read those upstream packages under `inbox/` as your brief and input for this contract.",
+  "- Write the user-facing deliverable artifact.",
+]);
 
 const ROLE_SPECS = Object.freeze({
   [AGENT_ROLE.BRIDGE]: Object.freeze({
@@ -26,6 +26,7 @@ const ROLE_SPECS = Object.freeze({
       "桥接与转发是主职责，调度决策交给 runtime 和图真值。",
       "遇到低置信信息时标注置信度，把内部状态转成可理解结论。",
     ]),
+    outputDirectives: DELIVERABLE_OUTPUT_DIRECTIVES,
     soulTemplateId: "bridge-v1",
     tags: Object.freeze(["bridge", "gateway"]),
   }),
@@ -41,11 +42,7 @@ const ROLE_SPECS = Object.freeze({
       "输出里若冒出对主题的具体分析或结论正文，把它改写成阶段拆解与结构提示。",
       "发现任务缺输入时，列出缺口、可继续假设和下一步需求。",
     ]),
-    dispatchInstruction: joinDispatchInstruction([
-      "Produce the working brief and stage plan for the current contract; leave the final deliverable to the executor.",
-      CONTRACT_INBOX_READ_INSTRUCTION,
-      PLANNER_RUNTIME_RESULT_COMMIT_INSTRUCTION,
-    ]),
+    outputDirectives: PLANNER_OUTPUT_DIRECTIVES,
     soulTemplateId: "planner-v3",
     tags: Object.freeze(["planning"]),
   }),
@@ -62,11 +59,7 @@ const ROLE_SPECS = Object.freeze({
       "默认按终端用户可直接消费的标准交付。",
       "输出摘要要让评估节点快速知道完成内容和剩余缺口。",
     ]),
-    dispatchInstruction: joinDispatchInstruction([
-      "Complete the current contract and deliver the result.",
-      CONTRACT_INBOX_READ_INSTRUCTION,
-      FINAL_OUTPUT_COMMIT_INSTRUCTION,
-    ]),
+    outputDirectives: DELIVERABLE_OUTPUT_DIRECTIVES,
     soulTemplateId: "executor-v1",
     tags: Object.freeze(["execution", "delivery"]),
   }),
@@ -82,11 +75,7 @@ const ROLE_SPECS = Object.freeze({
       "单源结论必须显式降级，多源一致才适合高置信推进。",
       "研究的价值在于减少不确定性，并把资料整理成可行动结论。",
     ]),
-    dispatchInstruction: joinDispatchInstruction([
-      "Complete the current research task and deliver the conclusion.",
-      CONTRACT_INBOX_READ_INSTRUCTION,
-      SHARED_RUNTIME_RESULT_COMMIT_INSTRUCTION,
-    ]),
+    outputDirectives: DELIVERABLE_OUTPUT_DIRECTIVES,
     soulTemplateId: "researcher-v1",
     tags: Object.freeze(["research", "search"]),
   }),
@@ -102,11 +91,7 @@ const ROLE_SPECS = Object.freeze({
       "反馈应可操作，最好直接指出文件、结构或证据层面的修改点。",
       "完成判断给出可复核理由。",
     ]),
-    dispatchInstruction: joinDispatchInstruction([
-      "Review the current artifact and deliver a structured conclusion.",
-      CONTRACT_INBOX_READ_INSTRUCTION,
-      SHARED_RUNTIME_RESULT_COMMIT_INSTRUCTION,
-    ]),
+    outputDirectives: DELIVERABLE_OUTPUT_DIRECTIVES,
     soulTemplateId: "reviewer-v2",
     tags: Object.freeze(["review"]),
   }),
@@ -122,7 +107,7 @@ const ROLE_SPECS = Object.freeze({
       "当前 Contract 是本轮责任边界。",
       "完成即停，运行态由 runtime 持有。",
     ]),
-    dispatchInstruction: "Complete the current contract. Use formal platform collaboration when collaboration is needed.",
+    outputDirectives: DELIVERABLE_OUTPUT_DIRECTIVES,
     soulTemplateId: "agent-v1",
     tags: Object.freeze(["general"]),
   }),
@@ -137,6 +122,7 @@ function cloneRoleSpec(spec) {
     ...spec,
     tags: [...(spec.tags || [])],
     operatingPrinciples: [...(spec.operatingPrinciples || [])],
+    outputDirectives: [...(spec.outputDirectives || [])],
   };
 }
 
@@ -148,8 +134,10 @@ export function getRoleSummary(role) {
   return readRoleSpec(role).summary;
 }
 
-export function getDispatchInstruction(role) {
-  return readRoleSpec(role).dispatchInstruction || "Complete the current contract and deliver the result.";
+// ⑥wake 源：该角色的产出格式 bullet 数组（数据驱动，替代 if(role===PLANNER)）。
+export function getRoleOutputDirectives(role) {
+  const spec = readRoleSpec(role);
+  return [...(spec.outputDirectives && spec.outputDirectives.length ? spec.outputDirectives : DELIVERABLE_OUTPUT_DIRECTIVES)];
 }
 
 export function getRoleSoulProfile(role) {
