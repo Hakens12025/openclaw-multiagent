@@ -36,18 +36,16 @@ test("contract session prompt override is scoped to exact contract sessions", ()
   assert.equal(shouldOverrideContractSessionPrompt({ agentId: "worker", sessionKey: "cron:worker:TC-1" }), false);
 });
 
-test("contract session prompt override keeps only minimal positive runtime guidance", async () => {
+test("contract session prompt override keeps minimal runtime guidance + role persona + SOUL last", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-contract-prompt-"));
   try {
-    await writeFile(join(workspaceDir, "SOUL.md"), [
+    // SOUL = user-owned persona body, appended verbatim at the very end of the dispatch prompt.
+    const userSoulBody = [
       "# worker",
       "",
-      "Executor node. Complete the current contract.",
-      "",
-      "## Runtime Result",
-      "",
-      "- Write the deliverable.",
-    ].join("\n"));
+      "User-authored persona: always cite the dataset id.",
+    ].join("\n");
+    await writeFile(join(workspaceDir, "SOUL.md"), userSoulBody);
     await writeFile(join(workspaceDir, "HEARTBEAT.md"), [
       "# HEARTBEAT.md",
       "",
@@ -60,6 +58,10 @@ test("contract session prompt override keeps only minimal positive runtime guida
       workspaceDir,
       sessionKey: "agent:worker:contract:TC-1",
     });
+
+    // role persona is inlined at the FRONT (system-dispatch path injects it; persona is English).
+    assert.match(prompt, /## Role/, "role persona block is inlined at the front");
+    assert.ok(prompt.indexOf("## Role") < prompt.indexOf("You are running inside OpenClaw"), "persona precedes the OpenClaw frame");
 
     assert.match(prompt, /You are running inside OpenClaw\./);
     assert.match(prompt, /Agent: `worker`/);
@@ -75,16 +77,18 @@ test("contract session prompt override keeps only minimal positive runtime guida
     assert.doesNotMatch(prompt, /completion statement/);
     assert.doesNotMatch(prompt, /Sensitive external actions require human confirmation/);
     assert.doesNotMatch(prompt, /single-file|multi-file|simple questions|one-line answer/i);
-    assert.doesNotMatch(prompt, /[\u4e00-\u9fff]/u);
     assert.match(prompt, /Use `runtimeContext\.currentTime` from that file for date\/time questions\./);
     assert.doesNotMatch(prompt, /wake includes `Current time`/);
     assert.doesNotMatch(prompt, /## Project Context/);
-    assert.doesNotMatch(prompt, /## .*SOUL\.md/);
     assert.doesNotMatch(prompt, /## .*HEARTBEAT\.md/);
-    assert.doesNotMatch(prompt, /Executor node\. Complete the current contract\./);
-    assert.doesNotMatch(prompt, /Runtime wake\. Handle the current contract\./);
+    assert.doesNotMatch(prompt, /Runtime wake\. Handle the current contract\./, "HEARTBEAT.md is not inlined");
     assert.doesNotMatch(prompt, /## Silent Replies/);
     assert.doesNotMatch(prompt, /## Heartbeats/);
+
+    // SOUL user body is appended at the VERY END (\u88c1\u5b9a2: SOUL last for cache locality).
+    assert.match(prompt, /User-authored persona: always cite the dataset id\./, "user SOUL body is appended");
+    assert.ok(prompt.trimEnd().endsWith("User-authored persona: always cite the dataset id."), "SOUL body is last");
+    assert.ok(prompt.indexOf("User-authored persona") > prompt.indexOf("## Tools"), "SOUL follows the wake/tools section");
     assertNoNegativePromptCopy(prompt);
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
@@ -103,7 +107,8 @@ test("contract session prompt override gives planner a brief + stage directive (
   assert.match(prompt, /executor reads your brief/i, "明确执行节点据简报产成品");
   // planner 不应拿到「直接产用户交付物」指令（那是它越界产报告的根因）
   assert.doesNotMatch(prompt, /Write the user-facing deliverable artifact\./);
-  assert.doesNotMatch(prompt, /[一-鿿]/u, "提示词无中文");
+  // ④role persona is inlined (English); the ⑥wake output directives stay English/positive.
+  assert.match(prompt, /## Role/, "planner persona inlined at the front");
   assertNoNegativePromptCopy(prompt);
 });
 

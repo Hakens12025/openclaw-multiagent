@@ -854,47 +854,104 @@
   .wf-prompt-path-dispatch-agent-awake { border-left-color: var(--accent-orange); }
   .wf-prompt-path-direct-soul { border-left-color: var(--accent-blue); }
 
-  /* 两个暗按钮：默认低调，选中提亮，禁用变暗 */
-  .wf-prompt-tabs {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .wf-prompt-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--bg-tertiary);
+  /* 六层折叠面板：每层一行（present 亮 / 缺 灰），⑥wake 派工路高亮叠加 */
+  .wf-layers {
+    margin-bottom: 14px;
     border: 1px solid var(--border-secondary);
-    padding: 5px 10px;
+    background: var(--bg-primary);
+  }
+  .wf-layer {
+    border-bottom: 1px solid var(--border-secondary);
+    transition: background 0.15s ease;
+  }
+  .wf-layer:last-child { border-bottom: none; }
+  .wf-layer-head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 7px 10px;
     font-family: "Courier New", monospace;
     font-size: 11px;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease;
   }
-  .wf-prompt-tab:hover { background: var(--bg-primary); color: var(--text-primary); }
-  .wf-prompt-tab-on {
-    background: var(--bg-primary);
-    border-color: var(--accent-orange);
+  .wf-layer-head:hover:not([disabled]) { background: var(--bg-tertiary); }
+  .wf-layer-head[disabled] { cursor: default; }
+  .wf-layer-caret {
     color: var(--accent-orange);
+    width: 12px;
+    flex-shrink: 0;
   }
-  .wf-prompt-tab-disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .wf-prompt-tab-disabled:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
-  .wf-prompt-tab-badge {
-    font-size: 8px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 1px 4px;
-    border: 1px solid var(--accent-green);
+  .wf-layer-name { flex: 1; }
+  .wf-layer-chars {
+    font-size: 10px;
     color: var(--accent-green);
   }
-  .wf-prompt-note-alt {
-    border-left: 3px solid var(--accent-amber);
-    color: var(--accent-amber);
+  .wf-layer-src {
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  /* present 亮 / 缺 灰；⑥wake 派工路橙高亮、直连路灰显 */
+  .wf-layer-on .wf-layer-name { color: var(--text-primary); }
+  .wf-layer-off .wf-layer-name { color: var(--text-muted); }
+  .wf-layer-off .wf-layer-caret { color: var(--text-muted); }
+  .wf-layer-wake-on {
+    border-left: 3px solid var(--accent-orange);
+    background: var(--bg-primary);
+  }
+  .wf-layer-wake-on .wf-layer-name { color: var(--accent-orange); }
+  .wf-layer-wake-off {
+    border-left: 3px solid var(--border-secondary);
+  }
+  .wf-layer-wake-off .wf-layer-name { color: var(--text-muted); }
+  .wf-layer-wake-off .wf-layer-caret { color: var(--text-muted); }
+  .wf-layer-tag {
+    margin: 0 10px 6px 30px;
+    padding: 3px 7px;
+    border-left: 2px solid var(--accent-orange);
+    background: var(--bg-tertiary);
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    color: var(--accent-orange);
+  }
+  .wf-layer-body {
+    display: none;
+    margin: 0 10px 8px 30px;
+    padding: 7px 9px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-height: 340px;
+    overflow: auto;
+  }
+  .wf-layer[data-layer-open="1"] .wf-layer-body { display: block; }
+  .wf-layer-absent {
+    margin: 0 10px 7px 30px;
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* 实际拼入正文小标题 */
+  .wf-prompt-doc-head {
+    margin-bottom: 8px;
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
   }
 
   /* 完整装配（默认折叠） */

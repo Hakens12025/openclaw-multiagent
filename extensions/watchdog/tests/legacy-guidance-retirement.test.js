@@ -1,26 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
-import * as soulTemplateBuilder from "../lib/soul-template-builder.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../lib/managed-doc-markers.js";
 
-test("Task 7: isLegacy{Planner,Executor,Researcher,Reviewer}SoulContent are removed from soul-template-builder", () => {
-  assert.equal(typeof soulTemplateBuilder.isLegacyPlannerSoulContent, "undefined");
-  assert.equal(typeof soulTemplateBuilder.isLegacyExecutorSoulContent, "undefined");
-  assert.equal(typeof soulTemplateBuilder.isLegacyResearcherSoulContent, "undefined");
-  assert.equal(typeof soulTemplateBuilder.isLegacyReviewerSoulContent, "undefined");
+// 六层模型重构: soul-template-builder.js 已整体删除(④role 改 renderRolePersonaBlock + IDENTITY 载体)。
+
+test("soul-template-builder module is fully retired", async () => {
+  await assert.rejects(
+    () => import("../lib/soul-template-builder.js"),
+    /Cannot find module|ERR_MODULE_NOT_FOUND/,
+    "soul-template-builder.js 应已删除",
+  );
 });
 
-test("startup sync does NOT auto-upgrade a no-marker legacy SOUL (Task 7)", async () => {
+test("startup sync never rewrites a user-owned SOUL (no-marker body survives)", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "legacy-retire-"));
   try {
-    const legacyContent = "# worker-x\n\n任务执行者。唯一职责：读取 inbox 中的 Contract，按要求执行任务，将结果写入 output 路径。\n";
-    await writeFile(join(workspaceDir, "SOUL.md"), legacyContent, "utf8");
-    await syncAgentWorkspaceGuidance({
+    const userSoul = "# worker-x\n\n用户自定义人格正文。\n";
+    await writeFile(join(workspaceDir, "SOUL.md"), userSoul, "utf8");
+    const updates = await syncAgentWorkspaceGuidance({
       agentId: "worker-x",
       role: AGENT_ROLE.EXECUTOR,
       skills: [],
@@ -29,18 +32,17 @@ test("startup sync does NOT auto-upgrade a no-marker legacy SOUL (Task 7)", asyn
       loops: [],
     });
     const stillThere = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    assert.equal(stillThere, legacyContent, "no-marker legacy content must survive startup sync");
+    assert.equal(stillThere, userSoul, "user-owned SOUL must survive startup sync unchanged");
+    assert.equal(updates.find((entry) => entry.name === "SOUL.md"), undefined, "SOUL is not part of managed sync");
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
   }
 });
 
-test("startup sync still updates a marker-managed SOUL (Task 7)", async () => {
-  const workspaceDir = await mkdtemp(join(tmpdir(), "legacy-retire-marker-"));
+test("startup sync writes/refreshes the managed IDENTITY persona for execution-layer agents", async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), "legacy-retire-identity-"));
   try {
-    const managedSeed = "<!-- managed-by-watchdog:agent-bootstrap -->\n# worker-x\n\nstale body\n";
-    await writeFile(join(workspaceDir, "SOUL.md"), managedSeed, "utf8");
-    await syncAgentWorkspaceGuidance({
+    const updates = await syncAgentWorkspaceGuidance({
       agentId: "worker-x",
       role: AGENT_ROLE.EXECUTOR,
       skills: [],
@@ -48,9 +50,13 @@ test("startup sync still updates a marker-managed SOUL (Task 7)", async () => {
       graph: { edges: [] },
       loops: [],
     });
-    const updated = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    assert.notEqual(updated, managedSeed, "marker-managed SOUL should be refreshed by startup sync");
-    assert.match(updated, /<!-- managed-by-watchdog:agent-bootstrap -->/);
+    const identityStatus = updates.find((entry) => entry.name === "IDENTITY.md");
+    assert.equal(identityStatus?.updated, true, "managed IDENTITY is written on sync");
+    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
+    assert.match(identity, new RegExp(MANAGED_BOOTSTRAP_MARKER.replace(/[-:/]/g, "\\$&")));
+    assert.match(identity, /## Role/, "managed IDENTITY carries the role persona");
+    // SOUL is not seeded by sync (only bootstrap seeds the placeholder); execution layer still keeps HEARTBEAT.
+    await access(join(workspaceDir, "HEARTBEAT.md"));
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
   }

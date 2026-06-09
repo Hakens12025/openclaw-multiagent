@@ -10,10 +10,9 @@ import {
 } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
 
-test("execution-layer soul guidance defers IO details to wake + platform docs", async () => {
-  // v5.1 Task 1/7: SOUL no longer hardcodes inbox/outbox paths.
-  // Path truth lives in the current-session-boundary section, pointing at
-  // the runtime wake message and platform managed docs.
+test("execution-layer IDENTITY persona defers IO details to wake + platform docs", async () => {
+  // 六层模型: ④role persona lives in managed IDENTITY.md and never hardcodes inbox/outbox paths.
+  // Path truth lives in the ⑥wake layer (contract prompt) and platform managed docs.
   const roles = [
     { agentId: "planner-guidance", role: AGENT_ROLE.PLANNER },
     { agentId: "worker-guidance", role: AGENT_ROLE.EXECUTOR },
@@ -33,11 +32,11 @@ test("execution-layer soul guidance defers IO details to wake + platform docs", 
         loops: [],
       });
 
-      const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-      assert.match(soul, /当前会话边界/);
-      assert.match(soul, /以本轮系统唤醒信息和平台文档为准/);
-      assert.doesNotMatch(soul, /read\(path: "inbox\/contract\.json"\)/);
-      assert.doesNotMatch(soul, /绝不能写成 `\/inbox\/contract\.json`/);
+      const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
+      assert.match(identity, /## Role/);
+      assert.doesNotMatch(identity, /read\(path: "inbox\/contract\.json"\)/);
+      assert.doesNotMatch(identity, /inbox\/contract\.json/);
+      assert.doesNotMatch(identity, /绝不能写成 `\/inbox\/contract\.json`/);
     } finally {
       await rm(workspaceDir, { recursive: true, force: true });
     }
@@ -107,10 +106,12 @@ test("bulk workspace guidance sync skips hidden control-plane agents", async () 
       },
     }, { warn() {} });
 
-    const runtimeSoul = await readFile(join(runtimeWorkspace, "SOUL.md"), "utf8");
-    assert.match(runtimeSoul, /# controller/);
+    // Managed bulk sync writes IDENTITY (④role) for runtime agents; SOUL stays user-owned (bootstrap-seeded).
+    const runtimeIdentity = await readFile(join(runtimeWorkspace, "IDENTITY.md"), "utf8");
+    assert.match(runtimeIdentity, /# controller/);
+    assert.match(runtimeIdentity, /## Role/);
     await assert.rejects(
-      readFile(join(operatorWorkspace, "SOUL.md"), "utf8"),
+      readFile(join(operatorWorkspace, "IDENTITY.md"), "utf8"),
       /ENOENT/,
     );
   } finally {

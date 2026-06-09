@@ -32,12 +32,14 @@
 | [Runtime Dispatch Queue](concepts/runtime-dispatch-queue.md) | 传送带排队/认领/搬运的运行时真值 | 系统架构 |
 | [按需唤醒 (WakeEvent)](concepts/wake-event.md) | 运行时状态驱动的控制面唤醒机制 | 待实现 |
 | [AgentGroup](concepts/agent-group.md) | 图原语：空间封装，与 Loop 的时间重复正交 | 已落地（agent_groups surface + v119 宏展开） |
+| [Provider 兜底链](concepts/provider-fallback-chain.md) | meta-agent brain 模型解析升级为有序就绪链；provider 类错误运行时降级、不重启网关 | 已落地（v161） |
 
 ## Agent 与角色
 
 | 页面 | 摘要 | 状态 |
 |------|------|------|
-| [SOUL 身份化](concepts/soul-identity.md) | SOUL 只写通用行为，领域知识通过 skill 注入 | 永久原则 |
+| [Prompt 装配](concepts/prompt-assembly.md) | 六层装配：框架/工具/skill头/④role/⑤SOUL/⑥wake；两路径(直连/派工)；SOUL 末尾保缓存 | 已落地 |
+| [SOUL 身份化](concepts/soul-identity.md) | ⑤SOUL=纯用户人格；④role 拆到托管 IDENTITY.md | 永久原则 |
 | [Skill 边界](concepts/skill-boundary.md) | 三层语义：role-spec(身份) / skill(方法) / runtime(保障) | 术语冻结 |
 | [Planner](concepts/planner.md) | planMode 使任何 agent 成为规划者，DRAFT 消除 | 进行中 |
 | [Evaluator](concepts/evaluator.md) | 去特殊化三桶拆解，worker + review 能力 | 设计完成 |
@@ -60,6 +62,12 @@
 |------|------|------|
 | [Dashboard](concepts/dashboard.md) | NASA-Punk 前端，SVG 交互拓扑，纯 vanilla JS；含「工作流」页（连通分量+session 回放） | 功能可用 |
 | [测试系统](concepts/test-system.md) | test-runner.js 唯一入口，五层测试模型 | 功能可用 |
+
+## 知识库与检索 (RAG)
+
+| 页面 | 摘要 | 状态 |
+|------|------|------|
+| [知识库/RAG 检索](concepts/knowledge-rag.md) | hybrid(qwen3 向量+BM25-lite+RRF)多库检索；时序元数据+分歧派生+recall/faithfulness 评测+per-agent 消费 | 演化中(v145-162) |
 
 ## 隐喻与框架
 
@@ -84,6 +92,10 @@
 | [Wiki 替代纯备忘录](decisions/wiki-over-memo-only.md) | code=WHAT, memo=RAW, wiki=WHY | 04-09 |
 | [runtime-bridge 收编进 delivery](decisions/runtime-bridge-into-delivery.md) | delivery:terminal + system_action return variants | 04-08 |
 | [产物整包流转](decisions/artifact-package-flow.md) | 产物随 contract 整包流到下游 inbox，agent 只读自己 inbox | 05-31 |
+| [RAG 主线落地(122 三档 land)](decisions/rag-land-2026-06.md) | embed→qwen3(+37.5pp)/ rerank=LLM 默认关(延迟)/ faithfulness 生成侧度量;RAG 不建 meta-agent、knowledge≠真值 | 06-09 |
+| [真值层协调缝](decisions/truth-seam-coordination.md) | 真值枚举+actor 门抽成声明式注册表(一条路径)；operator-hub 星型 meta 旁路可行 | 06-05 |
+| [oh-my-pi 借鉴](decisions/oh-my-pi-borrow-2026-06.md) | Pi 反向分叉；TIER-1 provider 兜底链已落地；把 Harness Problem 对准自己 | 06-09 |
+| [role/SOUL/wake 解耦+英文化](decisions/role-soul-wake-decoupling.md) | SOUL=纯用户；role→IDENTITY(④托管)；wake 叠加仅派工；三层提示词改英文 | 06-10 |
 
 ## 状态与元信息
 

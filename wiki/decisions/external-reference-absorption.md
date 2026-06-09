@@ -35,6 +35,10 @@
 - Trace / artifact / evidence
 - Execution harness
 
+## 从 oh-my-pi 吸收 (2026-06)
+
+oh-my-pi（Pi 的单 agent 编码分叉，与 OpenClaw 是反向分叉）的去 cargo-cult 借鉴见 [oh-my-pi 借鉴](oh-my-pi-borrow-2026-06.md)：TIER-1 provider 兜底链已落地（v161）；最高杠杆教训 = 把"Harness Problem"对准自己（度量而非声明 harness 能力）。SKIP 环检测拒绝（与我们 loop 原语相反）等。
+
 ## 影响
 
 - OpenClaw 保持自己的平台层设计，不被外部框架带偏。
@@ -42,4 +46,4 @@
 
 ## 出处
 
-备忘录64、81、82
+备忘录64、81、82；oh-my-pi 见备忘录125（2026-06-09）

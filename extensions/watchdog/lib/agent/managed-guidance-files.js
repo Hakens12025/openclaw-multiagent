@@ -1,5 +1,5 @@
 export const MANAGED_GUIDANCE_FILE_NAMES = Object.freeze([
-  "SOUL.md",
+  "IDENTITY.md",
   "AGENTS.md",
   "BUILDING-MAP.md",
   "COLLABORATION-GRAPH.md",

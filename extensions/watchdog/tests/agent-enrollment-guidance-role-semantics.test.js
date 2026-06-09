@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { buildConfiguredCandidate } from "../lib/agent/agent-enrollment-discovery.js";
 import { syncAgentWorkspaceGuidance, buildAgentCard } from "../lib/workspace-guidance-writer.js";
 
-test("buildConfiguredCandidate treats executor guidance as SOUL plus HEARTBEAT only", async () => {
+test("buildConfiguredCandidate treats executor guidance as IDENTITY plus HEARTBEAT only", async () => {
   const agentId = `worker-guidance-${Date.now()}`;
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-executor-guidance-"));
 
@@ -38,7 +38,7 @@ test("buildConfiguredCandidate treats executor guidance as SOUL plus HEARTBEAT o
     assert.equal(candidate?.status, "managed");
     assert.deepEqual(
       candidate?.guidanceFiles?.map((entry) => entry.name),
-      ["SOUL.md", "HEARTBEAT.md"],
+      ["IDENTITY.md", "HEARTBEAT.md"],
     );
     assert.deepEqual(candidate?.guidance, {
       managed: 2,

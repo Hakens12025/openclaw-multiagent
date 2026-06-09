@@ -359,11 +359,16 @@ test("readSessionSystemPrompt：大文件 content 截断到 40000 + truncated:tr
   }
 });
 
-// ── 9. 双视图 + activePath（用户直连 SOUL / 系统派工 agent-awake，二选一）──────────
+// ── 9. 六层投影 + activePath（activePath = 本 session 是否含 ⑥wake）────────────────
 
-test("readSessionSystemPrompt：合约会话 → activePath=dispatch-agent-awake + 双视图(views.soul/agentAwake)", async () => {
+// 从 layers[] 取指定层（layer 字段）。
+function findLayer(layers, layerId) {
+  return (Array.isArray(layers) ? layers : []).find((l) => l && l.layer === layerId) || null;
+}
+
+test("readSessionSystemPrompt：合约会话 → activePath=dispatch-agent-awake + 六层投影(⑥wake present)", async () => {
   const agentId = `__sp_dual_${Date.now()}__`;
-  // 本 agent 自己的合约会话（agentId 匹配 → 系统派工路径）
+  // 本 agent 自己的合约会话（agentId 匹配 → 系统派工路径，含 ⑥wake）
   await writeLiveSession(agentId, { sessionKey: `agent:${agentId}:contract:TC-DUAL`, sessionId: "sid-d" });
   const ws = testWorkspaceDir(agentId);
   await mkdir(ws, { recursive: true });
@@ -371,22 +376,30 @@ test("readSessionSystemPrompt：合约会话 → activePath=dispatch-agent-awake
   try {
     const r = await readSessionSystemPrompt(agentId, "sid-d");
     assert.equal(r.available, true);
-    assert.equal(r.activePath, "dispatch-agent-awake", "合约会话实际走 agent-awake（系统派工）");
-    assert.equal(r.source, "contract-session-override", "顶层=active=agent-awake");
-    assert.ok(r.views, "应带双视图供对比");
-    assert.equal(r.views.agentAwake?.available, true, "agent-awake 视图可用");
-    assert.match(r.views.agentAwake.injectedFiles[0].content, /You are running inside OpenClaw/, "agent-awake 正文在");
-    assert.doesNotMatch(r.views.agentAwake.injectedFiles[0].content, /Contract: `TC-DUAL`/, "agent-awake 不内联合约 id(缓存稳定),由 inbox/wake 提供");
-    assert.equal(r.views.soul?.available, true, "soul 视图（对比用，本 session 未进上下文）也在");
-    assert.ok(r.views.soul.injectedFiles.some((f) => f.name === "SOUL.md"), "soul 视图含 SOUL.md");
+    assert.equal(r.activePath, "dispatch-agent-awake", "合约会话含 ⑥wake（系统派工）");
+    assert.equal(r.source, "contract-session-override", "顶层 source 保留字面值（前端判定）");
+    // 顶层正文 = 派工完整拼接串（④+⑥+⑤），不内联合约 id（缓存稳定）。
+    assert.match(r.injectedFiles[0].content, /You are running inside OpenClaw/, "派工正文在");
+    assert.doesNotMatch(r.injectedFiles[0].content, /Contract: `TC-DUAL`/, "不内联合约 id（缓存稳定），由 inbox/wake 提供");
+    // 六层投影：六层齐全，scope/source/present 符合派工路。
+    assert.ok(Array.isArray(r.layers) && r.layers.length === 6, "应有六层");
+    assert.deepEqual(r.layers.map((l) => l.layer), ["framework", "tools", "skills", "role", "soul", "wake"], "层序固定");
+    const wake = findLayer(r.layers, "wake");
+    assert.equal(wake.present, true, "派工路 ⑥wake present");
+    assert.equal(wake.scope, "dispatch-only", "⑥wake 仅系统派工");
+    assert.equal(wake.source, "contract-session-override", "⑥wake source");
+    assert.ok(typeof wake.content === "string" && wake.content.includes("Current Contract"), "⑥wake 含合约机制骨架");
+    assert.equal(findLayer(r.layers, "role").scope, "both", "④role 两路都注入");
+    assert.equal(findLayer(r.layers, "soul").present, true, "⑤SOUL present（读到 SOUL.md 正文）");
+    assert.equal(findLayer(r.layers, "soul").content, "soul-body", "⑤SOUL 正文 = SOUL.md");
   } finally {
     await cleanupReconstructAgent(agentId);
   }
 });
 
-test("readSessionSystemPrompt：直连会话 → activePath=direct-soul（顶层=SOUL，agent-awake 仅作对比视图）", async () => {
+test("readSessionSystemPrompt：直连会话 → activePath=direct-soul（不含 ⑥wake，④role/⑤SOUL 仍在）", async () => {
   const agentId = `__sp_direct_${Date.now()}__`;
-  // main 会话（非合约）→ 用户直连路径
+  // main 会话（非合约）→ 用户直连路径，不含 ⑥wake
   await writeLiveSession(agentId, { sessionKey: `agent:${agentId}:main`, sessionId: "sid-m" });
   const ws = testWorkspaceDir(agentId);
   await mkdir(ws, { recursive: true });
@@ -394,9 +407,14 @@ test("readSessionSystemPrompt：直连会话 → activePath=direct-soul（顶层
   try {
     const r = await readSessionSystemPrompt(agentId, "sid-m");
     assert.equal(r.available, true);
-    assert.equal(r.activePath, "direct-soul", "main 会话实际走 SOUL（用户直连）");
-    assert.equal(r.source, "reconstructed", "顶层=active=SOUL（重建）");
-    assert.ok(r.views.soul?.available, "soul 视图可用");
+    assert.equal(r.activePath, "direct-soul", "main 会话不含 ⑥wake（用户直连）");
+    assert.equal(r.source, "reconstructed", "顶层=SOUL（重建）");
+    const wake = findLayer(r.layers, "wake");
+    assert.equal(wake.present, false, "直连路 ⑥wake 不 present");
+    assert.equal(wake.source, "unavailable", "⑥wake 无来源");
+    assert.ok(!("content" in wake), "⑥wake 不 present 时不带 content");
+    assert.equal(findLayer(r.layers, "soul").present, true, "⑤SOUL 直连路也在");
+    assert.equal(findLayer(r.layers, "framework").present, true, "①框架基础任何会话都在");
   } finally {
     await cleanupReconstructAgent(agentId);
   }

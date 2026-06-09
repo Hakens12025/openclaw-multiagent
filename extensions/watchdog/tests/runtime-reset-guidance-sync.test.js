@@ -48,23 +48,22 @@ test.afterEach(() => {
   clearProtocolCommitReconcileState();
 });
 
-test("runtime reset resyncs managed workspace guidance so stale planner SOUL no longer survives into the next run", async () => runGlobalTestEnvironmentSerial(async () => {
+test("runtime reset resyncs managed IDENTITY so a stale planner persona no longer survives into the next run", async () => runGlobalTestEnvironmentSerial(async () => {
   const previousRuntimeConfigs = new Map(runtimeAgentConfigs);
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-runtime-reset-guidance-"));
   const agentId = `planner-reset-${Date.now()}`;
-  const stalePlannerSoul = `<!-- managed-by-watchdog:agent-bootstrap -->
+  // ④role lives in IDENTITY.md (managed). A stale managed IDENTITY must be refreshed on resync.
+  const stalePlannerIdentity = `<!-- managed-by-watchdog:agent-bootstrap -->
 # ${agentId}
 
-规划节点。把模糊任务拆成清晰阶段，让执行更强、进度可见。
+## Role
 
-## 本地状态机
+陈旧的规划者身份正文，应在 resync 后被刷新。
 
-\`\`\`
-唤醒
-├─ inbox/contract.json 存在 → 读取 Contract → 写计划 → 写 outbox/runtime_result.json → 停止
-└─ inbox/contract.json 不存在 → HEARTBEAT_OK → 停止
-\`\`\`
+- inbox/contract.json 存在 → HEARTBEAT_OK → 停止
 `;
+  // ⑤SOUL is user-owned; a user-authored SOUL must SURVIVE resync untouched.
+  const userSoul = `# ${agentId}\n\n用户自定义人格，平台不应覆盖。\n`;
   const config = {
     agents: {
       list: [
@@ -82,7 +81,8 @@ test("runtime reset resyncs managed workspace guidance so stale planner SOUL no 
   try {
     await mkdir(join(workspaceDir, "inbox"), { recursive: true });
     await mkdir(join(workspaceDir, "outbox"), { recursive: true });
-    await writeFile(join(workspaceDir, "SOUL.md"), stalePlannerSoul, "utf8");
+    await writeFile(join(workspaceDir, "IDENTITY.md"), stalePlannerIdentity, "utf8");
+    await writeFile(join(workspaceDir, "SOUL.md"), userSoul, "utf8");
     await writeFile(join(workspaceDir, "HEARTBEAT.md"), "按 SOUL.md 流程执行。\n", "utf8");
 
     registerRuntimeAgents(config);
@@ -95,11 +95,14 @@ test("runtime reset resyncs managed workspace guidance so stale planner SOUL no 
 
     assert.equal(result.ok, true);
 
-    const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    assert.match(soul, /当前会话边界/);
-    assert.doesNotMatch(soul, /inbox\/contract\.json/);
-    assert.doesNotMatch(soul, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(soul, /HEARTBEAT_OK/);
+    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
+    assert.match(identity, /## Role/);
+    assert.doesNotMatch(identity, /陈旧的规划者身份正文/, "stale managed IDENTITY is refreshed");
+    assert.doesNotMatch(identity, /inbox\/contract\.json/);
+    assert.doesNotMatch(identity, /HEARTBEAT_OK/);
+
+    // user-owned SOUL survives the resync verbatim.
+    assert.equal(await readFile(join(workspaceDir, "SOUL.md"), "utf8"), userSoul);
   } finally {
     runtimeAgentConfigs.clear();
     for (const [key, value] of previousRuntimeConfigs.entries()) {

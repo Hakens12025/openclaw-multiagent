@@ -981,17 +981,17 @@ async function openSystemPromptDrawer(agentId, sessionId) {
   renderSystemPrompt(data);
 }
 
-// 双视图系统提示词：用户直连(SOUL/openclaw 类型) vs 系统派工(agent-awake/系统内部)，二选一。
-// 顶部横幅标本 session 实际走哪条；两个暗按钮切换查看，非 active 的标「未进上下文，仅对比」。
+// 六层系统提示词模型：①框架②工具③skill④role⑤SOUL⑥wake，分层折叠展示（不再「二选一」）。
+// 顶部横幅标本 session 是否含 ⑥wake；六层各一折叠行（present/source/scope + 正文）；
+// ⑥wake 在派工路高亮「叠加不替换 SOUL」，在直连路灰显「本路不注入」。下方仍给实际拼入正文。
 let promptDrawerData = null;
-let promptDrawerSelected = null;
 
 function promptPathBanner(activePath) {
   if (activePath === "dispatch-agent-awake") {
-    return "本 session 实际运行：系统内部派工 · 使用系统内部提示词（agent-awake）";
+    return "本 session：系统派工 · 含 ⑥wake（合约机制 + 角色产出，叠加在 ⑤SOUL 之上，不替换）";
   }
   if (activePath === "direct-soul") {
-    return "本 session 实际运行：用户直连 agent · 使用 openclaw 类型系统提示词（SOUL）";
+    return "本 session：用户直连 · 不含 ⑥wake（④role + ⑤SOUL 仍在）";
   }
   return "本 session 运行路径未知";
 }
@@ -1004,8 +1004,58 @@ function renderSystemPrompt(data) {
     return;
   }
   promptDrawerData = data;
-  promptDrawerSelected = data.activePath === "dispatch-agent-awake" ? "agentAwake" : "soul";
   paintPromptDrawer();
+}
+
+// 单层副标题（source/scope → 中文短标），不造内容，只读真值字段。
+function layerSourceLabel(source) {
+  switch (source) {
+    case "framework-managed": return "系统固定";
+    case "report": return "框架精确报告";
+    case "binding": return "据 AgentBinding 配置范围";
+    case "role-spec": return "角色 persona（IDENTITY.md，系统托管）";
+    case "user-soul": return "用户拥有（系统永不重写）";
+    case "contract-session-override": return "仅系统派工注入";
+    case "unavailable": return "本路不注入";
+    default: return source || "";
+  }
+}
+
+// 六层折叠面板：每层一行（▸/▾ 折叠），present 决定亮/灰，⑥wake 派工路特别高亮。
+function buildLayersPanel(layers, activePath) {
+  const list = Array.isArray(layers) ? layers : [];
+  if (list.length === 0) return "";
+  const isDispatch = activePath === "dispatch-agent-awake";
+  let html = `<div class="wf-layers">`;
+  for (const layer of list) {
+    const present = layer && layer.present === true;
+    const isWake = layer && layer.layer === "wake";
+    // ⑥wake：派工路高亮 on，直连路灰显 off；其余层按 present 亮/灰。
+    const stateClass = isWake
+      ? (isDispatch ? "wf-layer-wake-on" : "wf-layer-wake-off")
+      : (present ? "wf-layer-on" : "wf-layer-off");
+    const chars = Number(layer?.chars);
+    const charsChip = Number.isFinite(chars) ? `<span class="wf-layer-chars">${chars.toLocaleString()} ${esc("字")}</span>` : "";
+    const hasBody = present && typeof layer?.content === "string" && layer.content.length > 0;
+    html += `<div class="wf-layer ${stateClass}" data-layer-open="0">
+      <button type="button" class="wf-layer-head"${hasBody ? "" : " disabled"}>
+        <span class="wf-layer-caret">${hasBody ? "▸" : "·"}</span>
+        <span class="wf-layer-name">${esc(layer?.name || layer?.layer || "")}</span>
+        ${charsChip}
+        <span class="wf-layer-src">${esc(layerSourceLabel(layer?.source))}</span>
+      </button>`;
+    if (isWake && isDispatch) {
+      html += `<div class="wf-layer-tag">${esc("叠加在 ⑤SOUL 之上，不替换 SOUL")}</div>`;
+    }
+    if (hasBody) {
+      html += `<pre class="wf-layer-body">${esc(String(layer.content))}</pre>`;
+    } else if (!present) {
+      html += `<div class="wf-layer-absent">${esc(layerSourceLabel(layer?.source) || "本路不注入")}</div>`;
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
+  return html;
 }
 
 function paintPromptDrawer() {
@@ -1015,34 +1065,21 @@ function paintPromptDrawer() {
 
   const activePath = data.activePath
     || (data.source === "contract-session-override" ? "dispatch-agent-awake" : "direct-soul");
-  const views = data.views || {};
-  // 视图回退：旧响应无 views 时，把顶层当作 active 的那条
-  const soulView = views.soul || (activePath === "direct-soul" ? data : null);
-  const awakeView = views.agentAwake || (activePath === "dispatch-agent-awake" ? data : null);
-  const activeKey = activePath === "dispatch-agent-awake" ? "agentAwake" : "soul";
 
   let html = `<div class="wf-prompt-path wf-prompt-path-${esc(activePath)}">${esc(promptPathBanner(activePath))}</div>`;
 
-  // 两个暗按钮（标 active 那条 + 禁用不可用视图）
-  html += `<div class="wf-prompt-tabs">`;
-  html += promptTabButton("soul", "openclaw 类型 · 用户直连", soulView, activeKey === "soul");
-  html += promptTabButton("agentAwake", "系统内部 · 系统派工", awakeView, activeKey === "agentAwake");
-  html += `</div>`;
+  // 六层折叠面板（替代旧「二选一」双按钮）。
+  html += buildLayersPanel(data.layers, activePath);
 
-  const selectedView = promptDrawerSelected === "agentAwake" ? awakeView : soulView;
-  html += renderPromptViewBody(selectedView, promptDrawerSelected === activeKey);
+  // 下方：本 session 实际拼入的正文 + 完整装配（按真实装配顺序）。
+  html += renderPromptViewBody(data);
 
   body.innerHTML = html;
-  body.querySelectorAll(".wf-prompt-tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (btn.disabled) return;
-      const key = btn.getAttribute("data-view");
-      if (key) { promptDrawerSelected = key; paintPromptDrawer(); }
-    });
-  });
-  // 三级折叠(完整装配/技能列表/单 skill head)同一套：点 toggle → 翻 box 的 data-*open → 更新按钮文案。
-  // label(wasOpen)=null 则只翻 ▸/▾ 前缀(保留原文，用于"▸ skillId")。
+
+  // 折叠：六层行 + 三级（完整装配/技能列表/单 skill head）同一套 toggle 机制。
+  // label(wasOpen)=null 则只翻 ▸/▾ 前缀（保留原文，用于"▸ skillId" / 层名）。
   const TOGGLES = [
+    { btn: ".wf-layer-head", box: ".wf-layer", attr: "data-layer-open", label: null, caret: ".wf-layer-caret" },
     { btn: ".wf-asm-toggle", box: ".wf-asm", attr: "data-asm-open", label: (wasOpen) => wasOpen ? "▸ 点击显示完整装配（按真实装配顺序）" : "▾ 收起完整装配" },
     { btn: ".wf-skill-toggle", box: ".wf-skill-row", attr: "data-skill-open", label: (wasOpen) => wasOpen ? "展开 skill ▸" : "收起 skill ▾" },
     { btn: ".wf-skillitem-toggle", box: ".wf-skill-item", attr: "data-skillitem-open", label: null },
@@ -1050,22 +1087,21 @@ function paintPromptDrawer() {
   for (const cfg of TOGGLES) {
     body.querySelectorAll(cfg.btn).forEach((btn) => {
       btn.addEventListener("click", () => {
+        if (btn.disabled) return;
         const box = btn.closest(cfg.box);
         if (!box) return;
         const wasOpen = box.getAttribute(cfg.attr) === "1";
         box.setAttribute(cfg.attr, wasOpen ? "0" : "1");
-        btn.textContent = cfg.label ? cfg.label(wasOpen) : btn.textContent.replace(/^[▸▾]/, wasOpen ? "▸" : "▾");
+        // caret 元素优先翻 ▸/▾（层折叠）；否则按 label/按钮文案翻。
+        if (cfg.caret) {
+          const caret = box.querySelector(cfg.caret);
+          if (caret && caret.textContent !== "·") caret.textContent = wasOpen ? "▸" : "▾";
+        } else {
+          btn.textContent = cfg.label ? cfg.label(wasOpen) : btn.textContent.replace(/^[▸▾]/, wasOpen ? "▸" : "▾");
+        }
       });
     });
   }
-}
-
-function promptTabButton(key, label, view, isActive) {
-  const disabled = !view || view.available !== true;
-  const on = promptDrawerSelected === key;
-  return `<button type="button" class="wf-prompt-tab${on ? " wf-prompt-tab-on" : ""}${disabled ? " wf-prompt-tab-disabled" : ""}" data-view="${esc(key)}"${disabled ? " disabled" : ""}>
-    <span class="wf-prompt-tab-label">${esc(label)}</span>${isActive ? `<span class="wf-prompt-tab-badge">${esc("本 session")}</span>` : ""}
-  </button>`;
 }
 
 // 完整装配视图：按真实装配顺序（框架基础 → 工具 → 技能 → 工作区文件正文 → 框架尾部）列各段 + 字数。
@@ -1140,24 +1176,21 @@ function buildAssemblyHtml(view) {
   return html;
 }
 
-function renderPromptViewBody(view, selectedIsActive) {
+function renderPromptViewBody(view) {
   if (!view || view.available !== true) {
     return `<div class="wf-prompt-empty">${esc("此视图不可用")}</div>`;
   }
-  const report = view.report && typeof view.report === "object" ? view.report : {};
   const injectedFiles = Array.isArray(view.injectedFiles) ? view.injectedFiles : [];
   const totalContentChars = Number(view.totalContentChars);
 
-  let html = "";
-  if (!selectedIsActive) {
-    html += `<div class="wf-prompt-note wf-prompt-note-alt">${esc("此为另一模式会用的提示词 —— 本 session 未把它拼进上下文，仅供对比（两路互斥）。")}</div>`;
-  }
+  // 本 session 实际拼入上下文的正文（派工路=④+⑥+⑤ 完整串；直连路=SOUL 系列注入文件）。
+  let html = `<div class="wf-prompt-doc-head">${esc("本 session 实际拼入正文")}</div>`;
 
   const sourceLabel = view.source === "run"
     ? "框架精确报告"
     : view.source === "contract-session-override"
-      ? "agent-awake · 系统内部提示词"
-      : "openclaw 类型 · 由工作区文件重建";
+      ? "系统派工 · ④role + ⑥wake + ⑤SOUL 拼接串"
+      : "由工作区文件重建";
   html += `<div class="wf-prompt-bar-top">
     <span class="wf-prompt-source wf-prompt-source-${esc(view.source || "unknown")}">${esc(sourceLabel)}</span>`;
   if (Number.isFinite(totalContentChars)) {

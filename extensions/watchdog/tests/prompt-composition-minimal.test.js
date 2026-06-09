@@ -12,7 +12,7 @@ import {
   buildHeartbeatTemplate,
   buildPlatformGuideTemplate,
 } from "../lib/platform-doc-builder.js";
-import { buildSoulTemplate } from "../lib/soul-template-builder.js";
+import { renderRolePersonaBlock } from "../lib/role-spec-registry.js";
 import { OC } from "../lib/state.js";
 
 const PROMPT_NEGATIVE_PATTERNS = [
@@ -79,11 +79,11 @@ test("managed agent guidance uses positive minimal prompt copy", () => {
     collaborationGraph: buildCollaborationGraphTemplate("worker", AGENT_ROLE.EXECUTOR, graph, loops),
     delivery: buildDeliveryTemplate(),
     platformGuide: buildPlatformGuideTemplate("worker", AGENT_ROLE.EXECUTOR, skills, graph, loops),
-    bridgeSoul: buildSoulTemplate("controller", AGENT_ROLE.BRIDGE),
-    plannerSoul: buildSoulTemplate("planner", AGENT_ROLE.PLANNER),
-    executorSoul: buildSoulTemplate("worker", AGENT_ROLE.EXECUTOR),
-    researcherSoul: buildSoulTemplate("researcher", AGENT_ROLE.RESEARCHER),
-    reviewerSoul: buildSoulTemplate("reviewer", AGENT_ROLE.REVIEWER),
+    bridgePersona: renderRolePersonaBlock(AGENT_ROLE.BRIDGE),
+    plannerPersona: renderRolePersonaBlock(AGENT_ROLE.PLANNER),
+    executorPersona: renderRolePersonaBlock(AGENT_ROLE.EXECUTOR),
+    researcherPersona: renderRolePersonaBlock(AGENT_ROLE.RESEARCHER),
+    reviewerPersona: renderRolePersonaBlock(AGENT_ROLE.REVIEWER),
   };
 
   for (const [label, content] of Object.entries(generated)) {

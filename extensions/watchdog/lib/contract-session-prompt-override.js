@@ -4,7 +4,7 @@ import { normalizeString } from "./core/normalize.js";
 import { agentWorkspace } from "./state.js";
 import { parseAgentContractSessionKey } from "./session-keys.js";
 import { RUNTIME_RESULT_FILE } from "./protocol-primitives.js";
-import { getRoleOutputDirectives } from "./role-spec-registry.js";
+import { getRoleOutputDirectives, renderRolePersonaBlock } from "./role-spec-registry.js";
 
 // 用户自定义派工补充：可选的 workspace 文件 WAKE.md。系统派工进 contract session 时，把它作为附加
 // 指引追加到 agent-awake 提示词末尾。这是 wake-message 的「文件化」入口——用户/operator 在代理页编辑
@@ -20,6 +20,17 @@ async function readWakeOverrideBlock(workspaceDir) {
     return raw ? ["", "## Dispatch guidance (WAKE.md override)", "", raw] : [];
   } catch {
     return []; // no WAKE.md / unreadable → skip, default agent-awake prompt unchanged
+  }
+}
+
+// ⑤SOUL: user-owned persona body, appended at the very end of the dispatch prompt (裁定2: SOUL last,
+// so high-frequency user edits localize prompt-cache loss). Missing/empty → skip.
+async function readUserSoulBlock(workspaceDir) {
+  try {
+    const raw = normalizeString(await readFile(join(workspaceDir, "SOUL.md"), "utf8"));
+    return raw ? ["", raw] : [];
+  } catch {
+    return [];
   }
 }
 
@@ -47,12 +58,18 @@ export async function buildContractSessionSystemPrompt({
 
   const normalizedAgentId = normalizeString(agentId);
   const resolvedWorkspaceDir = normalizeString(workspaceDir) || agentWorkspace(normalizedAgentId);
-  const wakeOverrideBlock = await readWakeOverrideBlock(resolvedWorkspaceDir);
+  const [wakeOverrideBlock, userSoulBlock] = await Promise.all([
+    readWakeOverrideBlock(resolvedWorkspaceDir),
+    readUserSoulBlock(resolvedWorkspaceDir),
+  ]);
 
-  // 系统提示词前缀只放 (agent, role) 稳定内容,保持 prompt-cache 友好。
+  // 派工手拼串(裁定1: 框架只整体替换, "叠加"=字符串拼接):
+  //   ④role persona(稳定) → ⑥wake 机制+产出(稳定) → ⑤SOUL 用户正文(读盘, 放最末尾)。
   // contractId / output path 等每合约 volatile 值不内联(否则每个新合约都 cache miss),
-  // 由 wake 消息 + inbox/contract.json 提供(下方 "Use the current wake message …" 已指引)。
+  // 由 wake 消息 + inbox/contract.json 提供; SOUL 放尾巴让用户高频编辑的缓存损失局部化(裁定2)。
+  const personaBlock = renderRolePersonaBlock(role);
   return [
+    ...(personaBlock ? [personaBlock, ""] : []),
     "You are running inside OpenClaw.",
     "",
     `Agent: \`${normalizedAgentId}\``,
@@ -72,5 +89,6 @@ export async function buildContractSessionSystemPrompt({
     "",
     "Tool schemas are provided by runtime. Common local tools: `read`, `write`, `edit`.",
     ...wakeOverrideBlock,
+    ...userSoulBlock,
   ].join("\n");
 }

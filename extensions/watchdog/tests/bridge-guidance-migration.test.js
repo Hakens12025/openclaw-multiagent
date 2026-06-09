@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { AGENT_ROLE } from "../lib/agent/agent-identity.js";
-import {
-  buildBridgeSoulTemplate,
-  buildSoulTemplate,
-} from "../lib/soul-template-builder.js";
+import { renderRolePersonaBlock } from "../lib/role-spec-registry.js";
 import { MANAGED_BOOTSTRAP_MARKER } from "../lib/managed-doc-markers.js";
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import {
@@ -16,39 +13,72 @@ import {
   GUIDANCE_BACKUP_RETENTION,
 } from "../lib/agent/agent-guidance-backup.js";
 
-test("bridge SOUL template keeps minimal formal dispatch entrypoint", () => {
-  const soul = buildBridgeSoulTemplate("bridge-migrate", AGENT_ROLE.BRIDGE);
-  assert.match(soul, /\[ACTION\] delegate/);
-  assert.doesNotMatch(soul, /```[\s\S]*\[ACTION\] delegate/);
-  assert.doesNotMatch(soul, /\[DISPATCH\]/);
-  assert.ok(soul.startsWith(MANAGED_BOOTSTRAP_MARKER));
+// 六层模型: ④role(bridge persona) 改由 renderRolePersonaBlock 渲染并写进 IDENTITY.md(系统托管)。
+// ⑤SOUL 改用户拥有(无 marker, 平台永不重写)。
+
+test("bridge role persona renders distinct from the default-agent persona", () => {
+  const bridge = renderRolePersonaBlock(AGENT_ROLE.BRIDGE);
+  const fallback = renderRolePersonaBlock(AGENT_ROLE.AGENT);
+  assert.match(bridge, /Bridge node/, "bridge persona mentions bridge semantics");
+  assert.notEqual(bridge, fallback, "bridge persona differs from the generic agent persona");
 });
 
-test("buildSoulTemplate dispatches to bridge branch for BRIDGE role", () => {
-  const bridge = buildSoulTemplate("bridge-dispatcher", AGENT_ROLE.BRIDGE);
-  const fallback = buildSoulTemplate("bridge-dispatcher", "agent");
-  assert.match(bridge, /桥接本地处理原则/);
-  assert.doesNotMatch(fallback, /桥接本地处理原则/);
+test("managed bridge IDENTITY carries the role persona + bootstrap marker", () => {
+  const persona = renderRolePersonaBlock(AGENT_ROLE.BRIDGE);
+  assert.match(persona, /^## Role/);
+  // The persona block itself is marker-free; the IDENTITY writer prepends the marker.
+  assert.doesNotMatch(persona, new RegExp(MANAGED_BOOTSTRAP_MARKER.replace(/[-:/]/g, "\\$&")));
 });
 
-test("bridge workspace takeover writes managed bridge SOUL into .guidance-backup-protected location", async () => {
+test("bridge sync writes managed IDENTITY (persona) and leaves a user-owned SOUL untouched", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "bridge-migrate-"));
   try {
-    // Seed a persona-polluted bridge SOUL (no managed marker).
-    const legacyBridge = "# controller\n\n你是系统的总指挥官。自己决定什么任务该派给谁。\n";
-    await writeFile(join(workspaceDir, "SOUL.md"), legacyBridge, "utf8");
+    // Seed a persona-polluted bridge SOUL (no managed marker) — user-owned, must survive.
+    const userSoul = "# controller\n\n你是系统的总指挥官。自己决定什么任务该派给谁。\n";
+    await writeFile(join(workspaceDir, "SOUL.md"), userSoul, "utf8");
+    // Seed the framework default IDENTITY scaffold — must be replaced by the managed persona.
+    await writeFile(join(workspaceDir, "IDENTITY.md"), "# IDENTITY.md - Who Am I?\n", "utf8");
 
-    // Pre-takeover backup (simulating the takeover-pre snapshot).
+    const updated = await syncAgentWorkspaceGuidance({
+      agentId: "controller",
+      role: AGENT_ROLE.BRIDGE,
+      skills: [],
+      workspaceDir,
+      graph: { edges: [] },
+      loops: [],
+    });
+
+    const identityStatus = updated.find((entry) => entry.name === "IDENTITY.md");
+    assert.equal(identityStatus?.updated, true, "default IDENTITY scaffold upgraded to managed persona");
+    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
+    assert.ok(identity.includes(MANAGED_BOOTSTRAP_MARKER), "managed IDENTITY carries the bootstrap marker");
+    assert.match(identity, /## Role/, "managed IDENTITY carries the role persona block");
+    assert.match(identity, /Bridge node/, "managed IDENTITY carries the bridge persona");
+
+    // SOUL is user-owned: sync must not rewrite it, and it must not be in the returned manifest.
+    const soulAfter = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
+    assert.equal(soulAfter, userSoul, "user-owned SOUL survives sync verbatim");
+    assert.equal(updated.find((entry) => entry.name === "SOUL.md"), undefined, "SOUL not part of managed manifest");
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("takeover backup snapshots a custom IDENTITY before the managed persona overwrites it", async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), "bridge-migrate-backup-"));
+  try {
+    const customIdentity = "# controller\n\n用户自定义身份正文。\n";
+    await writeFile(join(workspaceDir, "IDENTITY.md"), customIdentity, "utf8");
+
     const backupBefore = await backupWorkspaceGuidanceFiles({
       workspaceDir,
-      fileNames: ["SOUL.md"],
+      fileNames: ["IDENTITY.md"],
     });
     assert.ok(backupBefore.backupDir, "backup dir created");
     assert.equal(backupBefore.backupPaths.length, 1);
-    const backupSoul = await readFile(join(backupBefore.backupDir, "SOUL.md"), "utf8");
-    assert.equal(backupSoul, legacyBridge);
+    const backupIdentity = await readFile(join(backupBefore.backupDir, "IDENTITY.md"), "utf8");
+    assert.equal(backupIdentity, customIdentity);
 
-    // Force-sync managed bridge SOUL.
     const updated = await syncAgentWorkspaceGuidance({
       agentId: "controller",
       role: AGENT_ROLE.BRIDGE,
@@ -58,12 +88,11 @@ test("bridge workspace takeover writes managed bridge SOUL into .guidance-backup
       loops: [],
       overwriteCustomGuidance: true,
     });
-    const soulStatus = updated.find((entry) => entry.name === "SOUL.md");
-    assert.equal(soulStatus?.updated, true);
-    const afterTakeover = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    assert.match(afterTakeover, /\[ACTION\] delegate/);
-    assert.doesNotMatch(afterTakeover, /```[\s\S]*\[ACTION\] delegate/);
+    const identityStatus = updated.find((entry) => entry.name === "IDENTITY.md");
+    assert.equal(identityStatus?.updated, true);
+    const afterTakeover = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
     assert.ok(afterTakeover.includes(MANAGED_BOOTSTRAP_MARKER));
+    assert.match(afterTakeover, /## Role/);
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
   }

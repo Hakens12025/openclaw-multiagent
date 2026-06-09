@@ -73,7 +73,7 @@ function buildManagedIdentityDoc(agentId, role) {
 // ⑤SOUL 层载体：纯用户人格，用户拥有，系统永不重写。bootstrap 时 writeIfMissing 一个
 // 不带 marker 的占位 SOUL，之后系统不再触碰它（不在 managed 写清单里）。
 function buildUserSoulPlaceholder(agentId) {
-  return `# ${agentId}\n\n<在此写本 agent 的自定义人格；本文件由你拥有，系统不会覆盖。>\n`;
+  return `# ${agentId}\n\n<Write this agent's custom persona here — you own this file and the platform leaves it untouched.>\n`;
 }
 
 const LEGACY_DELIVERY_GUIDANCE_FILE = ["RUNTIME", "RETURN.md"].join("-");
@@ -299,7 +299,8 @@ export async function bootstrapAgentWorkspace({
   await mkdir(join(workspaceDir, "outbox"), { recursive: true });
   await mkdir(join(workspaceDir, "output"), { recursive: true });
 
-  await writeSoulFile(join(workspaceDir, "SOUL.md"), buildSoulTemplate(agentId, role), { role });
+  // ⑤SOUL: user-owned placeholder (no marker) — seeded once, then never rewritten by the platform.
+  await writeIfMissing(join(workspaceDir, "SOUL.md"), buildUserSoulPlaceholder(agentId));
   await writeIfMissing(join(workspaceDir, "HEARTBEAT.md"), buildHeartbeatTemplate());
   await syncAgentWorkspaceGuidance({
     agentId,

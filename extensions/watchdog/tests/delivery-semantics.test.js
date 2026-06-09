@@ -160,9 +160,9 @@ test("startup sync does not overwrite a no-marker legacy planner soul", async ()
       loops: [],
     });
     const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
-    const soulUpdate = updates.find((entry) => entry.name === "SOUL.md");
 
-    assert.equal(soulUpdate?.updated, false);
+    // SOUL is user-owned: sync never touches it and never lists it in the managed manifest.
+    assert.equal(updates.find((entry) => entry.name === "SOUL.md"), undefined, "SOUL not part of managed manifest");
     assert.equal(soul, legacySoul);
     assert.doesNotMatch(soul, /managed-by-watchdog:agent-bootstrap/);
   } finally {
@@ -170,7 +170,7 @@ test("startup sync does not overwrite a no-marker legacy planner soul", async ()
   }
 });
 
-test("reviewer guidance keeps review semantics without embedding shared-contract IO protocol", async () => {
+test("reviewer IDENTITY keeps review persona without embedding shared-contract IO protocol", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-reviewer-guidance-"));
 
   try {
@@ -183,21 +183,24 @@ test("reviewer guidance keeps review semantics without embedding shared-contract
       loops: [],
     });
 
-    const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
+    // ④role: reviewer persona now lives in the managed IDENTITY.md (not SOUL).
+    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
 
-    assert.match(soul, /\[BLOCKING\]/);
-    assert.match(soul, /\[SUGGESTION\]/);
-    assert.match(soul, /当前会话边界/);
-    assert.doesNotMatch(soul, /inbox\/contract\.json/);
-    assert.doesNotMatch(soul, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(soul, /outbox\/contract_result\.json/);
-    assert.doesNotMatch(soul, /HEARTBEAT_OK/);
+    assert.match(identity, /## Role/);
+    assert.match(identity, /Reviewer node|review/i, "reviewer persona keeps review stance");
+    assert.doesNotMatch(identity, /inbox\/contract\.json/);
+    assert.doesNotMatch(identity, /outbox\/stage_result\.json/);
+    assert.doesNotMatch(identity, /outbox\/contract_result\.json/);
+    assert.doesNotMatch(identity, /HEARTBEAT_OK/);
+
+    // SOUL is user-owned; sync does not seed it (only bootstrap does).
+    await assert.rejects(access(join(workspaceDir, "SOUL.md")), "sync does not write a SOUL");
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
   }
 });
 
-test("execution soul stays role-only while dispatch instructions carry the contract entrypoint", async () => {
+test("execution IDENTITY stays role-only while wake output directives carry the contract entrypoint", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-executor-soul-boundary-"));
 
   try {
@@ -210,15 +213,17 @@ test("execution soul stays role-only while dispatch instructions carry the contr
       loops: [],
     });
 
-    const soul = await readFile(join(workspaceDir, "SOUL.md"), "utf8");
+    // ④role persona lives in IDENTITY.md; it must not carry contract IO protocol.
+    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
     // ⑥wake 产出格式(数据驱动 getRoleOutputDirectives 替代旧 bundled dispatchInstruction)。
     const outputDirectives = getRoleOutputDirectives(AGENT_ROLE.EXECUTOR).join("\n");
 
-    assert.doesNotMatch(soul, /inbox\/contract\.json/);
-    assert.doesNotMatch(soul, /outbox\/runtime_result\.json/);
-    assert.doesNotMatch(soul, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(soul, /outbox\/contract_result\.json/);
-    assert.doesNotMatch(soul, /HEARTBEAT_OK/);
+    assert.match(identity, /## Role/);
+    assert.doesNotMatch(identity, /inbox\/contract\.json/);
+    assert.doesNotMatch(identity, /outbox\/runtime_result\.json/);
+    assert.doesNotMatch(identity, /outbox\/stage_result\.json/);
+    assert.doesNotMatch(identity, /outbox\/contract_result\.json/);
+    assert.doesNotMatch(identity, /HEARTBEAT_OK/);
     assert.match(outputDirectives, /user-facing deliverable/i);
     assert.doesNotMatch(outputDirectives, /outbox\/stage_result\.json/);
     assert.doesNotMatch(outputDirectives, /outbox\/contract_result\.json/);
@@ -264,11 +269,15 @@ test("execution-layer guidance prunes generic workspace scaffold files", async (
       loops: [],
     });
 
-    await access(join(workspaceDir, "SOUL.md"));
+    // IDENTITY.md is now MANAGED (④role persona carrier) for execution-layer agents too:
+    // the default scaffold is upgraded to the managed persona, not pruned.
+    await access(join(workspaceDir, "IDENTITY.md"));
+    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
+    assert.match(identity, /managed-by-watchdog:agent-bootstrap/);
+    assert.match(identity, /## Role/);
     await access(join(workspaceDir, "HEARTBEAT.md"));
     await assert.rejects(access(join(workspaceDir, "AGENTS.md")));
     await assert.rejects(access(join(workspaceDir, "BOOTSTRAP.md")));
-    await assert.rejects(access(join(workspaceDir, "IDENTITY.md")));
     await assert.rejects(access(join(workspaceDir, "USER.md")));
     await assert.rejects(access(join(workspaceDir, "TOOLS.md")));
   } finally {
@@ -1527,7 +1536,6 @@ test("canonical runtime and active test prompts no longer mention outbox/system_
     join(WATCHDOG_ROOT, "tests", "delegation-early-check-paths.test.js"),
     join(WATCHDOG_ROOT, "tests", "contractor-loop-permission.test.js"),
     join(WATCHDOG_ROOT, "tests", "suite-agent-model.js"),
-    join(WATCHDOG_ROOT, "lib", "soul-template-builder.js"),
   ];
 
   for (const filePath of files) {

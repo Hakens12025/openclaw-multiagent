@@ -1,4 +1,4 @@
-// agent-session-system-prompt.js — session 系统提示词拼装报告读路径
+// agent-session-system-prompt.js — session 系统提示词拼装报告读路径（六层投影）
 //
 // 框架在 sessions.json 的 entry.systemPromptReport 里写下「系统提示词如何拼装」
 // 的真值（注入文件、skills、tools、systemPrompt 字符统计、bootstrap 上限等）。
@@ -9,15 +9,26 @@
 // 按 path 读取正文（content），让前端能拼成「组合型系统提示词」正文直接渲染。
 // 不造第二真值。
 //
-// 优先级：
+// 注入文件正文来源优先级（buildSoulView）：
 //   ① live sessions.json 的 systemPromptReport（精确报告，source 用报告里的）
 //   ② 归档 sidecar control-plane/session-archive/<agentId>/<sessionId>.prompt.json
 //   ③ 兜底重建：前两者都没有时（中继 agent 的 sessions.json 不写
 //      systemPromptReport），从该 agent 工作区按 framework 固定注入清单重建
 //      拼装视图，source="reconstructed"，前端可据此标注「由工作区文件重建」。
-//
 // 两条路径都按 injectedFiles[i].path 读取正文填进 content（精确报告本身不存
 // 正文）；单文件上限 CAP=40000 字符，超出截断 + truncated:true。
+//
+// 六层系统提示词模型（buildLayers）—— 不再是「SOUL 视图 vs agent-awake 视图二选一」，
+// 而是一组分层投影 layers[]，每层 { layer, name, present, source, scope, content?/chars? }：
+//   ① framework  框架基础（系统固定，载体 = 框架基础提示，正文插件拿不到）
+//   ② tools      工具 binding（schema / 配置范围）
+//   ③ skills     skill 头（系统用法，模块化，head 强制注入）
+//   ④ role       角色 persona = renderRolePersonaBlock(role)（写进 IDENTITY.md，两路都注入）
+//   ⑤ soul       纯用户人格（用户拥有，系统永不重写，默认空/占位）
+//   ⑥ wake       合约机制 + 角色产出格式（getRoleOutputDirectives，仅系统派工，叠加在 SOUL 之上不替换）
+// activePath 语义 = 「本 session 是否含 ⑥wake」：dispatch-agent-awake=含（系统派工），
+// direct-soul=不含（用户直连）。④role 两路都在；⑤soul 两路都在；区别只在 ⑥wake。
+// 顶层仍保留 source / injectedFiles / totalContentChars / report（向后兼容既有消费者与 surface）。
 
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -31,6 +42,7 @@ import {
   shouldOverrideContractSessionPrompt,
   buildContractSessionSystemPrompt,
 } from "../contract-session-prompt-override.js";
+import { renderRolePersonaBlock, getRoleOutputDirectives } from "../role-spec-registry.js";
 import { loadOpenClawConfig } from "../capability/capability-registry.js";
 import { composeEffectiveProfile } from "../effective-profile-composer.js";
 
@@ -80,10 +92,11 @@ async function buildSkillHeads(skillIds) {
 // 单注入文件正文上限（字符）。超出本层截断，truncated 标记「内容是否被本层截断」。
 const CONTENT_CAP = 40000;
 
-// 系统提示词分两路（互斥，由 sessionKey 决定，二者不同时进上下文）：
-//   - 用户直连 / main 会话 → openclaw 类型（SOUL 系列：精确报告或工作区重建）
-//   - 系统内部派工 / 合约会话 → 系统内部提示词（agent-awake：before_prompt_build 覆盖 SOUL）
-// 框架基础提示词 + 工具 schema 是第三层，任何会话都在，叠在上面这二选一之上（插件拿不到其正文）。
+// 两路差异只在 ⑥wake（由 sessionKey 决定）：
+//   - 用户直连 / main 会话 → 不含 ⑥wake（activePath=direct-soul）。
+//   - 系统内部派工 / 合约会话 → 含 ⑥wake，叠加在 ⑤SOUL 之上（不替换），activePath=dispatch-agent-awake。
+// ①框架基础 + ②工具 schema + ③skill 头 + ④role + ⑤SOUL 两路都在；裁定1：派工路的「叠加」是
+// watchdog 钩子手拼字符串（④role → ⑥wake机制+产出 → ⑤SOUL 末尾），不是框架追加（框架只整体替换）。
 
 // 解析 sessionId → sessionKey（live + archive 合并）。
 async function resolveSessionKey(agentId, sessionId) {
@@ -306,25 +319,132 @@ function sumContentChars(injectedFiles) {
   );
 }
 
+// 从 soulView 的注入文件里抽 SOUL.md 正文（⑤层）。无则返回 null（占位/未建）。
+function extractSoulBody(soulView) {
+  const files = Array.isArray(soulView?.injectedFiles) ? soulView.injectedFiles : [];
+  const soul = files.find((f) => {
+    const name = typeof f?.name === "string" ? f.name : "";
+    const path = typeof f?.path === "string" ? f.path : "";
+    return name === "SOUL.md" || path.endsWith("/SOUL.md");
+  });
+  return soul && typeof soul.content === "string" ? soul.content : null;
+}
+
+// 渲染 ⑥wake 层的代表性正文：合约机制提示 + 角色产出格式（getRoleOutputDirectives）。
+// 这是「仅系统派工才叠加」的那一段（裁定1：watchdog 手拼进派工串，非框架追加）。
+// volatile 值（contractId / output path）按设计不内联（缓存稳定），故这里只展示机制骨架。
+function renderWakeMechanismBlock(role) {
+  return [
+    "## Current Contract（仅系统派工注入）",
+    "",
+    "- First read `inbox/contract.json` as the contract truth.",
+    "- Use the current wake message for wake metadata: contract id and output path.",
+    ...getRoleOutputDirectives(role),
+    "- Write `outbox/runtime_result.json` for runtime status metadata.",
+  ].join("\n");
+}
+
+// 单层投影构造：统一形状 { layer, name, present, source, scope, content?, chars? }。
+// present=false 时不带 content/chars（如非派工路的 ⑥wake、persona 为空的 ④role）。
+function projectLayer(layer, name, scope, { present, source, content = null, chars = null }) {
+  const base = { layer, name, present: Boolean(present), source, scope };
+  if (present && typeof content === "string") {
+    base.content = content;
+    base.chars = content.length;
+  } else if (present && Number.isFinite(chars)) {
+    base.chars = chars;
+  }
+  return base;
+}
+
+// 六层投影：把 ①框架②工具③skill④role⑤SOUL⑥wake 投影成结构化数组。
+// 数据源：①②③ 来自 report（精确字数）或 binding（仅名字/范围，无精确字数）；
+// ④role 来自 role-spec renderRolePersonaBlock；⑤SOUL 来自 soulView 注入文件正文；
+// ⑥wake 来自 role 产出格式 + 合约机制（仅派工路 present）。不造内容：无来源就 present:false。
+function buildLayers({ role, isDispatch, soulView, bindingCapabilities }) {
+  const report = soulView?.report && typeof soulView.report === "object" ? soulView.report : {};
+  const reportSkills = report.skills && typeof report.skills === "object" ? report.skills : {};
+  const reportTools = report.tools && typeof report.tools === "object" ? report.tools : {};
+
+  // ② 工具：report 精确字数优先，否则 binding 配置范围（无字数）。
+  const reportToolEntries = Array.isArray(reportTools.entries) ? reportTools.entries : null;
+  const reportToolChars = (Number(reportTools.schemaChars) || 0) + (Number(reportTools.listChars) || 0);
+  const toolsFromReport = Array.isArray(reportToolEntries) && reportToolEntries.length > 0;
+  const bindingTools = Array.isArray(bindingCapabilities?.tools) ? bindingCapabilities.tools : [];
+  const toolsPresent = toolsFromReport || bindingTools.length > 0;
+
+  // ③ skill：report 精确字数优先，否则 binding 配置范围。
+  const reportSkillEntries = Array.isArray(reportSkills.entries) ? reportSkills.entries : null;
+  const skillChars = Number(reportSkills.promptChars) || 0;
+  const skillsFromReport = Array.isArray(reportSkillEntries) && reportSkillEntries.length > 0;
+  const bindingSkills = Array.isArray(bindingCapabilities?.skills) ? bindingCapabilities.skills : [];
+  const skillsPresent = skillsFromReport || bindingSkills.length > 0;
+
+  // ④ role persona（两路都注入；persona 为空 → present:false）。
+  const personaBlock = renderRolePersonaBlock(role);
+
+  // ⑤ SOUL 用户正文（两路都注入；占位/未建 → content 仍可读到占位文，present 看是否读到）。
+  const soulBody = extractSoulBody(soulView);
+
+  return [
+    projectLayer("framework", "① 框架基础提示", "both", {
+      present: true,
+      source: "framework-managed",
+    }),
+    projectLayer("tools", "② 工具（binding）", "both", {
+      present: toolsPresent,
+      source: toolsFromReport ? "report" : (bindingTools.length ? "binding" : "unavailable"),
+      chars: toolsFromReport ? (reportToolChars || null) : null,
+    }),
+    projectLayer("skills", "③ skill 头（系统用法）", "both", {
+      present: skillsPresent,
+      source: skillsFromReport ? "report" : (bindingSkills.length ? "binding" : "unavailable"),
+      chars: skillsFromReport ? (skillChars || null) : null,
+    }),
+    projectLayer("role", "④ 角色 persona（IDENTITY.md，两路都注入）", "both", {
+      present: Boolean(personaBlock),
+      source: personaBlock ? "role-spec" : "unavailable",
+      content: personaBlock || null,
+    }),
+    projectLayer("soul", "⑤ SOUL（纯用户人格，系统永不重写）", "both", {
+      present: soulBody != null,
+      source: soulBody != null ? "user-soul" : "unavailable",
+      content: soulBody,
+    }),
+    projectLayer("wake", "⑥ wake（合约机制 + 角色产出，叠加在 SOUL 之上不替换）", "dispatch-only", {
+      present: isDispatch,
+      source: isDispatch ? "contract-session-override" : "unavailable",
+      content: isDispatch ? renderWakeMechanismBlock(role) : null,
+    }),
+  ];
+}
+
 /**
- * 读取指定 agent/session 的系统提示词拼装报告。
+ * 读取指定 agent/session 的系统提示词拼装报告（六层投影）。
  *
- * 优先级：① live systemPromptReport ② 归档 sidecar ③ 工作区重建。
- * 三者皆无 → { available:false }（不抛）。
+ * 注入文件正文优先级：① live systemPromptReport ② 归档 sidecar ③ 工作区重建。
+ * 三者皆无（且非派工合约会话）→ { available:false }（不抛）。
  *
- * source：①② 用报告里的 source（如 "run"）；③ 固定为 "reconstructed"。
+ * 顶层（向后兼容既有消费者与 inspect.session_system_prompt surface）：
+ *   - source：派工路固定 "contract-session-override"（保留字面值，前端据此判定）；
+ *     直连路用 soulView 的 source（"run" / "reconstructed" / 报告里的）。
+ *   - injectedFiles[i]：带 content（按 path 读取正文，单文件上限 CONTENT_CAP，
+ *     超出截断 + truncated:true；读不到 content:null）+ contentChars。
+ *   - totalContentChars / report 保留。
  *
- * 每个 injectedFiles[i] 带 content（按 path 读取的正文，单文件上限 CONTENT_CAP，
- * 超出截断 + truncated:true；读不到 content:null）+ contentChars；顶层带
- * totalContentChars（各文件 content 字符之和），保留 report（含 systemPrompt
- * 字符分解，供前端说明「框架另加基础提示/工具」）。
+ * 新增六层投影：
+ *   - activePath：本 session 是否含 ⑥wake —— dispatch-agent-awake=含（系统派工），
+ *     direct-soul=不含（用户直连）。值字面保留，供前端 banner / CSS class 复用。
+ *   - layers[]：六层 { layer, name, present, source, scope, content?/chars? }。
+ *   - bindingCapabilities / skillHeads：②③ 层范围与 head（页面逐个展开）。
  *
  * @param {string} agentId
  * @param {string} sessionId
  * @returns {Promise<
  *   { available:false } |
  *   { available:true, source:string|null, report:object,
- *     injectedFiles:Array<object>, totalContentChars:number }
+ *     injectedFiles:Array<object>, totalContentChars:number,
+ *     activePath:string, layers:Array<object> }
  * >}
  */
 export async function readSessionSystemPrompt(agentId, sessionId) {
@@ -332,18 +452,20 @@ export async function readSessionSystemPrompt(agentId, sessionId) {
   const sid = typeof sessionId === "string" ? sessionId.trim() : "";
   if (!aid || !sid) return { available: false };
 
-  // 本 session 实际走哪条路（互斥）：sessionKey 是合约会话 → 系统派工(agent-awake)；否则 → 用户直连(SOUL)
+  // 本 session 是否含 ⑥wake：sessionKey 是合约会话 → 系统派工(含 wake)；否则 → 用户直连(无 wake)。
   const sessionKey = await resolveSessionKey(aid, sid);
   const isDispatch = Boolean(sessionKey) && shouldOverrideContractSessionPrompt({ agentId: aid, sessionKey });
   const activePath = isDispatch ? "dispatch-agent-awake" : "direct-soul";
+  const role = getAgentRole(aid);
 
-  // 三者彼此独立，并行构建：两种视图(供前端双按钮对比) + binding 工具/技能范围。
+  // 彼此独立，并行构建：派工路完整提示词正文(agentAwake) + SOUL 系列注入文件正文 + binding 范围。
   const [soulView, agentAwakeView, bindingCapabilities] = await Promise.all([
     buildSoulView(aid, sid),
     buildAgentAwakeView(aid, sessionKey),
     resolveAgentBindingCapabilities(aid),
   ]);
 
+  // 顶层正文：派工路用 agent-awake 完整拼接串(④+⑥+⑤)；直连路用 SOUL 注入文件。
   const active = isDispatch ? agentAwakeView : soulView;
   if (!active || active.available !== true) return { available: false };
 
@@ -356,14 +478,14 @@ export async function readSessionSystemPrompt(agentId, sessionId) {
   }
   const skillHeads = await buildSkillHeads([...skillIdSet]);
 
-  // 顶层 = active 视图（向后兼容既有消费者）；另加 activePath + 两路视图 + binding 范围 + skill heads。
+  // 六层投影：从既有原语（report / role-spec / soulView 正文 / binding）投影，不造内容。
+  const layers = buildLayers({ role, isDispatch, soulView, bindingCapabilities });
+
+  // 顶层 = active 正文（向后兼容既有消费者）；另加 activePath + 六层投影 + binding 范围 + skill heads。
   return {
     ...active,
     activePath,
-    views: {
-      soul: soulView.available ? soulView : null,
-      agentAwake: agentAwakeView.available ? agentAwakeView : null,
-    },
+    layers,
     ...(bindingCapabilities ? { bindingCapabilities } : {}),
     ...(Object.keys(skillHeads).length ? { skillHeads } : {}),
   };

@@ -1,5 +1,28 @@
 # Wiki Operation Log
 
+## [2026-06-10] ingest | 提示词六层装配 + role/SOUL/wake 解耦 + 英文化
+
+编译本次重构（role/SOUL/wake 解耦 + 提示词英文化，原子核未提交）的 WHY 进 wiki。
+
+产出:
+- 新概念页 `concepts/prompt-assembly.md` — 六层装配模型（①框架/②工具/③skill头/④role/⑤SOUL/⑥wake）+ 两条装配路径（用户直连 / 系统派工，sessionKey 判定）+ 缓存裁定（SOUL 末尾、contractId 不内联）。引代码 `lib/role-spec-registry.js`/`workspace-guidance-writer.js`/`contract-session-prompt-override.js`。
+- 更新 `concepts/soul-identity.md` — 修正与代码冲突的旧描述（SOUL 不再含 role 品质）：⑤SOUL=纯用户、④role→托管 IDENTITY.md；加演化条目 + 决策内链。
+- 新决策页 `decisions/role-soul-wake-decoupling.md` — 含否决方案：role 烘焙进 SOUL（迁移闸 `scripts/migrate-soul-identity.js` 拆开 + 删 `lib/soul-template-builder.js`）/ 框架 append system 区块不可行（只能整体替换→watchdog 字符串拼接）/ contractId 内联破缓存。
+- 同步 index.md（「Agent 与角色」+1 概念，决策表 +1 行）。
+
+诚实记录:live-complex 全派发实测仍被空 agent-graph(0 edges) 挡着（运行态阻塞，非提示词代码问题），单测全绿、网关单跑 FULLY INITIALIZED。
+
+## [2026-06-09] ingest | 知识库/RAG 子系统 + 122 三档 land 决策(v145-162)
+
+编译备忘录122(高星 AgentRAG 调研三档落地)+ 123(三计划真值层协调)+ 会话内 RAG 实现(v145-v162)的 WHY 进 wiki。
+
+产出:
+- 新概念页 `concepts/knowledge-rag.md` — 知识库/RAG 检索子系统(hybrid qwen3+BM25-lite+RRF、多库、时序元数据+分歧派生、recall/faithfulness 评测、per-agent 消费),含 v145-162 演化脉络。引代码 `lib/operator/wiki-rag-*.js`/`knowledge-*.js`,引备忘录122/123。
+- 新决策页 `decisions/rag-land-2026-06.md` — 四决策含替代方案:① embed→qwen3-embedding:0.6b(A/B +37.5pp recall@1,否决 BGE-M3 降级/ColBERT 爆炸) ② rerank=LLM listwise 默认关(ollama 0.21 无 rerank API + qwen3-reranker tag 不存在=专用 reranker 不可用;质量 +16.7pp 但 60s/query 延迟劝退默认开) ③ faithfulness 生成侧度量 judge 注入(recall 证检索对、faithfulness 证用对=验证前提) ④ RAG 不建 meta-agent + knowledge≠真值(传送带反对增殖 agent;KB=内容/数据不进快照,knowledge_remove 假回滚)。
+- 同步 index.md(新增「知识库与检索 (RAG)」节 + 决策页行)。
+
+纪律印证:122「改 embed 先跑 fixture recall delta、有正向才切」全程遵守;诚实记录环境阻塞(reranker 不可用)与延迟权衡(rerank 默认关),不盲从自动「建议默认开」。
+
 ## [2026-06-02] ingest | v116→v132 stale 修复：operator 手已通 + designer-only + 对象落地
 
 对抗式审计（本会话 live 比对代码）发现 v115 后的 wiki 滞后约 13 个 tag，多处 load-bearing 谎言。逐项据代码（code wins）修正：
@@ -232,3 +255,19 @@ catalog 实测 inspect.* = 16 个。
 - 执行与治理（4页）：Harness、评估结果链、自动化的自动化、零知识验证
 - 前端与测试（2页）：Dashboard、测试系统
 - 隐喻（1页）：大楼比喻
+
+---
+
+## 2026-06-09 Ingest — 本会话工作（v161 兜底链 + 协调设计）
+
+来源：备忘录123（真值层协调）、备忘录124（使用场景大楼模型）、备忘录125（oh-my-pi 借鉴 + provider 兜底链）。
+
+产出：
+- 新概念页 `concepts/provider-fallback-chain.md`（v161：有序就绪链 + provider/内容错误边界）
+- 新决策页 `decisions/oh-my-pi-borrow-2026-06.md`（oh-my-pi 分层借鉴 T1/T2/SKIP + Harness 镜子教训）
+- 新决策页 `decisions/truth-seam-coordination.md`（D-α 协调缝 + D-δ meta 旁路；D-β/D-γ 已并入 rag-land）
+- 更新 `concepts/building-metaphor.md`（两种工作模式 A/B + 融合 + 会话键，源备忘录124）
+- 更新 `decisions/external-reference-absorption.md`（加 oh-my-pi 第三参考）
+- 更新 `index.md`（+1 概念 +2 决策）
+
+注：log 在 2026-04-09 与本次之间未被同步（rag-land 等只更 index 未更 log）= 既有 lint gap，非本次引入。
