@@ -12,11 +12,18 @@
     opacity: 1;
     pointer-events: auto;
   }
+  /* lock the background page scroll while the operator overlay is open, so the mouse wheel scrolls
+     the conversation (not the page behind it) */
+  body.operator-open { overflow: hidden; }
   .operator-window {
     position: absolute;
     top: 22px;
     right: 22px;
-    width: min(520px, calc(100vw - 28px));
+    width: min(560px, calc(100vw - 28px));
+    /* DEFINITE height (not just max-height): a flex column needs a fixed total to distribute, otherwise
+       the conversation never gets a bounded height and overflow-y:auto can't scroll. Web-AI chat panels
+       always pin a height + a flex-grow scroll region + a pinned composer. */
+    height: min(840px, calc(100vh - 44px));
     max-height: calc(100vh - 44px);
     display: flex;
     flex-direction: column;
@@ -145,7 +152,9 @@
   .operator-body {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    /* conversation = the dominant flex-grow scroll region (floor 180px); plan-panel = capped auto row
+       that scrolls INTERNALLY so a long plan can never squeeze the conversation to zero. */
+    grid-template-rows: minmax(180px, 1fr) minmax(0, auto);
     flex: 1;
     min-height: 0;
     gap: 10px;
@@ -160,9 +169,16 @@
     overflow-y: auto;
   }
   .operator-conversation {
-    min-height: 160px;
-    /* fills the 1fr body row (stats panel removed) → conversation stays large; plan-panel + compose
-       sit below and remain visible. No max-height cap. */
+    min-height: 0; /* let the 1fr grid row bound it (floor lives on the track) so overflow-y:auto scrolls */
+    overscroll-behavior: contain; /* wheel stays in the conversation, doesn't chain to the page */
+  }
+  .operator-plan-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .operator-plan-content {
+    max-height: 32vh; /* a long plan scrolls inside its own panel instead of pushing the composer off-screen */
   }
   .operator-plan-head {
     display: flex;
@@ -409,6 +425,7 @@
     background: var(--bg-dark-panel);
     border-bottom: 1px solid var(--border-primary);
     font-size: 12px;
+    flex-shrink: 0; /* don't let the flex:1 body squish the session bar out of view */
   }
   .operator-session-bar .operator-session-label {
     color: var(--text-muted);

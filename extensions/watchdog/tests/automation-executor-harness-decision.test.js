@@ -41,8 +41,6 @@ test("handleAutomationContractTerminal backfills final decision onto lastHarness
 
     await startAutomationRound(automationId, {
       api: {},
-      enqueue: () => {},
-      wakePlanner: async () => null,
       logger: buildLogger(),
       dispatchAcceptIngressMessageFn: async () => ({
         ok: true,

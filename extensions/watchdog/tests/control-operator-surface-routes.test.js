@@ -30,10 +30,7 @@ function buildRegisteredRoutes() {
     error() {},
   };
 
-  registerApiRoutes(api, logger, {
-    enqueueFn() {},
-    wakePlanner() {},
-  });
+  registerApiRoutes(api, logger, {});
   return routes;
 }
 
@@ -78,6 +75,12 @@ test("control operator routes expose canonical cli-system and agent tools surfac
   assert.equal(typeof routes.get("/watchdog/cli-system/surfaces"), "function");
   assert.equal(typeof routes.get("/watchdog/agents/tools"), "function");
   assert.equal(routes.has("/watchdog/agents/card/tools"), false);
+
+  // viz-master is a second meta-agent mirroring operator plan/execute (chart family only).
+  assert.equal(typeof routes.get("/watchdog/operator/plan"), "function");
+  assert.equal(typeof routes.get("/watchdog/operator/execute"), "function");
+  assert.equal(typeof routes.get("/watchdog/viz/plan"), "function");
+  assert.equal(typeof routes.get("/watchdog/viz/execute"), "function");
 
   const req = buildGetRequest("/watchdog/cli-system/surfaces");
   const res = buildResponse();

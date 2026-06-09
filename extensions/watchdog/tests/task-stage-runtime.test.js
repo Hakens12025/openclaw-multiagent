@@ -105,7 +105,6 @@ test("dispatchCreateExecutionContractEntry writes definition-only stagePlan and 
       source: "webui",
       effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:stage-runtime-${Date.now()}` },
       operatorContext: null,
-      enqueue() {},
       wakeContractor: async () => null,
       logger,
       phases: [
@@ -166,7 +165,6 @@ test("dispatchCreateExecutionContractEntry does not persist a fake worker assign
       source: "webui",
       effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:assignee-${Date.now()}` },
       operatorContext: null,
-      enqueue() {},
       wakeContractor: async () => null,
       logger,
       phases: ["分析", "执行"],
@@ -335,7 +333,6 @@ test("dispatchCreateExecutionContractEntry preserves direct user wording for gre
       source: "webui",
       effectiveReplyTo: { agentId: "controller", sessionKey: `agent:controller:greeting-${Date.now()}` },
       operatorContext: null,
-      enqueue() {},
       wakeContractor: async () => null,
       logger,
     });
@@ -431,7 +428,6 @@ test("dispatchAcceptIngressMessage does not inject a default stage plan when pha
       source: "webui",
       replyTo: { agentId: "controller", sessionKey: `agent:controller:stage-planner-${Date.now()}` },
       api: null,
-      enqueue() {},
       wakeContractor: async () => null,
       logger,
     });
@@ -502,8 +498,6 @@ test("dispatchAcceptIngressMessage rejects QQ ingress without live reply target"
           sessionKey: "agent:agent-for-kksl:main",
         },
         api: null,
-        enqueue() {},
-        wakePlanner: async () => null,
         logger,
       }),
       /live QQ reply target/u,
@@ -567,8 +561,6 @@ test("dispatchAcceptIngressMessage preserves QQ passive reply metadata on bridge
         accountId: "default",
       },
       api: null,
-      enqueue() {},
-      wakePlanner: async () => null,
       logger,
     });
 
@@ -640,8 +632,6 @@ test("dispatchAcceptIngressMessage rejects qqbot source without live reply targe
           sessionKey: "agent:agent-for-kksl:main",
         },
         api: null,
-        enqueue() {},
-        wakePlanner: async () => null,
         logger,
       }),
       /live QQ reply target/u,
@@ -697,8 +687,6 @@ test("dispatchAcceptIngressMessage rejects qqbot alias without live reply target
         source: "qqbot",
         replyTo: null,
         api: null,
-        enqueue() {},
-        wakePlanner: async () => null,
         logger,
       }),
       /live QQ reply target/u,
@@ -753,8 +741,6 @@ test("dispatchAcceptIngressMessage rejects synthetic QQ reply targets before ter
           accountId: "default",
         },
         api: null,
-        enqueue() {},
-        wakePlanner: async () => null,
         logger,
       }),
       /synthetic QQ reply target/u,
@@ -818,8 +804,6 @@ test("dispatchAcceptIngressMessage preserves QQ group reply target prefix on bri
         accountId: "default",
       },
       api: null,
-      enqueue() {},
-      wakePlanner: async () => null,
       logger,
     });
 
@@ -967,8 +951,6 @@ test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller 
       },
       ingressDirective: {},
       api: null,
-      enqueue() {},
-      wakePlanner: async () => null,
       logger,
     });
 
@@ -1051,8 +1033,6 @@ test("dispatchAcceptIngressMessage ignores external targetAgent on a2a bridge in
         targetAgent: "worker",
       },
       api: null,
-      enqueue() {},
-      wakePlanner: async () => null,
       logger,
     });
 
@@ -1136,8 +1116,6 @@ test("dispatchAcceptIngressMessage ignores external replyTo agent for a2a dispat
         targetAgent: "reviewer",
       },
       api: null,
-      enqueue() {},
-      wakePlanner: async () => null,
       logger,
     });
 
@@ -1208,8 +1186,6 @@ test("dispatchAcceptIngressMessage does not convert non-QQ bridge reply target i
         sessionKey: "agent:agent-for-kksl:main",
       },
       api: null,
-      enqueue() {},
-      wakePlanner: async () => null,
       logger,
     });
 

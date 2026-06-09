@@ -174,7 +174,6 @@ testWithGlobalLoopRuntime("runtime.loop.start preserves loop entry truth and act
             },
           },
         },
-        enqueue() { return true; },
       },
     });
 
@@ -269,7 +268,6 @@ testWithGlobalLoopRuntime("runtime.loop.start forwards explicit loop budget into
             },
           },
         },
-        enqueue() { return true; },
       },
     });
 

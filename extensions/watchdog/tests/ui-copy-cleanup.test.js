@@ -207,7 +207,7 @@ test("dashboard runtime graph DOM avoids retired pipeline projection names", () 
 
 test("harness dashboard copy uses loop naming instead of pipeline labels", () => {
   const sources = {
-    runs: readFileSync(new URL("../dashboard-harness-runs.js", import.meta.url), "utf8"),
+    workstation: readFileSync(new URL("../dashboard-harness-workstation.js", import.meta.url), "utf8"),
     shared: readFileSync(new URL("../dashboard-harness-shared.js", import.meta.url), "utf8"),
   };
 

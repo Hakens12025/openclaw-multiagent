@@ -152,3 +152,24 @@ export function getRoleSoulProfile(role) {
     operatingPrinciples: [...(spec.operatingPrinciples || [])],
   };
 }
+
+// ④role 层：角色 persona 块。写进 IDENTITY.md（系统托管），并在系统派工路内联进合约提示词。
+// persona 为空 → 返回 ""（调用方据此跳过该段）。
+export function renderRolePersonaBlock(role) {
+  const profile = getRoleSoulProfile(role);
+  if (!profile.persona) {
+    return "";
+  }
+  const lines = ["## 角色", "", profile.summary, ""];
+  lines.push(`- 思考姿态：${profile.persona}`);
+  if (profile.qualityBar) {
+    lines.push(`- 质量底线：${profile.qualityBar}`);
+  }
+  if (profile.decisionStyle) {
+    lines.push(`- 决策倾向：${profile.decisionStyle}`);
+  }
+  profile.operatingPrinciples.forEach((principle, index) => {
+    lines.push(`- 默认准则 ${index + 1}：${principle}`);
+  });
+  return lines.join("\n");
+}

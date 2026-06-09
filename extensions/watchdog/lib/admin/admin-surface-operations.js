@@ -62,6 +62,17 @@ import {
   repairGraphLoop,
 } from "./admin-surface-graph-operations.js";
 import { authorSkillSurface } from "./skill-author.js";
+import { buildWikiRagIndex } from "../operator/wiki-rag-store.js";
+import { buildKbIndex } from "../operator/knowledge-base.js";
+import {
+  addKnowledgeBaseSource,
+  removeKnowledgeBaseSource,
+  removeKnowledgeBase,
+  configureKnowledgeBase,
+} from "../operator/knowledge-base-registry.js";
+import { saveKnowledgeEvalSet, deleteKnowledgeEvalSet } from "../operator/knowledge-eval-registry.js";
+import { runKnowledgeEval, runKnowledgeFaithfulness } from "../operator/knowledge-eval-runner.js";
+import { createChartDefinition, moveChartPosition } from "./chart-operations.js";
 import {
   resolveLoopTargetId,
   startRuntimeLoop,
@@ -297,8 +308,87 @@ const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
       runtimeContext,
     }, logger),
   }),
+  // wiki-only RAG 增量 reindex。buildWikiRagIndex 永远返回 {ok:true,...}（degraded
+  // 时也是 ok:true）—— executor 把 {ok:false} 当失败会回滚，故此处必须保持 ok:true。
+  "apply.wiki_reindex": async ({ payload, logger }) => ({ ...(await buildWikiRagIndex({ force: payload?.force === true, logger })) }),
+  // 知识库:加源(自动建索引,库不存在则新建)。addKnowledgeBaseSource 校验失败会 throw（safe
+  // surface 无 pre-apply 快照→无回滚副作用,throw 即清晰失败,无状态改动）。buildKbIndex 永 ok:true。
+  "apply.knowledge_add": async ({ payload, logger }) => {
+    const kb = await addKnowledgeBaseSource(
+      normalizeString(payload?.kbId),
+      normalizeString(payload?.sourcePath),
+      {
+        label: normalizeString(payload?.label) || undefined,
+        scope: normalizeString(payload?.scope) || undefined,
+        agentId: normalizeString(payload?.agentId) || undefined,
+      },
+    );
+    const index = await buildKbIndex(kb.id, { force: payload?.force === true, logger });
+    return { ok: true, knowledgeBase: kb, index };
+  },
+  // 知识库:重建索引。buildKbIndex 对未知库返回 {ok:false}→包成 ok:true+reindexed:false
+  // 避免 executor 回滚（reindex 无可回滚副作用,未知库只是无操作）。
+  "apply.knowledge_reindex": async ({ payload, logger }) => {
+    const result = await buildKbIndex(normalizeString(payload?.kbId), { force: payload?.force === true, logger });
+    return result.ok ? { ok: true, reindexed: true, ...result } : { ok: true, reindexed: false, error: result.error };
+  },
+  // 知识库:删源或删整库(destructive,confirmation:explicit)。给 sourcePath→只删该源;
+  // 否则删整库。removeKnowledgeBase('wiki') 在注册表层 throw(内置不可删)。
+  "apply.knowledge_remove": async ({ payload }) => {
+    const kbId = normalizeString(payload?.kbId);
+    const sourcePath = normalizeString(payload?.sourcePath);
+    const result = sourcePath
+      ? await removeKnowledgeBaseSource(kbId, sourcePath)
+      : await removeKnowledgeBase(kbId);
+    return { ok: true, ...result };
+  },
+  // 知识库评测:新建/覆盖评测集。cases 容忍数组或 JSON 串(防 planner/HTTP 形态差异)。
+  "apply.knowledge_eval_set_save": async ({ payload }) => {
+    let cases = payload?.cases;
+    if (typeof cases === "string") { try { cases = JSON.parse(cases); } catch { cases = []; } }
+    const evalSet = await saveKnowledgeEvalSet({
+      kbId: normalizeString(payload?.kbId),
+      evalSetId: normalizeString(payload?.evalSetId),
+      label: normalizeString(payload?.label) || undefined,
+      topK: payload?.topK,
+      cases: Array.isArray(cases) ? cases : [],
+    });
+    return { ok: true, evalSet };
+  },
+  // 知识库评测:跑评测集。未知/空集 → ok:true+ran:false(避免 executor 把 ok:false 当失败回滚;评测无副作用)。
+  "apply.knowledge_eval_run": async ({ payload, logger }) => {
+    const result = await runKnowledgeEval(normalizeString(payload?.kbId), normalizeString(payload?.evalSetId), { logger });
+    return result.ok ? { ok: true, ran: true, ...result } : { ok: true, ran: false, error: result.error };
+  },
+  // 知识库评测:跑生成侧 faithfulness/context-precision(本地 qwen judge;需 case 带 answer)。无副作用→不回滚。
+  "apply.knowledge_eval_faithfulness": async ({ payload, logger }) => {
+    const result = await runKnowledgeFaithfulness(normalizeString(payload?.kbId), normalizeString(payload?.evalSetId), { logger });
+    return result.ok ? { ok: true, ran: true, ...result } : { ok: true, ran: false, error: result.error };
+  },
+  // 知识库评测:删评测集(幂等)。
+  "apply.knowledge_eval_set_remove": async ({ payload }) => {
+    const result = await deleteKnowledgeEvalSet(normalizeString(payload?.kbId), normalizeString(payload?.evalSetId));
+    return { ok: true, ...result };
+  },
+  // 知识库:配置时态/元数据/分歧规则(Phase5 的 on-switch)。metadataRules/conflict 容忍对象或 JSON 串。需重建索引生效。
+  "apply.knowledge_configure": async ({ payload }) => {
+    const parseMaybe = (v) => {
+      if (typeof v !== "string") return v;
+      try { return JSON.parse(v); } catch { return undefined; }
+    };
+    const kb = await configureKnowledgeBase(normalizeString(payload?.kbId), {
+      temporal: payload?.temporal,
+      metadataRules: parseMaybe(payload?.metadataRules),
+      conflict: parseMaybe(payload?.conflict),
+    });
+    return { ok: true, knowledgeBase: kb };
+  },
+  // 图表(非真值控制面,charts.json,knowledge-bases.json 同级)。viz-master 是 chart 面唯一写入者。
+  // 校验失败 createChartDefinition/moveChartPosition 内部捕获成 {ok:false,error}——不抛过 handler 边界。
+  "apply.chart_create": createChartDefinition,
+  "apply.chart_move": moveChartPosition,
   "test.inject": ({ payload, logger, runtimeContext }) => {
-    if (!runtimeContext?.api || typeof runtimeContext.enqueue !== "function" || typeof runtimeContext.wakePlanner !== "function") {
+    if (!runtimeContext?.api) {
       throw new Error("missing runtime context for test.inject");
     }
     const operatorContext = normalizeOperatorContext({
@@ -312,8 +402,6 @@ const ADMIN_SURFACE_OPERATION_HANDLERS = Object.freeze({
       operatorContext,
       ingressDirective: payload,
       api: runtimeContext.api,
-      enqueue: runtimeContext.enqueue,
-      wakePlanner: runtimeContext.wakePlanner,
       logger,
     });
   },
@@ -337,6 +425,12 @@ async function maybePreApplyStructureSnapshot(surfaceId, logger) {
     if (risk !== "destructive" && risk !== "structural") {
       return null;
     }
+    // 非真值控制面族(knowledge/chart)即便 risk=destructive 也不拍结构快照:structure-snapshot
+    // 只覆盖 graph/config，捕不到 KB/chart 内容——拍了反而给出误导性的"可回滚"承诺。skip→null。
+    const { resolveSurfaceFamily, NON_TRUTH_BACKED_FAMILIES } = await import("../cli-system/meta-agent-surface-ownership.js");
+    if (NON_TRUTH_BACKED_FAMILIES.has(resolveSurfaceFamily(surfaceId))) {
+      return null;
+    }
     const { captureStructureSnapshot } = await import("../control-plane/structure-snapshot.js");
     const snap = await captureStructureSnapshot({ reason: `pre-apply:${surfaceId}`, label: `pre-apply:${surfaceId}` });
     return snap?.id || null;
@@ -358,13 +452,27 @@ export async function executeAdminSurfaceOperation({
     throw new Error(`unsupported admin surface: ${surfaceId}`);
   }
   const preApplySnapshot = await maybePreApplyStructureSnapshot(surfaceId, logger);
-  const result = await handler({
-    surfaceId,
-    payload: normalizeRecord(payload),
-    logger,
-    onAlert,
-    runtimeContext,
-  });
+  let result;
+  try {
+    result = await handler({
+      surfaceId,
+      payload: normalizeRecord(payload),
+      logger,
+      onAlert,
+      runtimeContext,
+    });
+  } catch (error) {
+    // ⑪ The pre-apply snapshot was captured but NEVER used on a handler THROW — a structural surface that
+    // half-mutated then threw left the system half-applied with no rollback. Restore it here at the single
+    // choke so every caller (operator / HTTP / change-set) inherits auto-restore, attach the rollback
+    // outcome to the re-thrown error, then re-throw so callers still see the failure. Reuses the existing
+    // snapshot mechanism (lazy import to avoid the registry↔operations cycle); no new system, no branching.
+    if (preApplySnapshot) {
+      const { restoreStructureSnapshot } = await import("../control-plane/structure-snapshot.js");
+      error.preApplyRollback = await restoreStructureSnapshot(preApplySnapshot).catch((e) => ({ ok: false, error: e.message }));
+    }
+    throw error;
+  }
   if (preApplySnapshot && result && typeof result === "object" && !Array.isArray(result)) {
     return { ...result, preApplySnapshot };
   }

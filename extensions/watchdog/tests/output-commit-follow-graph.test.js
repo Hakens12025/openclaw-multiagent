@@ -113,7 +113,6 @@ test("output_commit on loop shared contract stays observational and must not adv
             },
           },
         },
-        enqueue: () => {},
         originSurfaceId: "runtime.loop.start",
         originDraftId: null,
         originExecutionId: null,
@@ -173,8 +172,6 @@ test("output_commit on loop shared contract stays observational and must not adv
         },
       },
       logger,
-      enqueueFn: () => {},
-      wakePlanner: async () => null,
       trackingState,
     });
 

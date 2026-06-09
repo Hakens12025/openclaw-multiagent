@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 const WATCHDOG_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const CANONICAL_RUNTIME_WAKE_CONSUMERS = [
-  "../index.js",
+  // index.js 的 inactivity/timeout wake 已迁入 agent-timeout-sweep（可测模块）；
+  // canonical 消费者随之迁移，index.js 不再直接调 runtime-wake。
+  "../lib/lifecycle/agent-timeout-sweep.js",
   "../lib/lifecycle/agent-end-transport.js",
   "../lib/lifecycle/crash-recovery.js",
   "../lib/routing/delivery-system-action-transport.js",

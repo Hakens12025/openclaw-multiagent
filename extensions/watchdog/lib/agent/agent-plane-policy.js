@@ -1,4 +1,5 @@
 import { normalizeString } from "../core/normalize.js";
+import { META_AGENT_IDS } from "./agent-metadata.js";
 
 export const ACTOR_PLANE = Object.freeze({
   RUNTIME: "runtime",
@@ -8,7 +9,7 @@ export const ACTOR_PLANE = Object.freeze({
 });
 
 const CONTROL_PLANE_AGENT_IDS = new Set([
-  "operator",
+  ...META_AGENT_IDS,
   "harness",
   "cli-system",
   "automation",

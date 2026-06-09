@@ -122,13 +122,13 @@ test("cli system surface executor rejects non operator-executable surfaces", asy
   );
 });
 
-test("cli system surface executor requires explicit operator actor for executable surfaces", async () => {
+test("cli system surface executor requires explicit meta-agent actor for executable surfaces", async () => {
   await assert.rejects(
     () => executeCliSystemSurface({
       surfaceId: "agents.policy",
       payload: {},
     }),
-    /requires operator actor/u,
+    /requires a meta-agent actor/u,
   );
 
   await assert.rejects(
@@ -137,7 +137,7 @@ test("cli system surface executor requires explicit operator actor for executabl
       payload: {},
       actor: "worker",
     }),
-    /requires operator actor/u,
+    /requires a meta-agent actor/u,
   );
 });
 

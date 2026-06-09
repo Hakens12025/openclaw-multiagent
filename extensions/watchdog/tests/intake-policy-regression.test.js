@@ -81,7 +81,6 @@ test("handleBeforeStartIngress skips direct intake for agent with noDirectIntake
       agentId: "test-evaluator",
       sessionKey: "agent:test-evaluator:hook:test",
       api: { runtime: { system: { requestHeartbeatNow() {} } } },
-      enqueue() {},
       wakeContractor() {},
       logger,
     });
@@ -134,8 +133,6 @@ test("handleBeforeStartIngress ignores core wrapped hook content instead of trea
       agentId: "controller",
       sessionKey: "agent:controller:hook:webui",
       api: { runtime: { system: { requestHeartbeatNow() {} } } },
-      enqueue() {},
-      wakePlanner() {},
       logger,
     });
 
@@ -171,7 +168,6 @@ test("handleBeforeStartIngress blocks ordinary direct intake instead of creating
       agentId: "test-worker",
       sessionKey: "agent:test-worker:hook:test",
       api: { runtime: { system: { requestHeartbeatNow() {} } } },
-      enqueue() {},
       wakeContractor() {},
       logger,
     });
@@ -232,8 +228,6 @@ test("handleBeforeStartIngress blocks direct intake without touching an occupied
       agentId: "test-worker-occupied",
       sessionKey: "agent:test-worker-occupied:hook:test",
       api: { runtime: { system: { requestHeartbeatNow() {} } } },
-      enqueue() {},
-      wakePlanner() {},
       logger,
     });
 
@@ -300,8 +294,6 @@ test("handleBeforeStartIngress ignores typed internal wake envelopes instead of 
         agentId: "test-reviewer",
         sessionKey: "agent:test-reviewer:hook:test",
         api: { runtime: { system: { requestHeartbeatNow() {} } } },
-        enqueue() {},
-        wakePlanner() {},
         logger,
       });
 

@@ -91,25 +91,42 @@ function computeStreaks(orderedOutcomes) {
 
 // 把异构证据源（lastDecision + recentEvaluationResults + recentDecisions + runtime.recentRounds）
 // 归一成「最近优先」的 outcome 序列。lastDecision 排首（本轮刚算出的最新结论）。
+//
+// 单源不变量（real[12]）：每条 round 至多贡献一次 outcome。即便未来调用方重新引入
+// 重叠证据源，按 round 去重也能防止 streak 双计（带 round 的源 dedup；无 round 的源保留）。
 function collectOrderedOutcomes({ lastDecision, recentDecisions, recentEvaluationResults, runtime }) {
   const outcomes = [];
+  const seenRounds = new Set();
+
+  // 带 round 字段的源按 round 去重；无 round（如缺字段）的源不去重，原样计入。
+  const pushOutcome = (outcome, round) => {
+    const key = normalizePositiveInteger(round, 0);
+    if (key > 0) {
+      if (seenRounds.has(key)) return;
+      seenRounds.add(key);
+    }
+    outcomes.push(outcome);
+  };
 
   const last = normalizeRecord(lastDecision, null);
   if (last) {
-    outcomes.push(classifyOutcome({ verdict: last.verdict, decision: last.action || last.decision, status: last.status }));
+    pushOutcome(
+      classifyOutcome({ verdict: last.verdict, decision: last.action || last.decision, status: last.status }),
+      last.round,
+    );
   }
 
   // 显式传入的历史（调用方可提供）；缺则回退 runtime.recentRounds（普查：runtime 无 recentDecisions/recentEvaluationResults）。
   const evalResults = Array.isArray(recentEvaluationResults) ? recentEvaluationResults : [];
   for (const er of evalResults) {
     const r = normalizeRecord(er, null);
-    if (r) outcomes.push(classifyOutcome({ verdict: r.verdict }));
+    if (r) pushOutcome(classifyOutcome({ verdict: r.verdict }), r.round);
   }
 
   const decisions = Array.isArray(recentDecisions) ? recentDecisions : [];
   for (const dec of decisions) {
     const r = normalizeRecord(dec, null);
-    if (r) outcomes.push(classifyOutcome({ verdict: r.verdict, decision: r.action || r.decision, status: r.status }));
+    if (r) pushOutcome(classifyOutcome({ verdict: r.verdict, decision: r.action || r.decision, status: r.status }), r.round);
   }
 
   const rounds = (Array.isArray(runtime?.recentRounds) ? runtime.recentRounds : [])
@@ -117,7 +134,7 @@ function collectOrderedOutcomes({ lastDecision, recentDecisions, recentEvaluatio
     .sort((a, b) => Number(b?.round || 0) - Number(a?.round || 0));
   for (const round of rounds) {
     const r = normalizeRecord(round, null);
-    if (r) outcomes.push(classifyOutcome({ verdict: r.verdict, decision: r.decision, status: r.status }));
+    if (r) pushOutcome(classifyOutcome({ verdict: r.verdict, decision: r.decision, status: r.status }), r.round);
   }
 
   return outcomes;

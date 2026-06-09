@@ -64,8 +64,16 @@ AgentGroup 的 `parallel` 和 `race` 输出模式直接映射到 graph 的同名
 
 - **组成**: [graph-edge](graph-edge.md) — group 展开后的底层表示
 - **绑定**: [agent-binding](agent-binding.md) — group 内 agent 的能力绑定
-- **正交**: [loop](loop.md) — 时间维度的控制
-- **前置**: 依赖 [god-role-elimination](god-role-elimination.md) 先完成，否则 group 会继承硬编码角色
+- **正交**: [loop](loop.md) — 时间维度的控制（space × time）
+
+## 实现
+
+宏展开本体已落地（v119）：
+
+- `lib/agent/agent-group-spec.js`：`normalizeGroupSpec`（members ≥ 2；`internalEdges` 两端必须都是成员，否则不是组内协作、会污染拓扑——**无 group-internal 免授权暗门**）+ `expandAgentGroup`（GroupSpec → 显式 `EdgeSpec[]` 带 `metadata.groupId`）+ `OUTPUT_MODES`（passthrough/aggregate/race，default aggregate）+ `buildOutputPolicies`。
+- `lib/agent/group-session-store.js` + `lib/agent/group-session-normalize.js`：运行层追踪（类比 loop-session；**注意在 `lib/agent/`，不在 `lib/loop/`**）。
+- `lib/agent/agent-workflow-grouping.js`：工作流分组。
+- 可观测：`inspect.agent_groups`。
 
 ## 演化
 
@@ -73,12 +81,12 @@ AgentGroup 的 `parallel` 和 `race` 输出模式直接映射到 graph 的同名
 |------|------|
 | 备忘录 85 | 定义 AgentGroup 为 graph 空间封装原语 |
 | 备忘录 86 | 修正：所有 group 边必须显式，无 auth 豁免 |
+| v119-stable | AgentGroup 宏展开本体落地（与 loop 时间维度正交，space × time）；对抗 7 红线验证组内未声明边真被拒。tasks #38 + #46 done |
 
 ## 当前状态
 
-- **设计**: 概念阶段
-- **实现**: 未开始
-- **前置依赖**: god-role elimination 需先完成
-- **来源**: 备忘录 85, 86
+- **设计**: 冻结
+- **实现**: 已落地（v119 宏展开；`inspect.agent_groups` 可观测）
+- **来源**: 备忘录 85, 86 + v119 实现
 
 相关概念: [graph-edge](graph-edge.md) | [agent-binding](agent-binding.md) | [loop](loop.md)

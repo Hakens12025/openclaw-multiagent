@@ -139,8 +139,11 @@ async function finalizeAutomationRound(spec, runtime, {
       || runtime?.profileLifecycle?.trustLevel
       || null,
     lastDecision: decision,
-    recentEvaluationResults: evaluationResult ? [evaluationResult] : [],
-    recentDecisions: runtime?.lastAutomationDecision ? [runtime.lastAutomationDecision] : [],
+    // streak 单源化（修 real[12] 双计）：每轮恰好贡献一次证据。
+    // recentEvaluationResults / recentDecisions 刻意不传：
+    //   - recentEvaluationResults 与 lastDecision 同轮同 verdict（重复本轮）；
+    //   - recentDecisions(runtime.lastAutomationDecision) 与 runtime.recentRounds[prev] 同为上一轮（重复历史）。
+    // runtime.recentRounds 已携带每条历史轮 verdict，lastDecision 携带本轮，合起来每轮唯一。
     now,
   });
 
@@ -158,6 +161,8 @@ async function finalizeAutomationRound(spec, runtime, {
     bestArtifact: improvement.bestArtifact,
     lastScore: improvement.lastScore,
     noImprovementStreak: improvement.noImprovementStreak,
+    repeatStreak: improvement.repeatStreak,
+    lastArtifactFingerprint: improvement.lastArtifactFingerprint,
     activeHarnessSpec: null,
     activeHarnessRun: null,
     lastHarnessRun: nextHarnessRun,

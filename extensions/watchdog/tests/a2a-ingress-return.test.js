@@ -73,10 +73,7 @@ function buildRoutes() {
     registerHttpRoute(route) {
       routes.set(route.path, route.handler);
     },
-  }, { info() {}, warn() {}, error() {} }, {
-    enqueueFn: async () => {},
-    wakePlanner: async () => {},
-  });
+  }, { info() {}, warn() {}, error() {} });
   return routes;
 }
 

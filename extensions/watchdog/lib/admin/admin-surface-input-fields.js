@@ -5,10 +5,14 @@ import { AGENT_INPUT_FIELDS } from "./input-fields/agents.js";
 import { AGENT_JOINS_INPUT_FIELDS } from "./input-fields/agent-joins.js";
 import { AUTOMATION_GRAPH_INPUT_FIELDS } from "./input-fields/automation-graph.js";
 import { SKILLS_INPUT_FIELDS } from "./input-fields/skills.js";
+import { KNOWLEDGE_INPUT_FIELDS } from "./input-fields/knowledge.js";
+import { CHART_INPUT_FIELDS } from "./input-fields/chart.js";
 
 export const SURFACE_INPUT_FIELDS = Object.freeze({
   ...AGENT_INPUT_FIELDS,
   ...AGENT_JOINS_INPUT_FIELDS,
   ...AUTOMATION_GRAPH_INPUT_FIELDS,
   ...SKILLS_INPUT_FIELDS,
+  ...KNOWLEDGE_INPUT_FIELDS,
+  ...CHART_INPUT_FIELDS,
 });

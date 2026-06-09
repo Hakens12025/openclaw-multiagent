@@ -137,6 +137,10 @@ async function writeRetryHintToInbox(agentId, hint, logger) {
 
 // ── Main recovery handler ───────────────────────────────────────────────────
 
+// Pending retry timers keyed by sessionKey — so a re-scheduled retry clears its predecessor (no timer
+// accumulation) and the fire-time body can be guarded. unref'd so they never hold the process at shutdown.
+const pendingRetryTimers = new Map();
+
 export async function handleCrashRecovery({
   agentId,
   sessionKey,
@@ -245,8 +249,19 @@ export async function handleCrashRecovery({
   }
 
   const delay = retryDelays[Math.min(retryCount, retryDelays.length - 1)];
-  setTimeout(async () => {
+  // Clear any prior pending retry for this session (avoid timer accumulation on repeated recovery).
+  const priorTimer = pendingRetryTimers.get(sessionKey);
+  if (priorTimer) clearTimeout(priorTimer);
+  const retryTimer = setTimeout(async () => {
+    pendingRetryTimers.delete(sessionKey);
     try {
+      // Re-validate the contract is STILL active before firing — a cancelled/superseded/terminal
+      // contract must NOT get a phantom retry wake (single source of truth = contract status).
+      const snapshot = await loadContractSnapshot(contractPath);
+      if (!snapshot || !isActiveContractStatus(snapshot.status)) {
+        logger.info(`[watchdog] retry skipped: contract no longer active (${snapshot?.status ?? "missing"}) for ${sessionKey}`);
+        return;
+      }
       // Write hint file to inbox AFTER agent_end cleanup has finished
       await writeRetryHintToInbox(agentId, hint, logger);
       await runtimeWakeAgentDetailed(agentId, heartbeatReason, api, logger, { sessionKey });
@@ -254,6 +269,8 @@ export async function handleCrashRecovery({
       logger.error(`[watchdog] requestHeartbeatNow failed: ${heartbeatError.message}`);
     }
   }, delay);
+  retryTimer.unref?.();
+  pendingRetryTimers.set(sessionKey, retryTimer);
 
   return {
     status: "retry_scheduled",

@@ -23,15 +23,28 @@ Harness 是执行层工具箱，不是平台总控。
 
 当前代码里的正式入口：
 
-- [extensions/watchdog/lib/harness/harness-registry.js](~/.openclaw/extensions/watchdog/lib/harness/harness-registry.js)
-- [extensions/watchdog/lib/harness/harness-run.js](~/.openclaw/extensions/watchdog/lib/harness/harness-run.js)
-- [extensions/watchdog/lib/harness/harness-module-runner.js](~/.openclaw/extensions/watchdog/lib/harness/harness-module-runner.js)
+- [extensions/watchdog/lib/harness/harness-registry.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-registry.js)
+- [extensions/watchdog/lib/harness/harness-run.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-run.js)
+- [extensions/watchdog/lib/harness/harness-module-runner.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-module-runner.js)
 
 ## 冻结的模块接口
 
 v109-stable 起，module 注册非静默拒绝不合规项：`lib/harness/harness-module-schema.js` 的 `validateHarnessModuleDefinition` 要求 `id` 必带 `harness:` 前缀、`kind`∈{guard,collector,gate,normalizer}。
 
+正式入口 `lib/harness/harness-module-catalog.js` 冻结 **10 个模块 / 4 kind**（`freezeCatalog` 逐项经 `validateHarnessModuleDefinition`）：
+
+| Kind | 模块 |
+|------|------|
+| guard | `guard.budget` / `guard.tool_access` / `guard.scope` |
+| collector | `collector.artifact` / `collector.trace` |
+| gate | `gate.artifact` / `gate.schema` / `gate.test` |
+| normalizer | `normalizer.eval_input` / `normalizer.failure` |
+
 对象链：`HarnessRun → CLI System → Operator → Automation`。端到端样例见 `tests/cli-chain-e2e.test.js`，验证这四关节接上（harness 产出经 `inspect.harness_runs` 被 operator 读到，再喂 automation）。源: 备忘录114 §6。
+
+### operator 装 harness 层
+
+operator 装配 harness 经 `lib/operator/operator-harness-recommend.js` —— **只挑 `moduleRef` 粒度**（不编 module 实现、不当第二 planner），配套 `skills/harness-build/SKILL.md`，最终经 `automations.create` 组装。
 
 ## 灵魂落地（v115，P0/P0.5）
 
@@ -69,11 +82,13 @@ v109-stable 起，module 注册非静默拒绝不合规项：`lib/harness/harnes
 | 备忘录 62 | 明确 harness 与 platform 正交关系 |
 | 备忘录 63 | 模块类型分类（guard/collector/gate/adapter） |
 | 备忘录 78 | Jigsaw 模型：拼图式组合，拒绝 mega orchestrator |
+| v109-stable | `validateHarnessModuleDefinition` 模块接口冻结；10 模块 / 4 kind catalog 落地 |
+| v115-stable | 灵魂落地完成（Run-Shape Map / soft 反逼 / Meta-harness 严格闸）；operator-harness-recommend（moduleRef 粒度） |
 
 ## 当前状态
 
 - 设计方向：稳定
-- 正式接口：仍在冻结中，见 `备忘录115`
-- 实现：部分完成
+- 正式接口：已冻结（v109，`harness-module-catalog.js` 10 模块 / 4 kind）
+- 实现：灵魂落地完成（v115）；operator 经 `operator-harness-recommend.js` + `automations.create` 装配
 
 相关概念: [CLI System](cli-system.md) | [Operator](operator.md) | [Automation of Automation](automation-of-automation.md) | [Evaluation Result Chain](evaluation-result-chain.md)

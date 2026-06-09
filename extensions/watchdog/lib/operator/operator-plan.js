@@ -159,6 +159,25 @@ function collectPlanDerivedFields(steps, derived) {
 function validatePlanStep(step, index) {
   const source = normalizeRecord(step);
   const surfaceId = normalizeString(source.surfaceId);
+  // meta.delegate — a NON-surface step: operator hands a sub-request to another meta-agent
+  // in-process (R2 delegation, e.g. operator → viz-master for a chart). It is NOT a cli-system
+  // surface, so it skips surface-payload validation and instead requires { targetActor, request }.
+  // The target meta-agent's writes are authorized downstream by the executor's actor-ownership
+  // backstop (assertActorOwnsSurface under the target actor) — the fork only exempts the step from
+  // surface validation, never from ownership.
+  if (surfaceId === "meta.delegate") {
+    const targetActor = normalizeString(source.payload?.targetActor);
+    const request = normalizeString(source.payload?.request);
+    if (!targetActor || !request) {
+      throw new Error(`meta.delegate step at index ${index} requires payload.targetActor and payload.request`);
+    }
+    return {
+      surfaceId: "meta.delegate",
+      title: normalizeString(source.title) || `delegate to ${targetActor}`,
+      summary: normalizeString(source.summary) || null,
+      payload: { targetActor, request },
+    };
+  }
   if (!surfaceId || !isOperatorExecutableSurfaceId(surfaceId)) {
     throw new Error(`unsupported operator step at index ${index}`);
   }
@@ -258,10 +277,13 @@ function collectReferencedAgentIds(step) {
   return [];
 }
 
-// Throws OPERATOR_PLAN_AGENT_INFEASIBLE (with .failures) if any step references an agent not known
-// by that point. Known = live agent registry + ids created by earlier agents.create steps in order.
-export async function assertOperatorPlanAgentFeasibility(normalizedPlan) {
+// collectOperatorPlanInfeasibilities returns (does NOT throw) the list of dangling-agent references —
+// each step referencing an agent neither already in the live registry nor created by an EARLIER
+// agents.create step in the same plan. Shared by the throwing pre-flight (execute path) and the
+// canExecute downgrade (plan-build path), so both judge feasibility by one rule.
+export async function collectOperatorPlanInfeasibilities(normalizedPlan) {
   const steps = Array.isArray(normalizedPlan?.steps) ? normalizedPlan.steps : [];
+  if (steps.length === 0) return [];
   const known = new Set((await listAgentRegistry()).map((a) => normalizeString(a?.id)).filter(Boolean));
   const failures = [];
   for (let i = 0; i < steps.length; i += 1) {
@@ -274,6 +296,13 @@ export async function assertOperatorPlanAgentFeasibility(normalizedPlan) {
       if (createdId) known.add(createdId);
     }
   }
+  return failures;
+}
+
+// Throws OPERATOR_PLAN_AGENT_INFEASIBLE (with .failures) if any step references an agent not known
+// by that point. Known = live agent registry + ids created by earlier agents.create steps in order.
+export async function assertOperatorPlanAgentFeasibility(normalizedPlan) {
+  const failures = await collectOperatorPlanInfeasibilities(normalizedPlan);
   if (failures.length > 0) {
     const error = new Error(`operator plan references unknown agent(s): ${[...new Set(failures.map((f) => f.missingAgentId))].join(", ")}`);
     error.code = "OPERATOR_PLAN_AGENT_INFEASIBLE";

@@ -63,8 +63,8 @@ v109-stable 起，surface 注册/编目时**非静默拒绝**不合规项：
 
 - `lib/cli-system/cli-surface-schema.js` 的 `validateCliSurface`：必填 `id` / `family`∈{hook,observe,inspect,apply,verify} / `source` / `status`。
 - 编目落在 `lib/cli-system/cli-surface-catalog.js`，统一 registry 在 `lib/cli-system/cli-surface-registry.js`。
-- 当前 `inspect.*` 共 **23 个**（全族编目实测 **28 条**，P-1 普查纠正旧记的 22）：v109 的 14 个（agent_graph / agent_joins / automation_runtime(+_summary) / change_sets / delivery_tickets / graph_loops / guidance_drift / harness_runs / loop_sessions / pending_signals / schedules / test_runs / work_items），v110 +2（active_loop_session / runtime_state），v111 +3（`tracking_states` / `recent_task_history` / `capability_registry`），v112 +4（`agent_workflows` / `agent_sessions` / `session_transcript` / `session_system_prompt`，工作流页可观测）。
-- **apply / verify 族 catalog 当前 0 条目，`operatorExecutable` 全仓 =0** —— executor 硬要求 =true，故今天 operator 也走 admin-surface 旁路。接通是 [四关节自治闭环](self-governance-loop.md) 的死链 (b)。
+- 当前静态 catalog 的 `inspect.*` 共 **26 个**（`lib/cli-system/cli-surface-catalog.js`；活跃 family 视图含 admin 投影合计 **44** inspect surface）：v109 的 14 个（agent_graph / agent_joins / automation_runtime(+_summary) / change_sets / delivery_tickets / graph_loops / guidance_drift / harness_runs / loop_sessions / pending_signals / schedules / test_runs / work_items），v110 +2（active_loop_session / runtime_state），v111 +3（`tracking_states` / `recent_task_history` / `capability_registry`），v112 +4（`agent_workflows` / `agent_sessions` / `session_transcript` / `session_system_prompt`），v112 之后再 +3（`inspect.profile_lifecycle` / `inspect.agent_groups` / `inspect.structure_preview`）。
+- **apply / verify 族已编目，不是缺 catalog**：surface 落在 `lib/admin/catalog/apply-rest.js`（`stage:'apply'`/`'verify'`）+ `agents-apply.js`，经 `cli-surface-registry.js` 的 `normalizeAdminSurface` 归一进 CLI family —— family **从 `stage` 字段派生**（不是因为缺 catalog 而归 inspect）。约 **38 个携带 `operatorExecutable:true`**（apply-rest 28 + agents-apply 10）。operator 落地**不再走 admin-surface 旁路**：executor（`cli-surface-executor.js`）硬要求 `operatorExecutable=true`，而这些 surface 真实存在。[四关节自治闭环](self-governance-loop.md) 的**死链 (b) 已闭**。
 
 ### capability-registry 刻意不收口
 
@@ -93,6 +93,7 @@ guard 测试新增 `cli-runtime-inspector` 把守（禁 raw state globals + 必�
 
 ## 演化
 
+- v112 之后: inspect 静态 catalog 22→26 —— 新增 `inspect.profile_lifecycle`（ProfileLifecycle 治理观测）/ `inspect.agent_groups`（AgentGroup 观测）/ `inspect.structure_preview`（operator build plan 终态预览）；apply/verify 族在 admin catalog 编目，~38 携带 `operatorExecutable=true`，operator executor 落地真接通（死链 b 闭合）。
 - 备忘录 114 §6: 概念预算纪律 — 先冻结 surface/module 接口，不继续扩张术语。
 - v109-stable: 新增 `cli-surface-inspector.js` 补齐读路径，与写路径对称；`validateCliSurface` 上线，注册/编目非静默拒绝不合规项。operator 全部读取改经此层（见 [Operator](operator.md) 零旁路红线）。源: 备忘录112/113/114。
 - v110-stable (P-G): 系统级旁路收口 —— 10 个 HTTP read-route 全改经 inspect surface，确立「inspect surface = 观测读取唯一碰 store 的入口」；明确观测视图/owner 判据；新增 2 个 surface（14→16）；guard 把守上移到 `cli-runtime-inspector`。
@@ -102,5 +103,5 @@ guard 测试新增 `cli-runtime-inspector` 把守（禁 raw state globals + 必�
 ## 当前状态
 
 - 概念：稳定
-- 代码：五族真值边界已全部裁定并收口；inspect 22 个 surface
+- 代码：五族真值边界已全部裁定并收口；inspect 静态 catalog 26 个（活跃 family 视图 44）；apply/verify 已编目，~38 携带 `operatorExecutable=true`，operator executor 落地接通
 - 待补：更多 surface 家族、统一前端消费

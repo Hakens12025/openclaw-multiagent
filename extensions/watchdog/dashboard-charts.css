@@ -1,0 +1,87 @@
+/* dashboard-charts.css — 图表页：可拖拽可视化看板。NASA-Punk 平面化，全部复用主题变量，零阴影/渐变/圆角装饰。 */
+
+.charts-canvas {
+  position: relative;
+  min-height: calc(100vh - 240px);
+  margin: 12px 0;
+  padding: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.charts-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
+/* One draggable chart board. Absolute so it can sit anywhere on the canvas; position
+   is the server-persisted charts.json position (written back via apply.chart_move). */
+.chart-panel {
+  position: absolute;
+  width: 360px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  user-select: none;
+  transition: border-color 0.15s ease;
+}
+.chart-panel:hover { border-color: var(--accent-orange); }
+
+.chart-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-dark-panel);
+  border-bottom: 1px solid var(--border-primary);
+  cursor: move;
+}
+.chart-panel__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-on-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chart-panel__regen {
+  flex: none;
+  padding: 1px 7px;
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  transition: color 0.15s, border-color 0.15s;
+}
+.chart-panel__regen:hover { color: var(--accent-orange); border-color: var(--accent-orange); }
+
+.chart-panel__body {
+  padding: 6px;
+  background: var(--bg-secondary);
+}
+
+.chart-svg { display: block; width: 100%; height: auto; }
+
+/* Renderer emits classes only — all geometry color lives here (theme accents). */
+.chart-axis { stroke: var(--border-secondary); stroke-width: 1; }
+.chart-label { fill: var(--text-muted); font-size: 9px; }
+.chart-line { fill: none; stroke: var(--accent-orange); stroke-width: 1.5; }
+.chart-bar { fill: var(--accent-blue); }
+.chart-pie-slice { fill: var(--accent-amber); stroke: var(--bg-secondary); stroke-width: 1; }
+/* Cycle accents so multi-slice pies / multi-series lines stay distinguishable. */
+.chart-pie-slice:nth-of-type(3n + 1) { fill: var(--accent-orange); }
+.chart-pie-slice:nth-of-type(3n + 2) { fill: var(--accent-blue); }
+.chart-pie-slice:nth-of-type(3n + 3) { fill: var(--accent-green); }
+.chart-line:nth-of-type(3n + 2) { stroke: var(--accent-blue); }
+.chart-line:nth-of-type(3n + 3) { stroke: var(--accent-green); }

@@ -210,6 +210,34 @@ export function register(api) {
     },
   });
 
+  // Knowledge page (knowledge-view to avoid conflict with /watchdog/knowledge/* apply routes)
+  api.registerHttpRoute({
+    path: "/watchdog/knowledge-view", auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      const url = new URL(req.url, "http://localhost");
+      if (gatewayToken && url.searchParams.get("token") !== gatewayToken) {
+        res.writeHead(401, { "Content-Type": "text/plain" }); res.end("Unauthorized"); return true;
+      }
+      const html = await getDashboardFile("knowledge.html");
+      if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(versionDashboardHtml(html)); return true;
+    },
+  });
+
+  // Charts page (charts-view to avoid conflict with /watchdog/charts/* apply routes)
+  api.registerHttpRoute({
+    path: "/watchdog/charts-view", auth: "plugin", match: "exact",
+    handler: async (req, res) => {
+      const url = new URL(req.url, "http://localhost");
+      if (gatewayToken && url.searchParams.get("token") !== gatewayToken) {
+        res.writeHead(401, { "Content-Type": "text/plain" }); res.end("Unauthorized"); return true;
+      }
+      const html = await getDashboardFile("charts.html");
+      if (!html) { res.writeHead(404); res.end("Not Found"); return true; }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...DASHBOARD_NO_STORE_HEADERS }); res.end(versionDashboardHtml(html)); return true;
+    },
+  });
+
   // Work items page (work-items-view to avoid conflict with /watchdog/work-items API)
   api.registerHttpRoute({
     path: "/watchdog/work-items-view", auth: "plugin", match: "exact",

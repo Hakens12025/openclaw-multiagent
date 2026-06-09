@@ -50,8 +50,6 @@ test("buildSystemRandomRunSingleOptions dispatches through formal ingress with e
     },
     runtimeContext: {
       api: {},
-      enqueue() { return true; },
-      wakePlanner() {},
     },
     logger: null,
     dispatchAcceptIngressMessageFn: async (message, payload) => {
@@ -69,32 +67,6 @@ test("buildSystemRandomRunSingleOptions dispatches through formal ingress with e
   assert.equal(calls[0].payload.replyTo.agentId, "test-run");
   assert.equal(calls[0].payload.dispatchOwnerAgentId, "worker2");
   assert.equal(calls[0].payload.source, "system");
-});
-
-test("buildSystemRandomRunSingleOptions degrades gracefully when runtimeContext.wakePlanner is absent", async () => {
-  // Reproduces the production scenario: startTestRun passes runtimeContext=null (or without wakePlanner)
-  // which previously threw TypeError; after the fix it should dispatch successfully with a no-op wakePlanner.
-  const wakePlannerTypes = [];
-  const options = buildSystemRandomRunSingleOptions({
-    replyTo: { agentId: "test-run", sessionKey: "test-run:TR-2" },
-    randomRuntime: { family: "system-random", chosenAgent: "worker2" },
-    runtimeContext: {
-      api: {},
-      enqueue() { return true; },
-      // wakePlanner intentionally absent — simulates startTestRun({ runtimeContext: { api, enqueue } })
-    },
-    logger: null,
-    dispatchAcceptIngressMessageFn: async (_message, payload) => {
-      wakePlannerTypes.push(typeof payload.wakePlanner);
-      return { ok: true, contractId: "TC-NOOP" };
-    },
-  });
-
-  const result = await options.sendMessage("system-random no wakePlanner");
-
-  assert.equal(result.contractId, "TC-NOOP");
-  // wakePlanner must be forwarded as a function (no-op fallback), not undefined/null
-  assert.equal(wakePlannerTypes[0], "function");
 });
 
 test("resolveRandomPresetCandidateSet narrows system-random to agents with outgoing graph edges", () => {
@@ -215,8 +187,6 @@ test("buildLoopRandomRunSingleOptions starts the resolved loop from the chosen m
           },
         },
       },
-      enqueue() { return true; },
-      wakePlanner() {},
     },
     logger: null,
     startRuntimeLoopFn: async (payload) => {
@@ -257,8 +227,6 @@ test("buildLoopRandomRunSingleOptions forwards explicit loop budget into runtime
           },
         },
       },
-      enqueue() { return true; },
-      wakePlanner() {},
     },
     logger: null,
     loopBudget: {

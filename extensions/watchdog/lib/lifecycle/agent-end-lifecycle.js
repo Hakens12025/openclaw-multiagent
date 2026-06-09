@@ -16,6 +16,13 @@ import {
 
 const activeAgentEndRuns = new Map();
 
+// agent-timeout-sweep 用：某 sessionKey 是否正在被 agent_end 流水线处理。
+// 让外部 force-fail 路径（超时巡检）跳过正在终结的 session，避免两路径并发调
+// handleCrashRecovery/finalizeAgentSession 同 session（守「一条路径」）。
+export function isAgentEndInFlight(sessionKey) {
+  return Boolean(sessionKey) && activeAgentEndRuns.has(sessionKey);
+}
+
 function shouldRunStage(stage, context) {
   return typeof stage.match === "function" ? stage.match(context) === true : true;
 }
@@ -44,8 +51,6 @@ export function createAgentEndLifecycleContext({
   ctx,
   api,
   logger,
-  enqueueFn,
-  wakePlanner,
   trackingState,
 }) {
   const sessionKey = ctx.sessionKey;
@@ -58,8 +63,6 @@ export function createAgentEndLifecycleContext({
     ctx,
     api,
     logger,
-    enqueueFn,
-    wakePlanner,
     sessionKey,
     agentId,
     trackingState,
@@ -108,8 +111,6 @@ export async function runAgentEndLifecycle({
   ctx,
   api,
   logger,
-  enqueueFn,
-  wakePlanner,
   trackingState,
 }) {
   const sessionKey = ctx?.sessionKey;
@@ -135,8 +136,6 @@ export async function runAgentEndLifecycle({
       ctx,
       api,
       logger,
-      enqueueFn,
-      wakePlanner,
       trackingState: resolvedTrackingState,
     });
 

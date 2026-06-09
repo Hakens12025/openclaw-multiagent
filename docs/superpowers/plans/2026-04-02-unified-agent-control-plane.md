@@ -156,7 +156,7 @@ test("track_start does not fall back to replyTo when graph edges are preloaded",
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/agent-coordination.test.js tests/agent-execution-control.test.js tests/dispatch-worker-inbox-control-plane.test.js tests/agent-end-graph-route-control-plane.test.js tests/dashboard-stage-visibility.test.js
 ```
 
@@ -168,7 +168,7 @@ Expected:
 - [ ] **Step 7: Commit the red test baseline**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/tests/agent-coordination.test.js extensions/watchdog/tests/agent-execution-control.test.js extensions/watchdog/tests/dispatch-worker-inbox-control-plane.test.js extensions/watchdog/tests/agent-end-graph-route-control-plane.test.js extensions/watchdog/tests/dashboard-stage-visibility.test.js
 git commit -m "test(control-plane): freeze unified dispatch semantics"
 ```
@@ -237,7 +237,7 @@ export async function clearContractCoordination(contractPath, logger) {
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/agent-coordination.test.js
 ```
 
@@ -247,7 +247,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/lib/agent-coordination.js extensions/watchdog/lib/contracts.js
 git commit -m "feat(control-plane): add durable coordination metadata helpers"
 ```
@@ -337,7 +337,7 @@ Monitor rules:
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/agent-execution-control.test.js
 ```
 
@@ -347,7 +347,7 @@ Expected:
 - [ ] **Step 7: Commit**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/lib/agent-execution-control.js extensions/watchdog/lib/agent-execution-monitor.js extensions/watchdog/lib/state-collections.js extensions/watchdog/lib/pool.js extensions/watchdog/routes/api.js
 git commit -m "feat(control-plane): add unified execution state and monitor"
 ```
@@ -421,7 +421,7 @@ Rules:
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/dispatch-worker-inbox-control-plane.test.js tests/conveyor.test.js
 ```
 
@@ -432,7 +432,7 @@ Expected:
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/lib/router-inbox-handlers.js extensions/watchdog/lib/session-bootstrap.js extensions/watchdog/hooks/before-agent-start.js extensions/watchdog/lib/dispatch.js extensions/watchdog/lib/conveyor.js
 git commit -m "fix(dispatch): bind and stage exact worker contract"
 ```
@@ -514,7 +514,7 @@ async run(context) {
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/agent-end-graph-route-control-plane.test.js tests/contractor-handoff-terminal.test.js
 ```
 
@@ -525,7 +525,7 @@ Expected:
 - [ ] **Step 7: Commit**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/lib/graph-router.js extensions/watchdog/lib/ingress-standard-route.js extensions/watchdog/lib/agent-end-pipeline.js extensions/watchdog/lib/runtime-lifecycle.js
 git commit -m "refactor(graph-router): delegate dispatch and release to control plane"
 ```
@@ -583,7 +583,7 @@ Recovery rules:
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/agent-execution-control.test.js tests/agent-end-graph-route-control-plane.test.js
 ```
 
@@ -594,7 +594,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/lib/agent-execution-monitor.js extensions/watchdog/lib/crash-recovery.js extensions/watchdog/index.js
 git commit -m "feat(control-plane): unify execution probes and startup recovery"
 ```
@@ -656,7 +656,7 @@ const isQueued = contract?.coordination?.queueState === "queued";
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/dashboard-stage-visibility.test.js
 ```
 
@@ -668,7 +668,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/dashboard-init.js extensions/watchdog/dashboard.js extensions/watchdog/dashboard-pipeline.js extensions/watchdog/tests/dashboard-stage-visibility.test.js
 git commit -m "fix(dashboard): preload graph and render control-plane queue state"
 ```
@@ -696,7 +696,7 @@ Checklist:
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node --test tests/agent-coordination.test.js tests/agent-execution-control.test.js tests/dispatch-worker-inbox-control-plane.test.js tests/agent-end-graph-route-control-plane.test.js tests/conveyor.test.js tests/contractor-handoff-terminal.test.js tests/dashboard-stage-visibility.test.js
 ```
 
@@ -708,7 +708,7 @@ Expected:
 Run:
 
 ```bash
-cd ~/.openclaw/extensions/watchdog
+cd /Users/hakens/.openclaw/extensions/watchdog
 node test-runner.js --preset single
 node test-runner.js --preset multi
 node test-runner.js --preset concurrent
@@ -731,7 +731,7 @@ Check:
 - [ ] **Step 5: Commit cleanup + verification**
 
 ```bash
-cd ~/.openclaw
+cd /Users/hakens/.openclaw
 git add extensions/watchdog/lib/agent-end-pipeline.js extensions/watchdog/lib/ingress-standard-route.js extensions/watchdog/lib/pool.js extensions/watchdog/lib/plan-dispatch-service.js
 git commit -m "refactor(control-plane): remove dead dispatch paths and verify unified flow"
 ```

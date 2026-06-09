@@ -224,10 +224,8 @@ export function classifyStartResult(triggerResult) {
 
 export function ensureRuntimeContext({
   api,
-  enqueue,
-  wakePlanner,
 }) {
-  if (!api || typeof enqueue !== "function" || typeof wakePlanner !== "function") {
+  if (!api) {
     throw new Error("missing runtime context for automation executor");
   }
 }

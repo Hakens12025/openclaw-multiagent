@@ -20,6 +20,9 @@ let activeGraphLoopSession = null;
 let graphEdgeElements = new Map();
 let pendingGraphEdgeOps = new Set();
 let selectedGraphSourceAgent = null;
+// Group-compose marquee state (#46): box-select agents in edit mode → AgentGroup.
+let groupDrawMode = false;
+let groupMarquee = null; // { x0, y0, rect } while a box is being dragged
 
 function graphEdgeKey(edge) {
   return `${edge.from}\u2192${edge.to}`;
@@ -121,6 +124,10 @@ function updateGraphEditHint() {
   hint.style.display = OC.ux.editMode ? 'inline-block' : 'none';
   if (!OC.ux.editMode) {
     hint.textContent = 'CLICK SOURCE \u00B7 CLICK TARGET';
+    return;
+  }
+  if (groupDrawMode) {
+    hint.textContent = '\u62D6\u6846\u9009\u62E9 \u22652 \u4E2A AGENT \u6210\u7EC4 \u00B7 \u518D\u70B9 COMPOSE GROUP \u53D6\u6D88';
     return;
   }
   hint.textContent = selectedGraphSourceAgent
@@ -480,6 +487,40 @@ function initGraphEdgeDrawing(svg) {
     const pathD = `M${x1},${y1} C${x1 + dx},${y1} ${mx - dx},${my} ${mx},${my}`;
     preview.setAttribute('d', pathD);
   });
+
+  // ── Group-compose marquee (active only in groupDrawMode) ──
+  svg.addEventListener('mousedown', (e) => {
+    if (!groupDrawMode) return;
+    if (e.target.closest('.runtime-graph-node')) return; // box starts on empty canvas only
+    const p = svgPointFromEvent(svg, e);
+    const rect = svgEl('rect', { className: 'graph-group-marquee', x: p.x, y: p.y, width: 0, height: 0 }, svg);
+    groupMarquee = { x0: p.x, y0: p.y, rect };
+    e.preventDefault();
+  });
+  svg.addEventListener('mousemove', (e) => {
+    if (!groupMarquee) return;
+    const p = svgPointFromEvent(svg, e);
+    const x = Math.min(p.x, groupMarquee.x0), y = Math.min(p.y, groupMarquee.y0);
+    const w = Math.abs(p.x - groupMarquee.x0), h = Math.abs(p.y - groupMarquee.y0);
+    groupMarquee.rect.setAttribute('x', x);
+    groupMarquee.rect.setAttribute('y', y);
+    groupMarquee.rect.setAttribute('width', w);
+    groupMarquee.rect.setAttribute('height', h);
+    highlightAgentsInBox(x, y, w, h);
+    e.preventDefault();
+  });
+  const finishGroupMarquee = () => {
+    if (!groupMarquee) return;
+    const r = groupMarquee.rect;
+    const x = +r.getAttribute('x'), y = +r.getAttribute('y');
+    const w = +r.getAttribute('width'), h = +r.getAttribute('height');
+    const members = agentsInBox(x, y, w, h);
+    exitGroupDrawMode(); // also cleans up the marquee rect + highlights
+    if (members.length < 2) { toast('框选至少 2 个 agent 才能成组', 'warn'); return; }
+    openGroupComposeModal(members);
+  };
+  svg.addEventListener('mouseup', finishGroupMarquee);
+  svg.addEventListener('mouseleave', finishGroupMarquee);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -600,10 +641,7 @@ function showEdgeContextMenu(e, edge) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function highlightCycles() {
-  // Always reconcile the register button (it removes itself when no unregistered cycle remains).
-  renderCycleRegistrationButton();
   renderGroupComposeButton();
-  renderRunLoopButton();
 
   document.querySelectorAll('.runtime-graph-node .svg-node-box.in-cycle').forEach(el => {
     el.classList.remove('in-cycle');
@@ -620,320 +658,96 @@ function highlightCycles() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// REGISTER CYCLE AS LOOP — a detected cycle is just transport authorization until
-// it carries a LoopSpec (entry + signals + 环自带 limit). This surfaces a button
-// when an UNREGISTERED cycle exists and composes it via graph.loop.compose.
-// ══════════════════════════════════════════════════════════════════════════════
-
-// Mirror of backend cyclesMatchNodes (graph-loop-registry.js): rotation-equal comparison.
-function cyclesMatchNodesClient(nodes, cycle) {
-  const a = (Array.isArray(nodes) ? nodes : []).filter(Boolean);
-  const b = (Array.isArray(cycle) ? cycle : []).filter(Boolean);
-  if (a.length === 0 || a.length !== b.length) return false;
-  for (let i = 0; i < b.length; i += 1) {
-    const rotated = [...b.slice(i), ...b.slice(0, i)];
-    if (rotated.every((id, idx) => id === a[idx])) return true;
-  }
-  return false;
-}
-
-function getUnregisteredCycles() {
-  return graphCycles.filter(
-    (cycle) => !graphLoops.some((loop) => cyclesMatchNodesClient(loop.nodes, cycle)),
-  );
-}
-
-function renderCycleRegistrationButton() {
-  const existing = document.getElementById('graphCycleRegisterBtn');
-  if (existing) existing.remove();
-
-  const unregistered = getUnregisteredCycles();
-  if (unregistered.length === 0) return;
-
-  const toolbar = document.querySelector('.runtime-graph-toolbar');
-  if (!toolbar) return;
-
-  const btn = document.createElement('button');
-  btn.id = 'graphCycleRegisterBtn';
-  btn.className = 'graph-cycle-register-btn';
-  btn.textContent = unregistered.length > 1
-    ? `REGISTER CYCLE AS LOOP (${unregistered.length})`
-    : 'REGISTER CYCLE AS LOOP';
-  btn.title = unregistered.map((c) => c.join(' → ')).join('\n');
-  btn.addEventListener('click', () => openCycleRegisterModal(unregistered[0]));
-  toolbar.appendChild(btn);
-}
-
-function openCycleRegisterModal(cycle) {
-  closeContextMenu();
-  document.getElementById('graphCycleRegisterModal')?.remove();
-
-  const overlay = document.createElement('div');
-  overlay.id = 'graphCycleRegisterModal';
-  overlay.className = 'graph-loop-modal-overlay';
-
-  const modal = document.createElement('div');
-  modal.className = 'graph-loop-modal';
-
-  const title = document.createElement('div');
-  title.className = 'graph-loop-modal-title';
-  title.textContent = 'REGISTER CYCLE AS LOOP';
-  modal.appendChild(title);
-
-  const cyclePath = document.createElement('div');
-  cyclePath.className = 'graph-loop-modal-cycle';
-  cyclePath.textContent = `${cycle.join(' → ')} → ${cycle[0]}`;
-  modal.appendChild(cyclePath);
-
-  const addField = (labelText, inputEl) => {
-    const label = document.createElement('label');
-    label.className = 'graph-loop-modal-label';
-    label.textContent = labelText;
-    modal.appendChild(label);
-    inputEl.classList.add('graph-loop-modal-input');
-    modal.appendChild(inputEl);
-  };
-
-  const entrySelect = document.createElement('select');
-  for (const agentId of cycle) {
-    const opt = document.createElement('option');
-    opt.value = agentId;
-    opt.textContent = agentId;
-    entrySelect.appendChild(opt);
-  }
-  entrySelect.value = cycle[0];
-  addField('ENTRY AGENT', entrySelect);
-
-  const concludeInput = document.createElement('input');
-  concludeInput.type = 'text';
-  concludeInput.placeholder = 'conclude (default)';
-  addField('CONCLUDE SIGNAL (optional)', concludeInput);
-
-  const maxRoundsInput = document.createElement('input');
-  maxRoundsInput.type = 'text';
-  maxRoundsInput.inputMode = 'numeric';
-  maxRoundsInput.placeholder = 'default 3 · force-conclude cap';
-  addField('MAX ROUNDS (optional · 环自带 limit)', maxRoundsInput);
-
-  const labelInput = document.createElement('input');
-  labelInput.type = 'text';
-  labelInput.placeholder = 'review_loop';
-  addField('LABEL (optional)', labelInput);
-
-  const actions = document.createElement('div');
-  actions.className = 'graph-loop-modal-actions';
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'graph-loop-modal-btn';
-  cancelBtn.textContent = 'CANCEL';
-  cancelBtn.addEventListener('click', () => overlay.remove());
-  actions.appendChild(cancelBtn);
-
-  const submitBtn = document.createElement('button');
-  submitBtn.className = 'graph-loop-modal-btn primary';
-  submitBtn.textContent = 'REGISTER';
-  submitBtn.addEventListener('click', () => submitCycleRegistration({ cycle, entrySelect, concludeInput, maxRoundsInput, labelInput, overlay, submitBtn }));
-  actions.appendChild(submitBtn);
-
-  modal.appendChild(actions);
-  overlay.appendChild(modal);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.body.appendChild(overlay);
-}
-
-async function submitCycleRegistration({ cycle, entrySelect, concludeInput, maxRoundsInput, labelInput, overlay, submitBtn }) {
-  const concludeSignal = concludeInput.value.trim();
-  const maxRoundsRaw = maxRoundsInput.value.trim();
-  const label = labelInput.value.trim();
-  const maxRounds = Number(maxRoundsRaw);
-  const body = {
-    agents: [...cycle],
-    entryAgentId: entrySelect.value,
-    ...(concludeSignal ? { concludeSignal } : {}),
-    ...(maxRoundsRaw && Number.isFinite(maxRounds) && maxRounds > 0 ? { maxRounds } : {}),
-    ...(label ? { label } : {}),
-  };
-
-  submitBtn.disabled = true;
-  const token = new URLSearchParams(window.location.search).get('token') || '';
-  try {
-    const r = await fetch(`/watchdog/graph/loop/compose?token=${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok) {
-      toast(`LOOP REGISTERED: ${body.entryAgentId}`, 'success');
-      overlay.remove();
-      await loadGraph(); // re-pulls loops+cycles; the now-registered cycle drops the button
-    } else {
-      toast('REGISTER FAILED: ' + (data.error || 'unknown'), 'warn');
-      submitBtn.disabled = false;
-    }
-  } catch (e) {
-    toast('REGISTER FAILED: ' + e.message, 'error');
-    submitBtn.disabled = false;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// RUN A BUILT LOOP (downstream USER action) — operator DESIGNS the loop (structure
-// becomes active); RUNNING it with a concrete one-off task is the USER's action, not
-// operator's. Surfaces a button when an active loop exists and dispatches the real task
-// via runtime.loop.start (POST /watchdog/runtime/loop/start). operator never emits this.
-// ══════════════════════════════════════════════════════════════════════════════
-
-function getRunnableLoops() {
-  return (Array.isArray(graphLoops) ? graphLoops : []).filter((l) => l && l.active === true);
-}
-
-function renderRunLoopButton() {
-  const existing = document.getElementById('graphRunLoopBtn');
-  if (existing) existing.remove();
-
-  const runnable = getRunnableLoops();
-  if (runnable.length === 0) return;
-
-  const toolbar = document.querySelector('.runtime-graph-toolbar');
-  if (!toolbar) return;
-
-  const btn = document.createElement('button');
-  btn.id = 'graphRunLoopBtn';
-  btn.className = 'graph-cycle-register-btn';
-  btn.textContent = runnable.length > 1 ? `运行 LOOP (${runnable.length})` : '运行 LOOP';
-  btn.title = runnable.map((l) => `${l.label || l.id} (entry: ${l.entryAgentId || '?'})`).join('\n');
-  btn.addEventListener('click', () => openRunLoopModal(runnable));
-  toolbar.appendChild(btn);
-}
-
-function openRunLoopModal(loops) {
-  closeContextMenu();
-  document.getElementById('graphRunLoopModal')?.remove();
-
-  const overlay = document.createElement('div');
-  overlay.id = 'graphRunLoopModal';
-  overlay.className = 'graph-loop-modal-overlay';
-
-  const modal = document.createElement('div');
-  modal.className = 'graph-loop-modal';
-
-  const title = document.createElement('div');
-  title.className = 'graph-loop-modal-title';
-  title.textContent = '运行 LOOP（投入真实任务）';
-  modal.appendChild(title);
-
-  const entryLine = document.createElement('div');
-  entryLine.className = 'graph-loop-modal-cycle';
-  modal.appendChild(entryLine);
-
-  const addField = (labelText, inputEl) => {
-    const label = document.createElement('label');
-    label.className = 'graph-loop-modal-label';
-    label.textContent = labelText;
-    modal.appendChild(label);
-    inputEl.classList.add('graph-loop-modal-input');
-    modal.appendChild(inputEl);
-  };
-
-  const loopSelect = document.createElement('select');
-  for (const loop of loops) {
-    const opt = document.createElement('option');
-    opt.value = loop.id;
-    opt.textContent = loop.label ? `${loop.label} (${loop.id})` : loop.id;
-    loopSelect.appendChild(opt);
-  }
-  const syncEntry = () => {
-    const loop = loops.find((l) => l.id === loopSelect.value) || loops[0];
-    entryLine.textContent = `ENTRY: ${loop && loop.entryAgentId ? loop.entryAgentId : '(default)'}`;
-  };
-  loopSelect.addEventListener('change', syncEntry);
-  addField('LOOP', loopSelect);
-  syncEntry();
-
-  const taskInput = document.createElement('textarea');
-  taskInput.rows = 4;
-  taskInput.placeholder = '把要 loop 处理的真实任务写在这里（requestedTask）';
-  addField('任务 (requestedTask)', taskInput);
-
-  const actions = document.createElement('div');
-  actions.className = 'graph-loop-modal-actions';
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'graph-loop-modal-btn';
-  cancelBtn.textContent = 'CANCEL';
-  cancelBtn.addEventListener('click', () => overlay.remove());
-  actions.appendChild(cancelBtn);
-
-  const submitBtn = document.createElement('button');
-  submitBtn.className = 'graph-loop-modal-btn primary';
-  submitBtn.textContent = 'RUN';
-  submitBtn.addEventListener('click', () => submitRunLoop({ loops, loopSelect, taskInput, overlay, submitBtn }));
-  actions.appendChild(submitBtn);
-
-  modal.appendChild(actions);
-  overlay.appendChild(modal);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.body.appendChild(overlay);
-}
-
-async function submitRunLoop({ loops, loopSelect, taskInput, overlay, submitBtn }) {
-  const requestedTask = taskInput.value.trim();
-  if (!requestedTask) {
-    toast('请输入要运行的任务', 'warn');
-    return;
-  }
-  const loop = loops.find((l) => l.id === loopSelect.value) || loops[0];
-  const body = {
-    loopId: loop.id,
-    ...(loop.entryAgentId ? { startAgent: loop.entryAgentId } : {}),
-    requestedTask,
-    requestedSource: 'dashboard.run-loop',
-  };
-
-  submitBtn.disabled = true;
-  const token = new URLSearchParams(window.location.search).get('token') || '';
-  try {
-    const r = await fetch(`/watchdog/runtime/loop/start?token=${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok && data.ok !== false) {
-      toast(`LOOP STARTED: ${loop.entryAgentId || loop.id}`, 'success');
-      overlay.remove();
-      await loadGraph();
-    } else {
-      toast('RUN FAILED: ' + (data.error || data.action || 'unknown'), 'warn');
-      submitBtn.disabled = false;
-    }
-  } catch (e) {
-    toast('RUN FAILED: ' + e.message, 'error');
-    submitBtn.disabled = false;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // COMPOSE AGENT GROUP (#46) — AgentGroup 是宏：展开成带 groupId 的内部边 + GroupSession +
 // outputMode 聚合策略。与 loop 注册分离的独立 modal（多字段 members/entry/outputMode/内部边）。
 // 经 graph.group.compose（apply surface），dispatcher 不感知 group。
 // ══════════════════════════════════════════════════════════════════════════════
 
 function renderGroupComposeButton() {
-  if (document.getElementById('graphGroupComposeBtn')) return;
+  const existing = document.getElementById('graphGroupComposeBtn');
+  // Group-compose is an EDIT-MODE tool (sits with the +agent / edit affordances). Hide it otherwise.
+  if (!OC?.ux?.editMode) { if (existing) existing.remove(); return; }
+  if (existing) return;
   const toolbar = document.querySelector('.runtime-graph-toolbar');
   if (!toolbar) return;
   const btn = document.createElement('button');
   btn.id = 'graphGroupComposeBtn';
   btn.className = 'graph-cycle-register-btn';
   btn.textContent = 'COMPOSE GROUP';
-  btn.title = '把一组 agent 装配成 AgentGroup（内部边 + outputMode 聚合）';
-  btn.addEventListener('click', openGroupComposeModal);
+  btn.title = '点击后在画布上拖框选择 ≥2 个 agent 成组（再点一次取消）';
+  btn.addEventListener('click', toggleGroupDrawMode);
   toolbar.appendChild(btn);
 }
 
-function openGroupComposeModal() {
+// ── Box-select (marquee) to compose a group ──────────────────────────────────
+// The COMPOSE GROUP tool enters a draw mode; dragging a box on empty canvas selects every agent whose
+// CENTER falls inside it (live orange highlight + translucent orange box). Release with ≥2 → the compose
+// modal opens prefilled with those members (outputMode preset / internal edges still confirmed there).
+// While in draw mode we hold the shared interaction.mode at 'group' so pan + node-drag bail and this
+// handler owns the canvas.
+function graphInteractionState() {
+  if (!window.__openclawRuntimeGraphInteractionState) window.__openclawRuntimeGraphInteractionState = { mode: null };
+  return window.__openclawRuntimeGraphInteractionState;
+}
+
+function toggleGroupDrawMode() {
+  if (groupDrawMode) { exitGroupDrawMode(); return; }
+  enterGroupDrawMode();
+}
+
+function enterGroupDrawMode() {
+  if (!OC?.ux?.editMode) return;
+  groupDrawMode = true;
+  graphInteractionState().mode = 'group'; // suppress pan/node-drag for the duration
+  document.getElementById('graphGroupComposeBtn')?.classList.add('active');
+  const svg = document.getElementById('runtimeGraphSvg');
+  if (svg) svg.style.cursor = 'crosshair';
+  updateGraphEditHint();
+}
+
+function exitGroupDrawMode() {
+  groupDrawMode = false;
+  const st = graphInteractionState();
+  if (st.mode === 'group') st.mode = null;
+  document.getElementById('graphGroupComposeBtn')?.classList.remove('active');
+  const svg = document.getElementById('runtimeGraphSvg');
+  if (svg) svg.style.cursor = '';
+  cleanupGroupMarquee();
+  updateGraphEditHint();
+}
+
+function svgPointFromEvent(svg, e) {
+  const p = svg.createSVGPoint();
+  p.x = e.clientX; p.y = e.clientY;
+  return p.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function agentsInBox(x, y, w, h) {
+  const ids = [];
+  for (const [id, pos] of Object.entries(nodePositions)) {
+    if (!pos) continue;
+    const cx = pos.x + pos.w / 2, cy = pos.y + pos.h / 2;
+    if (cx >= x && cx <= x + w && cy >= y && cy <= y + h) ids.push(id);
+  }
+  return ids;
+}
+
+function highlightAgentsInBox(x, y, w, h) {
+  const inBox = new Set(agentsInBox(x, y, w, h));
+  document.querySelectorAll('.svg-node-box.group-selected').forEach((el) => el.classList.remove('group-selected'));
+  inBox.forEach((id) => {
+    const box = document.getElementById(eid(id).nb);
+    if (box) box.classList.add('group-selected');
+  });
+}
+
+function cleanupGroupMarquee() {
+  if (groupMarquee?.rect) groupMarquee.rect.remove();
+  groupMarquee = null;
+  document.querySelectorAll('.svg-node-box.group-selected').forEach((el) => el.classList.remove('group-selected'));
+}
+
+function openGroupComposeModal(prefillMembers = []) {
   closeContextMenu();
   document.getElementById('graphGroupComposeModal')?.remove();
 
@@ -960,6 +774,9 @@ function openGroupComposeModal() {
   const membersInput = document.createElement('textarea');
   membersInput.rows = 2;
   membersInput.placeholder = 'planner, worker, worker2（逗号或换行分隔，≥2）';
+  if (Array.isArray(prefillMembers) && prefillMembers.length) {
+    membersInput.value = prefillMembers.join(', '); // prefilled from the marquee box-select
+  }
   addField('MEMBERS (≥2)', membersInput);
 
   const entryInput = document.createElement('input');
@@ -1203,7 +1020,9 @@ on('editmode:toggled', ({ editMode: mode }) => {
     if (toolbar) toolbar.appendChild(hint);
   }
   if (!mode && selectedGraphSourceAgent) clearGraphSelection({ silent: true });
+  if (!mode && groupDrawMode) exitGroupDrawMode(); // leaving edit mode cancels an in-progress box-select
   updateGraphEditHint();
+  renderGroupComposeButton(); // edit-mode-gated tool: show on enter, remove on exit
 });
 
 on('event:added', ({ type, data }) => {

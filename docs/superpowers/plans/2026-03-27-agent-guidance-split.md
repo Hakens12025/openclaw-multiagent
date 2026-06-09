@@ -13,9 +13,9 @@
 ### Task 1: Lock the New Guidance Contract with Tests
 
 **Files:**
-- Modify: `~/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
-- Modify: `~/.openclaw/extensions/watchdog/tests/suite-agent-model.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-agent-model.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
 
 - [ ] **Step 1: Write the failing test expectations for contractor guidance split**
 
@@ -28,7 +28,7 @@ Add assertions that:
 
 - [ ] **Step 2: Run the targeted test to verify it fails**
 
-Run: `node --test ~/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
+Run: `node --test /Users/hakens/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
 Expected: FAIL because current guidance still puts role routing rules in `BUILDING-MAP.md` / `PLATFORM-GUIDE.md` and does not generate the new docs.
 
 - [ ] **Step 3: Add agent model test coverage for AGENTS reading order**
@@ -43,14 +43,14 @@ Add a new case that generates workspace guidance and asserts `AGENTS.md` now say
 
 - [ ] **Step 4: Run the focused suite test to verify it fails**
 
-Run: `node ~/.openclaw/extensions/watchdog/test-runner.js --suite agent-model --filter planner-legacy-soul-upgrades-to-managed-template`
+Run: `node /Users/hakens/.openclaw/extensions/watchdog/test-runner.js --suite agent-model --filter planner-legacy-soul-upgrades-to-managed-template`
 Expected: PASS for existing unrelated cases; newly added guidance-order case FAILS until implementation lands.
 
 ### Task 2: Refactor Guidance Generation in `agent-bootstrap.js`
 
 **Files:**
-- Modify: `~/.openclaw/extensions/watchdog/lib/agent-bootstrap.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/agent-bootstrap.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
 
 - [ ] **Step 1: Introduce separate template builders for graph and runtime return docs**
 
@@ -90,15 +90,15 @@ and include them in update results.
 
 - [ ] **Step 6: Run targeted tests to verify they pass**
 
-Run: `node --test ~/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
+Run: `node --test /Users/hakens/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
 Expected: PASS.
 
 ### Task 3: Align Platform Skills with the New Split
 
 **Files:**
-- Modify: `~/.openclaw/skills/platform-map/SKILL.md`
-- Modify: `~/.openclaw/skills/platform-tools/SKILL.md`
-- Modify: `~/.openclaw/skills/system-action/SKILL.md`
+- Modify: `/Users/hakens/.openclaw/skills/platform-map/SKILL.md`
+- Modify: `/Users/hakens/.openclaw/skills/platform-tools/SKILL.md`
+- Modify: `/Users/hakens/.openclaw/skills/system-action/SKILL.md`
 
 - [ ] **Step 1: Update `platform-map` to stop treating `BUILDING-MAP.md` as startup-first truth**
 
@@ -125,15 +125,15 @@ Make it reflect:
 - [ ] **Step 4: Run syntax and content sanity checks**
 
 Run:
-- `node --check ~/.openclaw/extensions/watchdog/lib/agent-bootstrap.js`
-- `rg -n "BUILDING-MAP.md.*出边|BUILDING-MAP.md.*你可直接调用|BUILDING-MAP.md.*runtime 自动回流" ~/.openclaw/skills`
+- `node --check /Users/hakens/.openclaw/extensions/watchdog/lib/agent-bootstrap.js`
+- `rg -n "BUILDING-MAP.md.*出边|BUILDING-MAP.md.*你可直接调用|BUILDING-MAP.md.*runtime 自动回流" /Users/hakens/.openclaw/skills`
 Expected: `node --check` PASS; search results should only show intentional descriptive references.
 
 ### Task 4: Regenerate Guidance and Run Verification
 
 **Files:**
-- Modify: `~/.codex/memories/openclaw-memory.md`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-agent-model.js`
+- Modify: `/Users/hakens/.codex/memories/openclaw-memory.md`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-agent-model.js`
 
 - [ ] **Step 1: Sync stable memory facts**
 
@@ -146,8 +146,8 @@ Update Codex memory with the stable rule:
 - [ ] **Step 2: Run the relevant test surfaces**
 
 Run:
-- `node --test ~/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
-- `node ~/.openclaw/extensions/watchdog/test-runner.js --suite agent-model`
+- `node --test /Users/hakens/.openclaw/extensions/watchdog/tests/contractor-routing-guidance.test.js`
+- `node /Users/hakens/.openclaw/extensions/watchdog/test-runner.js --suite agent-model`
 
 Expected:
 - contractor guidance test PASS

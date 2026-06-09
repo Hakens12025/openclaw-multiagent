@@ -135,6 +135,20 @@ const SEMANTIC_SKILL_SPECS = Object.freeze({
     guideLine: "Operator 高级工具箱，说明 snapshot / graph / surface / test / verification 这些工具如何组合使用。",
     operatorUse: "Operator 工具箱技能：用 snapshot、graph、catalog、test 与 change-set 拼出平台真相，基于证据做管理动作。",
   }),
+  "chart-build": Object.freeze({
+    id: "chart-build",
+    name: "Chart Build",
+    summary: "viz-master 图表构建技能，说明声明式 chart-spec schema（line/bar/pie）、图表类型决策树，以及如何 emit 恰好一个 apply.chart_create 步骤。",
+    layer: "operator_semantics",
+    audience: "viz_master_only",
+    defaultInjection: "viz_master_default",
+    priority: 10,
+    tags: Object.freeze(["chart", "图表", "line", "bar", "pie", "viz", "可视化", "spec"]),
+    pluginRefs: Object.freeze(["watchdog"]),
+    toolRefs: Object.freeze(["apply.chart_create", "apply.chart_move", "inspect.charts"]),
+    guideLine: "图表构建技能，定义声明式 chart-spec（line/bar/pie），把静态数据装进 spec 并 emit 一个 apply.chart_create。",
+    operatorUse: "viz-master 图表技能：读懂数据 → 选 line/bar/pie → 装进合法 chart-spec → emit 恰好一个 apply.chart_create（chart 家族无 verify）。",
+  }),
 });
 
 function cloneSpec(spec) {
@@ -167,7 +181,7 @@ export function listForcedPlatformSkillRefs() {
     .map((spec) => spec.id);
 }
 
-function listRoleSemanticSkillRefs(role) {
+export function listRoleSemanticSkillRefs(role) {
   const normalizedRole = normalizeRole(role);
   if (!normalizedRole) return [];
   return listSemanticSkillSpecs()
@@ -198,7 +212,7 @@ export function buildRoleInjectedSemanticSkillMap() {
   return matrix;
 }
 
-function listOperatorSemanticSkillRefs() {
+export function listOperatorSemanticSkillRefs() {
   const operatorOnly = listSemanticSkillSpecs()
     .filter((spec) => spec.defaultInjection === "operator_default")
     .map((spec) => spec.id);

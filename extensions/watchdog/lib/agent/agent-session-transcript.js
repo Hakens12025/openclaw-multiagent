@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { OC } from "../state-paths.js";
 import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 import { loadGraph, getEdgesFrom } from "./agent-graph.js";
+import { compactHomePath } from "./agent-enrollment-discovery.js";
 import { artifactPackageDir, ARTIFACT_MANIFEST_FILE } from "../lifecycle/artifact-store.js";
 
 // 投递正文单文件上限（字符），与 system-prompt 路径一致。超出截断 + truncated:true。
@@ -54,7 +55,7 @@ function resolveProducedFiles(agentId, contractId) {
         truncated = text.length > PRODUCED_CONTENT_CAP;
         content = truncated ? text.slice(0, PRODUCED_CONTENT_CAP) : text;
       } catch { /* 二进制/不可读 → 无正文，仍列文件名 */ }
-      files.push({ name, path: p, chars, truncated, content, primary: name === primary });
+      files.push({ name, path: compactHomePath(p), chars, truncated, content, primary: name === primary });
     }
     files.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0)); // 主交付物排前
 
@@ -142,7 +143,7 @@ function resolveReferencedFile(rawPath, contractId) {
 
   return {
     rawPath: raw,
-    resolvedPath,
+    resolvedPath: compactHomePath(resolvedPath),
     persistent: existsSync(resolvedPath),
     kind,
   };
@@ -274,13 +275,13 @@ async function resolveDelivery(agentId, contractId) {
     }
     if (raw == null) {
       // 两处皆无
-      return { isTerminal: true, outputPath, available: false, content: null, contentChars: 0 };
+      return { isTerminal: true, outputPath: compactHomePath(outputPath), available: false, content: null, contentChars: 0 };
     }
     const truncated = raw.length > DELIVERY_CONTENT_CAP;
     const content = truncated ? raw.slice(0, DELIVERY_CONTENT_CAP) : raw;
     return {
       isTerminal: true,
-      outputPath: resolvedPath,
+      outputPath: compactHomePath(resolvedPath),
       available: true,
       content,
       contentChars: content.length,
@@ -342,7 +343,7 @@ async function resolveReceived(agentId, contractId) {
       return {
         available: true,
         source,
-        path,
+        path: compactHomePath(path),
         contractId,
         task,
         raw: rawOut,

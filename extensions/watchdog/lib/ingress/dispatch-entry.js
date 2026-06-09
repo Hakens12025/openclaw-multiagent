@@ -29,8 +29,6 @@ export async function dispatchAcceptIngressMessage(message, {
   intentType = null,
   phases = null,
   api,
-  enqueue,
-  wakePlanner,
   logger,
 }) {
   const normalizedRouteMetadata = normalizeRouteMetadata({

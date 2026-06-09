@@ -25,6 +25,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { readSessionTranscript } from "../lib/agent/agent-session-transcript.js";
+import { compactHomePath } from "../lib/agent/agent-enrollment-discovery.js";
 
 const OC_ROOT = join(homedir(), ".openclaw");
 const TRACE_DIR = join(OC_ROOT, "control-plane", "workflow-trace");
@@ -100,7 +101,7 @@ test("received：inbox 快照缺 → 回退 live-inbox", async () => {
     assert.equal(tr.received.available, true);
     assert.equal(tr.received.source, "live-inbox", "快照缺应回退 live-inbox");
     assert.equal(tr.received.task, "live inbox 的任务");
-    assert.equal(tr.received.path, liveInboxPath(AGENT));
+    assert.equal(tr.received.path, compactHomePath(liveInboxPath(AGENT)));
   } finally {
     await cleanup(contractId, AGENT);
   }

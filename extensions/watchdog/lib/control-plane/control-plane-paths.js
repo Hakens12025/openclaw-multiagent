@@ -34,7 +34,19 @@ export const CONTROL_PLANE_PATHS = Object.freeze({
   guidanceDriftStateFile: join(CONTROL_PLANE_ROOT, "guidance-drift-state.json"),
   migrationStateFile: join(CONTROL_PLANE_ROOT, "control-plane-migration-state.json"),
   structureSnapshotsFile: join(CONTROL_PLANE_ROOT, "structure-snapshots.json"),
+  knowledgeBasesFile: join(CONTROL_PLANE_ROOT, "knowledge-bases.json"),
+  chartsRegistryFile: join(CONTROL_PLANE_ROOT, "charts.json"),
+  knowledgeEvalSetsFile: join(CONTROL_PLANE_ROOT, "knowledge-eval-sets.json"),
+  knowledgeEvalRunsFile: join(CONTROL_PLANE_ROOT, "knowledge-eval-runs.json"),
 });
+
+// per-KB RAG 索引文件:control-plane/kb-<id>-index.json(wiki 库例外,复用 wiki-rag-index.json)。
+// id 经 charset 白名单防路径穿越(sources 由用户/operator 提供)。
+export function knowledgeBaseIndexFile(kbId) {
+  const safe = String(kbId || "").replace(/[^a-z0-9_-]/gi, "");
+  if (!safe) throw new Error("invalid knowledge base id");
+  return join(CONTROL_PLANE_ROOT, `kb-${safe}-index.json`);
+}
 
 // Legacy controller-workspace mirrors; used only by the one-shot boot-time
 // migration helper (see control-plane-migrate.js) to lift data from the

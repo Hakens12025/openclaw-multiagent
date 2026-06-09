@@ -238,8 +238,6 @@ async function runProtocolCommitReconcileNow({
   agentId,
   api,
   logger,
-  enqueueFn,
-  wakePlanner,
   commitInfo,
 } = {}) {
   const normalizedSessionKey = normalizeSessionKey(sessionKey);
@@ -297,8 +295,6 @@ async function runProtocolCommitReconcileNow({
     },
     api,
     logger,
-    enqueueFn,
-    wakePlanner,
     trackingState,
   });
 
@@ -320,8 +316,6 @@ async function reconcileWhenQuiet({
   agentId,
   api,
   logger,
-  enqueueFn,
-  wakePlanner,
   commitInfo,
   observedAt,
 }) {
@@ -339,8 +333,6 @@ async function reconcileWhenQuiet({
       agentId,
       api,
       logger,
-      enqueueFn,
-      wakePlanner,
       commitInfo,
       observedAt: lastActivityTs,
     });
@@ -352,8 +344,6 @@ async function reconcileWhenQuiet({
     agentId,
     api,
     logger,
-    enqueueFn,
-    wakePlanner,
     commitInfo,
   });
 }
@@ -363,8 +353,6 @@ export function scheduleProtocolCommitReconcile({
   agentId,
   api,
   logger,
-  enqueueFn,
-  wakePlanner,
   commitInfo,
   observedAt = Date.now(),
 } = {}) {
@@ -381,8 +369,6 @@ export function scheduleProtocolCommitReconcile({
       agentId,
       api,
       logger,
-      enqueueFn,
-      wakePlanner,
       commitInfo,
       observedAt,
     });

@@ -152,16 +152,12 @@ export function buildSystemRandomRunSingleOptions({
   if (!chosenAgent) {
     throw new TypeError("buildSystemRandomRunSingleOptions requires randomRuntime.chosenAgent");
   }
-  if (!runtimeContext?.api || typeof runtimeContext.enqueue !== "function") {
-    throw new TypeError("buildSystemRandomRunSingleOptions requires runtimeContext.api/enqueue");
+  if (!runtimeContext?.api) {
+    throw new TypeError("buildSystemRandomRunSingleOptions requires runtimeContext.api");
   }
   if (typeof dispatchAcceptIngressMessageFn !== "function") {
     throw new TypeError("buildSystemRandomRunSingleOptions requires dispatchAcceptIngressMessageFn");
   }
-  // wakePlanner is optional: graph handles dispatch, so absent/null degrades to no-op.
-  const resolvedWakePlanner = typeof runtimeContext.wakePlanner === "function"
-    ? runtimeContext.wakePlanner
-    : () => {};
 
   return {
     transport: "isolated",
@@ -176,8 +172,6 @@ export function buildSystemRandomRunSingleOptions({
       replyTo,
       dispatchOwnerAgentId: chosenAgent,
       api: runtimeContext.api,
-      enqueue: runtimeContext.enqueue,
-      wakePlanner: resolvedWakePlanner,
       logger,
     }),
   };
@@ -199,8 +193,8 @@ export function buildLoopRandomRunSingleOptions({
   if (!resolvedLoopId || !chosenLoopMember) {
     throw new TypeError("buildLoopRandomRunSingleOptions requires randomRuntime.resolvedLoopId/chosenLoopMember");
   }
-  if (!runtimeContext?.api || typeof runtimeContext.enqueue !== "function") {
-    throw new TypeError("buildLoopRandomRunSingleOptions requires runtimeContext.api/enqueue");
+  if (!runtimeContext?.api) {
+    throw new TypeError("buildLoopRandomRunSingleOptions requires runtimeContext.api");
   }
   if (typeof startRuntimeLoopFn !== "function") {
     throw new TypeError("buildLoopRandomRunSingleOptions requires startRuntimeLoopFn");

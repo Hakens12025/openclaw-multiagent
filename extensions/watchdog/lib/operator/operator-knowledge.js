@@ -1,4 +1,4 @@
-import { retrieveOperatorKnowledgeNotes } from "./operator-knowledge-library.js";
+import { searchWiki } from "./wiki-rag-search.js";
 import { normalizeString } from "../core/normalize.js";
 import { getSemanticSkillSpec } from "../semantic-skill-registry.js";
 
@@ -115,14 +115,14 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function tokenizeRequest(value) {
+export function tokenizeRequest(value) {
   const normalized = normalizeText(value).toLowerCase();
   if (!normalized) return { normalized, tokens: [] };
   const tokens = normalized.split(/[^a-z0-9\u4e00-\u9fff_-]+/g).filter(Boolean);
   return { normalized, tokens };
 }
 
-function scoreFragment(fragment, request) {
+export function scoreFragment(fragment, request) {
   let score = Number.isFinite(fragment?.priority) ? fragment.priority : 0;
   const normalized = request.normalized;
   for (const tag of Array.isArray(fragment?.tags) ? fragment.tags : []) {
@@ -165,7 +165,12 @@ function buildAgentMapFragment(agents = [], graph = {}, loops = []) {
     const model = normalizeString(a?.model) || "默认模型";
     const ins = inEdges(id);
     const outs = outEdges(id);
-    return `${id}[${role}] ${model} · in←${ins.length ? ins.join(",") : "—"} · out→${outs.length ? outs.join(",") : "—"}`;
+    // per-agent attached skills (capped) — so operator sees what an agent already has and reuses
+    // instead of re-authoring/re-attaching (the "优先复用" instruction needs this visibility).
+    const skillList = Array.isArray(a?.effectiveSkills) ? a.effectiveSkills
+      : (Array.isArray(a?.skills) ? a.skills : []);
+    const skills = skillList.map((s) => normalizeString(s)).filter(Boolean).slice(0, 6);
+    return `${id}[${role}] ${model} · in←${ins.length ? ins.join(",") : "—"} · out→${outs.length ? outs.join(",") : "—"} · skills:${skills.length ? skills.join(",") : "—"}`;
   });
   const registeredLoops = Array.isArray(loops) ? loops : [];
   const activeLoops = registeredLoops.filter((loop) => loop?.active === true);
@@ -179,7 +184,7 @@ function buildAgentMapFragment(agents = [], graph = {}, loops = []) {
     priority: 9,
     tags: ["agent", "map", "graph", "edge", "in", "out", "入边", "出边", "role", "model", "loop", "回路", "结构", "协作", "reviewer", "worker", "controller"],
     summary: agentList.length
-      ? `当前 agent 结构（每行 id[role] model · 入边 · 出边）：\n${lines.join("\n")}\n${loopLine}。图边共 ${edges.length} 条。建结构=补缺的 graph.edge.add / graph.loop.compose；优先复用已存在的 agent，不重复造。`
+      ? `当前 agent 结构（每行 id[role] model · 入边 · 出边 · 已装 skills）：\n${lines.join("\n")}\n${loopLine}。图边共 ${edges.length} 条。建结构=补缺的 graph.edge.add / graph.loop.compose；优先复用已存在的 agent 与其已装 skill，不重复造。`
       : `当前没有已注册 agent；图边 ${edges.length} 条。先 agents.create，再用 graph.edge.add / graph.loop.compose 连结构。`,
   };
 }
@@ -283,9 +288,21 @@ export async function buildOperatorKnowledgeContext({
   return {
     notableSkills: buildNotableSkillGuidance(skills),
     selectedFragments,
-    retrievedNotes: await retrieveOperatorKnowledgeNotes({
-      requestText,
-      limit: 4,
-    }),
+    // Phase 5 — operator grounds its WHY retrieval on the WIKI (compiled, current rationale) via the
+    // wiki-RAG semantic search, NOT 备忘录 (memos = RAW past designs that mislead). searchWiki never
+    // throws: if embeddings/index are unavailable it returns degraded → empty notes, and operator stays
+    // grounded by selectedFragments + the live agent-map. selectedFragments (static fragments + live
+    // agent-map :274 + capabilities) is runtime/structure truth and is intentionally left untouched.
+    retrievedNotes: await retrieveWikiGroundingNotes(requestText, 4),
   };
+}
+
+// Map wiki-RAG results into the { title, sourcePath, excerpt } note shape the brain context expects.
+export async function retrieveWikiGroundingNotes(requestText, limit = 4) {
+  const { results } = await searchWiki(requestText, { topK: limit });
+  return (Array.isArray(results) ? results : []).map((r) => ({
+    title: normalizeString(r.heading) || normalizeString(r.sourcePath) || "wiki",
+    sourcePath: normalizeString(r.sourcePath),
+    excerpt: normalizeString(r.text).slice(0, 500),
+  }));
 }

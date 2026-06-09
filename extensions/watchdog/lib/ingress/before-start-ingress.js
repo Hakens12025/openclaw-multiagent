@@ -18,9 +18,8 @@ import {
   SCHEDULE_TRIGGER_COMMAND,
 } from "../schedule/schedule-trigger.js";
 import {
-  AGENT_ROLE,
+  agentBlocksDirectIntake,
   getAgentIdentitySnapshot,
-  hasExecutionPolicy,
   resolveAgentIngressSource,
 } from "../agent/agent-identity.js";
 import { buildAgentMainSessionKey } from "../session-keys.js";
@@ -65,8 +64,7 @@ function isInternalWakeEvent(event) {
 
 function shouldHandleDirectIntake(identity, agentId, sessionKey, event) {
   return !identity.gateway
-    && identity.role !== AGENT_ROLE.RESEARCHER
-    && !hasExecutionPolicy(agentId, "noDirectIntake")
+    && !agentBlocksDirectIntake(agentId)
     && sessionKey.includes(":hook:")
     && Boolean(event?.prompt);
 }
@@ -75,8 +73,6 @@ export async function handleBeforeStartIngress({
   agentId,
   sessionKey,
   api,
-  enqueue,
-  wakePlanner,
   logger,
 }) {
   const ingressMessage = resolveIngressMessageText(event);
@@ -86,8 +82,6 @@ export async function handleBeforeStartIngress({
     try {
       const result = await executeScheduleTrigger(scheduleId, {
         api,
-        enqueue,
-        wakePlanner,
         logger,
       });
       broadcast("alert", {

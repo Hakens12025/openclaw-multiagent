@@ -274,8 +274,6 @@ export async function runAutomationDefinition({
   return startAutomationRound(automationId, {
     trigger: normalizeString(payload.trigger) || "manual",
     api: runtimeContext?.api,
-    enqueue: runtimeContext?.enqueue,
-    wakePlanner: runtimeContext?.wakePlanner,
     logger,
     onAlert,
   });

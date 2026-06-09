@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { assertOperatorPlanAgentFeasibility, normalizeOperatorPlan } from "../lib/operator/operator-plan.js";
+import { assertOperatorPlanAgentFeasibility, collectOperatorPlanInfeasibilities, normalizeOperatorPlan } from "../lib/operator/operator-plan.js";
 import { listAgentRegistry } from "../lib/capability/capability-registry.js";
 
 // E2 pre-flight feasibility: a STRUCTURE-creating step (edge/loop/group) referencing an agent that
@@ -52,4 +52,27 @@ test("E2: edge BEFORE its create (wrong order) is rejected", async () => {
     ],
   });
   await assert.rejects(() => assertOperatorPlanAgentFeasibility(plan), (err) => err.code === "OPERATOR_PLAN_AGENT_INFEASIBLE");
+});
+
+// E2b — the NON-throwing core that powers the plan-build canExecute downgrade (buildOperatorPlan).
+test("E2b: collectOperatorPlanInfeasibilities returns failures (no throw) for a dangling edge", async () => {
+  const anchor = await anchorAgentId();
+  const plan = normalizeOperatorPlan({
+    intent: "platform_mutation", summary: "dangling edge",
+    steps: [{ surfaceId: "graph.edge.add", title: "e", summary: "e", payload: { from: anchor, to: "no-such-ghost-agent-e2b" } }],
+  });
+  const failures = await collectOperatorPlanInfeasibilities(plan);
+  assert.ok(failures.some((f) => f.missingAgentId === "no-such-ghost-agent-e2b"));
+});
+
+test("E2b: collectOperatorPlanInfeasibilities returns [] for a feasible create-then-wire plan", async () => {
+  const anchor = await anchorAgentId();
+  const plan = normalizeOperatorPlan({
+    intent: "platform_mutation", summary: "create then wire",
+    steps: [
+      { surfaceId: "agents.create", title: "c", summary: "c", payload: { id: "fresh-e2b-agent", role: "worker" } },
+      { surfaceId: "graph.edge.add", title: "e", summary: "e", payload: { from: "fresh-e2b-agent", to: anchor } },
+    ],
+  });
+  assert.deepEqual(await collectOperatorPlanInfeasibilities(plan), []);
 });

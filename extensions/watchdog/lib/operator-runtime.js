@@ -4,7 +4,7 @@ import {
   buildOperatorAdviceFallback,
   buildOperatorInvalidPlanFallback,
 } from "./operator-fallback.js";
-import { normalizeOperatorBrainPlanResult } from "./operator/operator-plan.js";
+import { collectOperatorPlanInfeasibilities, normalizeOperatorBrainPlanResult } from "./operator/operator-plan.js";
 import { normalizeString } from "./core/normalize.js";
 
 export async function buildOperatorPlan({
@@ -44,7 +44,29 @@ export async function buildOperatorPlan({
   }
 
   try {
-    return normalizeOperatorBrainPlanResult(brainResult, requestText);
+    const response = normalizeOperatorBrainPlanResult(brainResult, requestText);
+    // E2b — canExecute must reflect feasibility at PLAN-BUILD, not only at execute-time. If the plan
+    // references an agent that neither exists nor is created earlier in the same plan, executing it
+    // would fail the feasibility pre-flight (operator-executor) — so don't advertise EXECUTE as
+    // available. Downgrade canExecute + tell the user what's missing. Graceful if the registry read
+    // fails (keep canExecute as-is rather than block a good plan on a transient error).
+    if (response?.canExecute && Array.isArray(response?.plan?.steps) && response.plan.steps.length > 0) {
+      try {
+        const infeasible = await collectOperatorPlanInfeasibilities(response.plan);
+        if (infeasible.length > 0) {
+          const missing = [...new Set(infeasible.map((f) => f.missingAgentId))];
+          response.canExecute = false;
+          response.plan.limitations = [...new Set([
+            ...(Array.isArray(response.plan.limitations) ? response.plan.limitations : []),
+            `计划引用了尚不存在的 agent：${missing.join("、")}。请在同一计划里先用 agents.create 建好，或先单独创建这些 agent 再执行。`,
+          ])];
+          response.plan.derived = { ...(response.plan.derived || {}), feasibilityBlocked: true, missingAgents: missing };
+        }
+      } catch (feasibilityError) {
+        logger?.warn?.(`[watchdog] operator plan feasibility check skipped: ${feasibilityError.message}`);
+      }
+    }
+    return response;
   } catch (error) {
     logger?.warn?.(`[watchdog] operator-brain produced invalid plan, advice-only fallback: ${error.message}`);
     return buildOperatorInvalidPlanFallback({

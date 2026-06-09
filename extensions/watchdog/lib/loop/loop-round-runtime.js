@@ -117,8 +117,7 @@ export async function getActiveLoopRuntime() {
   return loadActiveLoopRuntime();
 }
 
-export async function startLoopRound(config, wakeupFunc, enqueueFunc, replyTo, logger) {
-  void enqueueFunc;
+export async function startLoopRound(config, wakeupFunc, replyTo, logger) {
   return withLoopRuntimeLock(async () => {
     const existing = await readActiveLoopRuntime();
     if (existing?.currentStage) {
@@ -416,7 +415,7 @@ export async function resumeLoopRound({
     resumeFromLoopSessionId: latestSession?.id || null,
     resumeReason: reason,
     runtimeApi,
-  }, wakeupFunc, null, null, logger);
+  }, wakeupFunc, null, logger);
 
   if (resumed?.action !== "started") {
     return resumed;

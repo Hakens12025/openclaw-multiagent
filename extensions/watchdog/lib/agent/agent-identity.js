@@ -267,6 +267,19 @@ export function isProtectedAgentId(agentId) {
   return getAgentIdentitySnapshot(agentId).protected === true;
 }
 
+// per-agent constraints 运行时子集：只取数值型 timeoutSeconds/maxRetry（agent-timeout-sweep 消费）。
+// card 优先（changeAgentConstraints 写进 card profile），回退 list 条目；无有效值返回 null。
+function resolveRuntimeConstraints(card, agentConfig) {
+  const src = (card?.constraints && typeof card.constraints === "object")
+    ? card.constraints
+    : (agentConfig?.constraints && typeof agentConfig.constraints === "object" ? agentConfig.constraints : null);
+  if (!src) return null;
+  const out = {};
+  if (Number.isFinite(Number(src.timeoutSeconds))) out.timeoutSeconds = Number(src.timeoutSeconds);
+  if (Number.isFinite(Number(src.maxRetry))) out.maxRetry = Number(src.maxRetry);
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export function registerRuntimeAgents(config) {
   runtimeAgentConfigs.clear();
   const agents = Array.isArray(config?.agents?.list) ? config.agents.list : [];
@@ -314,6 +327,9 @@ export function registerRuntimeAgents(config) {
       // P6-Phase0: 通用 binding policy 运行时快照（无消费者也保留，供 Phase1 接入）。
       outputPolicy: composedBinding.policies?.outputPolicy || null,
       inboxPolicy: composedBinding.policies?.inboxPolicy || null,
+      // per-agent constraints 运行时快照：agent-timeout-sweep 读 timeoutSeconds/maxRetry，
+      // 免去每次巡检读 agent card 文件 I/O。来源优先 card，回退 list 条目。
+      constraints: resolveRuntimeConstraints(card, agent),
     });
   }
 }
@@ -376,6 +392,16 @@ export function agentDedupesConcurrentTrackerForHeartbeat(agentId) {
     return policy.dedupeConcurrentTracker;
   }
   return getAgentRole(agentId) === AGENT_ROLE.EXECUTOR;
+}
+
+// P6-Phase1: 直接 intake 准入从 role 特化迁到 policy。
+// executionPolicy.noDirectIntake 显式 true → 拒收直发；缺省时 researcher 默认拒收
+// （迁移前 ingress 硬路径用 `role !== RESEARCHER` 排除，等价行为，无需改配置）。
+export function agentBlocksDirectIntake(agentId) {
+  if (hasExecutionPolicy(agentId, "noDirectIntake")) {
+    return true;
+  }
+  return getAgentRole(agentId) === AGENT_ROLE.RESEARCHER;
 }
 
 export function hasInboxPolicy(agentId, key) {

@@ -448,8 +448,6 @@ test("runAgentEndLifecycle retry crash suspends session without terminalizing tr
         },
       },
       logger,
-      enqueueFn: () => {},
-      wakePlanner: async () => null,
       trackingState,
     });
     await Promise.all(timerPromises);

@@ -16,6 +16,7 @@ import {
   resolveGraphLoopSpec,
   upsertGraphLoopSpec,
 } from "../loop/graph-loop-registry.js";
+import { buildLoopBudgetEcho, normalizePositiveInteger } from "../loop/loop-budget.js";
 import { listResolvedLoopSessions } from "../loop/loop-session-store.js";
 import { expandAgentGroup } from "../agent/agent-group-spec.js";
 import { startGroupSession } from "../agent/group-session-store.js";
@@ -178,14 +179,18 @@ export async function composeGraphLoop({
     label: payload.label,
     metadata: payload.metadata,
   });
+  // 入口归一:空串/非数 maxRounds/maxExperiments → null(干净存,不让 "" 这种脏值进 spec
+  // 流到下游做算术/拼接踩坑)。null = 未声明 → 运行时 resolveLoopStartBudget 兜底到 DEFAULT(环自带 limit)。
+  const normMaxRounds = normalizePositiveInteger(payload.maxRounds, null);
+  const normMaxExperiments = normalizePositiveInteger(payload.maxExperiments, null);
   const loopSpec = await upsertGraphLoopSpec(composeLoopSpecFromAgents(agentIds, {
     loopId: payload.loopId,
     label: payload.label,
     entryAgentId: payload.entryAgentId,
     continueSignal: payload.continueSignal,
     concludeSignal: payload.concludeSignal,
-    maxRounds: payload.maxRounds,
-    maxExperiments: payload.maxExperiments,
+    maxRounds: normMaxRounds,
+    maxExperiments: normMaxExperiments,
     metadata: {
       ...(payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {}),
       sourceSurfaceId: "graph.loop.compose",
@@ -193,6 +198,9 @@ export async function composeGraphLoop({
   }));
   const cycles = detectCycles(graph);
   const resolvedLoop = resolveGraphLoopSpec(loopSpec, graph);
+  // 回显解析后的有效预算 + 来源（buildLoopBudgetEcho 单源逻辑,可测）:让调用方/operator
+  // 看见真实上限(而非依赖看不见的多层运行时兜底)。不把默认值存进 spec —— 保 single-source。
+  const { resolvedBudget, budgetSource } = buildLoopBudgetEcho(loopSpec, { normMaxRounds, normMaxExperiments });
   const loops = await listResolvedGraphLoops({ graph });
   if (runtimeContext?.api?.config) {
     await syncAllRuntimeWorkspaceGuidance(runtimeContext.api.config, logger);
@@ -214,6 +222,8 @@ export async function composeGraphLoop({
     ok: true,
     agents: agentIds,
     loop: resolvedLoop,
+    resolvedBudget,
+    budgetSource,
     loopEdges,
     addedEdges,
     skippedEdges,

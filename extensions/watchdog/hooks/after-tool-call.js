@@ -123,7 +123,7 @@ function resolveObservedToolPath(agentId, rawPath) {
   return agentId ? join(agentWorkspace(agentId), normalized) : normalized;
 }
 
-export function register(api, logger, { enqueueFn, wakePlanner }) {
+export function register(api, logger) {
   api.on("after_tool_call", async (event, ctx) => {
     const sessionKey = ctx.sessionKey;
     const agentId = ctx.agentId ?? "unknown";
@@ -357,8 +357,6 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
         agentId,
         api,
         logger,
-        enqueueFn,
-        wakePlanner,
         commitInfo: effectiveCommitInfo,
       });
     }

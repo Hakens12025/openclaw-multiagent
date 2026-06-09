@@ -133,8 +133,10 @@ export async function recordErrorPattern({ error, agentId, trackingState, logger
       });
     }
 
-    // Sort by frequency, cap entries
-    ledger.patterns.sort((a, b) => b.count - a.count);
+    // Sort by frequency, cap entries. Tiebreak on errorType for deterministic
+    // ordering when counts are equal (errorType is always a non-empty string
+    // from classifyErrorType, so localeCompare is safe).
+    ledger.patterns.sort((a, b) => (b.count - a.count) || a.errorType.localeCompare(b.errorType));
     if (ledger.patterns.length > MAX_ENTRIES) {
       ledger.patterns = ledger.patterns.slice(0, MAX_ENTRIES);
     }

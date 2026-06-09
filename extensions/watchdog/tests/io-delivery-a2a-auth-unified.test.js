@@ -52,7 +52,7 @@ function makeApi() {
 }
 
 test("a2a POST /tasks/send uses gatewayToken (not hooksToken)", async (t) => {
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/state.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/state.js", {
     namedExports: {
       cfg: {
         gatewayPort: 18789,
@@ -62,26 +62,26 @@ test("a2a POST /tasks/send uses gatewayToken (not hooksToken)", async (t) => {
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/contracts.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js", {
     namedExports: {
       readContractCompletionArtifact: async () => null,
       readContractSnapshotById: async () => null,
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/ingress/dispatch-entry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/ingress/dispatch-entry.js", {
     namedExports: {
       dispatchAcceptIngressMessage: async () => ({ ok: true, contractId: "TC-test-001" }),
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/capability/capability-registry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/capability/capability-registry.js", {
     namedExports: {
       loadCapabilityRegistry: async () => ({ agents: [], skills: [] }),
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/runtime/pending-signal-registry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/runtime/pending-signal-registry.js", {
     namedExports: {
       PENDING_SIGNAL_KINDS: { CHANNEL_INGRESS_WEBUI: "webui", CHANNEL_INGRESS_QQ: "qq", CHANNEL_INGRESS_TEST_INJECT: "test" },
       registerPendingSignal: () => {},
@@ -89,16 +89,16 @@ test("a2a POST /tasks/send uses gatewayToken (not hooksToken)", async (t) => {
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/agent/agent-identity.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/agent/agent-identity.js", {
     namedExports: {
       buildGatewayReplyTarget: () => ({ agentId: "controller-agent" }),
     },
   });
 
-  const { register } = await import("~/.openclaw/extensions/watchdog/routes/a2a.js");
+  const { register } = await import("/Users/hakens/.openclaw/extensions/watchdog/routes/a2a.js");
 
   const api = makeApi();
-  register(api, { info: () => {}, warn: () => {}, error: () => {} }, { enqueueFn: () => {}, wakePlanner: () => {} });
+  register(api, { info: () => {}, warn: () => {}, error: () => {} });
 
   const postHandler = api.routes["/a2a/tasks/send"];
   assert.ok(postHandler, "POST /a2a/tasks/send handler not registered");
@@ -135,7 +135,7 @@ test("a2a POST /tasks/send uses gatewayToken (not hooksToken)", async (t) => {
 });
 
 test("a2a GET /a2a/tasks/:id uses gatewayToken (already correct, must stay)", async (t) => {
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/state.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/state.js", {
     namedExports: {
       cfg: {
         gatewayPort: 18789,
@@ -145,26 +145,26 @@ test("a2a GET /a2a/tasks/:id uses gatewayToken (already correct, must stay)", as
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/contracts.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js", {
     namedExports: {
       readContractCompletionArtifact: async () => null,
       readContractSnapshotById: async () => null,
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/ingress/dispatch-entry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/ingress/dispatch-entry.js", {
     namedExports: {
       dispatchAcceptIngressMessage: async () => ({ ok: true, contractId: "TC-test-001" }),
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/capability/capability-registry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/capability/capability-registry.js", {
     namedExports: {
       loadCapabilityRegistry: async () => ({ agents: [], skills: [] }),
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/runtime/pending-signal-registry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/runtime/pending-signal-registry.js", {
     namedExports: {
       PENDING_SIGNAL_KINDS: { CHANNEL_INGRESS_WEBUI: "webui", CHANNEL_INGRESS_QQ: "qq", CHANNEL_INGRESS_TEST_INJECT: "test" },
       registerPendingSignal: () => {},
@@ -172,16 +172,16 @@ test("a2a GET /a2a/tasks/:id uses gatewayToken (already correct, must stay)", as
     },
   });
 
-  t.mock.module("~/.openclaw/extensions/watchdog/lib/agent/agent-identity.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/agent/agent-identity.js", {
     namedExports: {
       buildGatewayReplyTarget: () => ({ agentId: "controller-agent" }),
     },
   });
 
-  const { register } = await import("~/.openclaw/extensions/watchdog/routes/a2a.js");
+  const { register } = await import("/Users/hakens/.openclaw/extensions/watchdog/routes/a2a.js");
 
   const api = makeApi();
-  register(api, { info: () => {}, warn: () => {}, error: () => {} }, { enqueueFn: () => {}, wakePlanner: () => {} });
+  register(api, { info: () => {}, warn: () => {}, error: () => {} });
 
   const getHandler = api.routes["/a2a/tasks/"];
   assert.ok(getHandler, "GET /a2a/tasks/ handler not registered");

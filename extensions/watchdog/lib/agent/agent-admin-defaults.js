@@ -142,6 +142,21 @@ export function normalizeConstraintPatchInput({
   if (Object.values(patch).every((value) => value === undefined)) {
     throw new Error("missing constraints patch");
   }
+  // fail-loud：传送带强制「每 agent 一次一份」串行（dispatch 仅 state.currentContract 单槽）。
+  // maxConcurrent>1 / serialExecution=false 与此本质冲突且运行时零消费——静默接受 = 会撒谎的配置。
+  // 并行从「多 agent（worker 池）/ agent-group」获得，不从单 agent 的伪并发旋钮。
+  if (patch.maxConcurrent != null && patch.maxConcurrent !== 1) {
+    throw new Error(
+      `maxConcurrent=${patch.maxConcurrent} unsupported: the conveyor runs each agent serially `
+      + `(one contract at a time, maxConcurrent must be 1). For parallelism use multiple agents / agent-group.`,
+    );
+  }
+  if (patch.serialExecution === false) {
+    throw new Error(
+      "serialExecution=false unsupported: the conveyor always runs each agent serially "
+      + "(one contract at a time). For parallelism use multiple agents / agent-group.",
+    );
+  }
   return patch;
 }
 

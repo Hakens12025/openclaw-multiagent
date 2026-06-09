@@ -1,5 +1,27 @@
 # Wiki Operation Log
 
+## [2026-06-02] ingest | v116→v132 stale 修复：operator 手已通 + designer-only + 对象落地
+
+对抗式审计（本会话 live 比对代码）发现 v115 后的 wiki 滞后约 13 个 tag，多处 load-bearing 谎言。逐项据代码（code wins）修正：
+
+1. **operator designer-only 重定义** — operator = 结构设计者，不替用户跑具体任务：build plan 终态 = 结构 active + `inspect.structure_preview`，**绝不**末尾 emit `runtime.loop.start` 携带用户任务（跑由用户/ingress 下游触发）。代码核实 `lib/operator/operator-brain.js`:~210（"You DESIGN the control plane; you do NOT run..."）+ `operator-knowledge.js` `new-task-workflow` 片段（`skills/operator-new-task/SKILL.md`）。同步：concepts/operator.md（新增「设计者 vs 运行者边界」节 + 演化行）。
+2. **operator 手已通（SUPERSEDES v115「operatorExecutable=0 / 手仍瘫」）** — 38 个 `operatorExecutable` surface 上线（`lib/admin/catalog/apply-rest.js` 28 + `agents-apply.js` 10，实测 grep -c=28/10）；`operator-executor.js` `executeOperatorExecutablePlan` 真跑 plan：per-step `executeCliSystemSurface`（`actor:'operator'`，executor 行 22 硬要求 `operatorExecutable !== true` 则拒）+ explicit-confirm 闸 + `captureStructureSnapshot`/`restoreStructureSnapshot` 原子回滚 + `forceVerify=true` after-apply + soft-fail（`{ok:false}`）也回滚。死链 (b) 闭合。同步：concepts/operator.md（当前状态/演化）、cli-system.md（line ~67 谎言重写）、self-governance-loop.md 经交叉链接对齐。
+3. **planner 可靠性批次** — single-retry（`callPlannerWithSingleRetry` @ operator-brain.js:244，abort/GLM-socket 首次即重抛不掩盖）/ resilient step-drop normalize（`normalizeOperatorBrainPlanResult` @ operator-plan.js:285，丢坏单步保全盘）/ glm-socket dispatcher + 截断 JSON 修复（`repairTruncatedJsonText` @ llm-planner.js:70）/ GLM-5.1 fallback（`resolveOperatorBrainModel` @ `lib/brain-model-resolver.js`）。同步：concepts/operator.md（新增「可靠性」节）。
+4. **agent-map 紧凑片段** — `operator-knowledge.js` `buildAgentMapFragment`（:157）是 operator 读结构的视图。同步：concepts/operator.md「可靠性」节。
+5. **inspect surface 22→26（静态 catalog）** — 实测 `lib/cli-system/cli-surface-catalog.js` inspect.* = 26；v112 后新增 `inspect.profile_lifecycle` / `inspect.agent_groups` / `inspect.structure_preview`。apply/verify 族**已编目**（`apply-rest.js`/`agents-apply.js`，family 经 `cli-surface-registry.js` `normalizeAdminSurface` 从 `stage` 字段派生，非缺 catalog）。同步：concepts/cli-system.md（inspect 清单/演化/当前状态）。
+
+其他同步页（据代码核实）：
+- concepts/agent-group.md — 「未开始/概念阶段/god-role 前置」全翻为「设计冻结 + v119 宏展开已落地」；cite `lib/agent/agent-group-spec.js`（`normalizeGroupSpec` members≥2 + `internalEdges` 两端必须成员 line 33-34 无免授权暗门 + `OUTPUT_MODES` passthrough/aggregate/race + `expandAgentGroup` + `buildOutputPolicies`）、`group-session-store.js` / `group-session-normalize.js`（**在 lib/agent/ 非 lib/loop/**）、`agent-workflow-grouping.js`；observable via `inspect.agent_groups`；移除 god-role 前置；tasks #38/#46 done。
+- concepts/evaluation-result-chain.md — 「ProfileLifecycle 尚未实现」改为「均已实现（v115）」，cite `lib/automation/profile-lifecycle.js`（TRUST_LADDER experimental/provisional/stable，连 2 fail→retired）+ `resolve-governance.js` + 闭环 `tests/automation-profile-lifecycle-closed-loop-p4.test.js`；与 self-governance-loop.md 对齐。
+- concepts/loop.md — 新增「环自带 limit（v120）」（`loop-budget.js` DEFAULT 3/30，`resolveLoopStartBudget` 优先级 DEFAULT<LoopSpec<runtime<config，超限复用既有 budget governance force-conclude）+「reviewer 控制环（v121）」（artifact-branch idle 误判修复=已绑定 contract 即有活干，`lib/heartbeat-gate.js` `hasActionableHeartbeatWork`:62-72）；演化加 v120/v121。
+- concepts/harness.md — 正式入口强调 `harness-module-catalog.js`（10 模块/4 kind：guard.budget/tool_access/scope · collector.artifact/trace · gate.artifact/schema/test · normalizer.eval_input/failure，`freezeCatalog` 经 `validateHarnessModuleDefinition`）；当前状态→接口已冻结(v109)+v115 灵魂落地完成；新增 operator 装 harness 层（`lib/operator/operator-harness-recommend.js` 只挑 moduleRef 粒度不当第二 planner + `skills/harness-build/SKILL.md` + `automations.create`）；演化加 v109/v115。
+
+同步元页：
+- index.md — 刷新注记到 ~v132-stable（2026-06-02）；cli-system 行 22→26 inspect surfaces；operator 行→designer-only + 手已通；AgentGroup 行「待实现」→「已落地」；新增 ORPHAN 页 `concepts/runtime-dispatch-queue.md` 入口（此前无任何页链接它）。
+- status.md — header→2026-06-02；替换「operatorExecutable=0/手仍瘫」为「手已通」；AgentGroup/ProfileLifecycle/HarnessModule 移出「待实现」表入已落地；新增 operator 旗舰硬化 designer-only + planner 可靠性活跃行；引用任务 #57/#58 in-progress。
+
+性质=据 v132-stable live 代码快照修正 wiki 滞后（code wins）。Verified live counts：inspect family 44 / apply 48 / verify 3 / operatorExecutable 38 / static inspect catalog 26。
+
 ## [2026-05-31] ingest | v115 四关节自治回路物理闭合（三死链全修）
 
 备忘录120 计划的回路落地：三死链全部接通，端到端闭环已断言。

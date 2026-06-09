@@ -21,6 +21,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { readSessionTranscript } from "../lib/agent/agent-session-transcript.js";
+import { compactHomePath } from "../lib/agent/agent-enrollment-discovery.js";
 import { loadGraph, getEdgesFrom } from "../lib/agent/agent-graph.js";
 
 const OC_ROOT = join(homedir(), ".openclaw");
@@ -47,7 +48,7 @@ test("delivery：叶子 agent（无出边）+ 产出件存在 → isTerminal:tru
     assert.equal(tr.delivery.available, true, "产出件存在 → available:true");
     assert.equal(tr.delivery.content, "用户最终收到的内容");
     assert.equal(tr.delivery.contentChars, "用户最终收到的内容".length);
-    assert.equal(tr.delivery.outputPath, outputPath, "outputPath 应指向产出件正本");
+    assert.equal(tr.delivery.outputPath, compactHomePath(outputPath), "outputPath 应指向产出件正本（~ 压缩,不泄漏绝对 home 路径）");
     assert.equal(tr.delivery.truncated, false);
   } finally {
     await rm(outputPath, { force: true });
@@ -177,7 +178,7 @@ test("delivery：live 被清 → 回退 workflow-trace 快照（outputPath 指�
     assert.equal(tr.delivery.isTerminal, true);
     assert.equal(tr.delivery.available, true, "live 缺应回退快照命中");
     assert.equal(tr.delivery.content, "快照里的最终件");
-    assert.equal(tr.delivery.outputPath, tracePath, "outputPath 应指向 workflow-trace 快照");
+    assert.equal(tr.delivery.outputPath, compactHomePath(tracePath), "outputPath 应指向 workflow-trace 快照（~ 压缩）");
   } finally {
     await rm(join(TRACE_DIR, contractId), { recursive: true, force: true });
   }

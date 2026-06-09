@@ -58,10 +58,7 @@ test("agent_end flushes deferred protocol commit release when tracker state is g
     on(name, handler) {
       handlers.set(name, handler);
     },
-  }, logger, {
-    enqueueFn: null,
-    wakePlanner: null,
-  });
+  }, logger);
 
   await handlers.get("agent_end")({ success: true }, {
     sessionKey: "agent:worker:contract:TC-DEFERRED",

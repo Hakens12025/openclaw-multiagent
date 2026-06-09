@@ -63,8 +63,6 @@ async function systemActionDispatchEntry(action, {
   sessionKey,
   contractData,
   api,
-  enqueueFn,
-  wakePlanner,
   logger,
 }) {
   const normalizedAction = normalizeSystemIntent(action);
@@ -78,8 +76,6 @@ async function systemActionDispatchEntry(action, {
     sessionKey,
     contractData,
     api,
-    enqueueFn,
-    wakePlanner,
     logger,
     actionReplyTo,
   });
@@ -96,7 +92,6 @@ async function systemActionDispatchEntry(action, {
           runtimeApi: api,
         },
         null,
-        (contractId) => enqueueFn?.(contractId) ?? contractId,
         actionReplyTo,
         logger,
       );
@@ -142,8 +137,6 @@ export async function systemActionConsume({
   sessionKey,
   contractData,
   api,
-  enqueueFn,
-  wakePlanner,
   logger,
   injectedAction = null,
 }) {
@@ -168,7 +161,7 @@ export async function systemActionConsume({
     }
     try {
       return await systemActionDispatchEntry(injectedAction, {
-        agentId, sessionKey, contractData, api, enqueueFn, wakePlanner, logger,
+        agentId, sessionKey, contractData, api, logger,
         actionReplyTo: { agentId, sessionKey },
       });
     } catch (error) {

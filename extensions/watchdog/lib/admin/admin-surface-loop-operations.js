@@ -158,7 +158,6 @@ export async function startRuntimeLoop({
       runtimeApi: runtimeContext.api,
     },
     null,
-    runtimeContext.enqueue,
     null,
     logger,
   );

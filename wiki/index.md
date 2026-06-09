@@ -2,7 +2,7 @@
 
 > OpenClaw 知识库索引。LLM 新 session 从这里开始导航。
 > 首次编译: 2026-04-09，覆盖备忘录 15-100 + codex-memo + 桌面分析文档。
-> 活跃刷新: 2026-05-31 (v115)，四关节自治回路物理闭合（三死链全修：reworkGuidance 接通 / admin-surface apply+verify 门 / resolveGovernance+ProfileLifecycle 回灌）；起点 v112-stable。
+> 活跃刷新: 2026-06-02 (~v132-stable)，operator 手已通（38 operatorExecutable surface + executor 落地 + structure-snapshot 回滚 + forceVerify）、designer-only 边界确立；AgentGroup/ProfileLifecycle/HarnessModule 均已落地。前序：v115 四关节自治回路物理闭合。
 
 ## 核心原则 (永久)
 
@@ -28,9 +28,10 @@
 | [Loop](concepts/loop.md) | 传送带重复投递，loop-session 持有循环状态 | 收口中 |
 | [投递 (Delivery)](concepts/delivery.md) | 统一结果回送：terminal + system_action return variants | 稳定 |
 | [Session 管理](concepts/session-management.md) | 合约独立 session，运行时主链已支持 deterministic session key | 部分实现 |
-| [CLI System](concepts/cli-system.md) | 正式可操作表面层：五族真值边界裁定（inspect 观测读唯一入口 22 surface；apply=admin-operations；HTTP 投影 /watchdog/inspect） | 全族收口 |
+| [CLI System](concepts/cli-system.md) | 正式可操作表面层：五族真值边界裁定（inspect 观测读唯一入口 26 inspect surfaces / 31 total catalog；apply=admin-operations；HTTP 投影 /watchdog/inspect） | 全族收口 |
+| [Runtime Dispatch Queue](concepts/runtime-dispatch-queue.md) | 传送带排队/认领/搬运的运行时真值 | 系统架构 |
 | [按需唤醒 (WakeEvent)](concepts/wake-event.md) | 运行时状态驱动的控制面唤醒机制 | 待实现 |
-| [AgentGroup](concepts/agent-group.md) | 图原语：空间封装，与 Loop 的时间重复正交 | 待实现 |
+| [AgentGroup](concepts/agent-group.md) | 图原语：空间封装，与 Loop 的时间重复正交 | 已落地（agent_groups surface + v119 宏展开） |
 
 ## Agent 与角色
 
@@ -40,7 +41,7 @@
 | [Skill 边界](concepts/skill-boundary.md) | 三层语义：role-spec(身份) / skill(方法) / runtime(保障) | 术语冻结 |
 | [Planner](concepts/planner.md) | planMode 使任何 agent 成为规划者，DRAFT 消除 | 进行中 |
 | [Evaluator](concepts/evaluator.md) | 去特殊化三桶拆解，worker + review 能力 | 设计完成 |
-| [Operator](concepts/operator.md) | 系统运维优化的 meta-agent（不是治理引擎）；「去伪」=拆 if-else 还原真 agent，约束在落地纪律 | 认知校正 |
+| [Operator](concepts/operator.md) | designer-only meta-agent：设计 structure + agent 内容，不替用户跑具体任务（不 emit runtime.loop.start）；「去伪」=拆 if-else 还原真 agent | 手已通（executor 落地+回滚+forceVerify） |
 | [Workspace 引导](concepts/workspace-guidance.md) | agent 文档层级：SOUL优先，上下文按需 | 部分实现 |
 
 ## 执行与治理

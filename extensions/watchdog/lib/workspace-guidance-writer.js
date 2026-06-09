@@ -11,7 +11,7 @@ import { readStoredAgentBinding } from "./agent/agent-binding-store.js";
 import { listResolvedGraphLoops } from "./loop/graph-loop-registry.js";
 import { agentWorkspace } from "./state.js";
 import { MANAGED_BOOTSTRAP_MARKER, normalizeManagedDocContent } from "./managed-doc-markers.js";
-import { buildSoulTemplate } from "./soul-template-builder.js";
+import { renderRolePersonaBlock } from "./role-spec-registry.js";
 import {
   buildHeartbeatTemplate,
   buildAgentsTemplate,
@@ -62,30 +62,18 @@ async function writeManagedFile(filePath, content, {
   return true;
 }
 
-async function writeSoulFile(filePath, content, {
-  role,
-  force = false,
-} = {}) {
-  void role;
-  const normalizedContent = normalizeManagedDocContent(content);
-  if (!force) {
-    try {
-      const existing = normalizeManagedDocContent(await readFile(filePath, "utf8"));
-      // Startup sync only updates marker-managed docs. Non-marker custom or
-      // legacy content must go through explicit takeover (which force-writes).
-      const canUpdate = existing.includes(MANAGED_BOOTSTRAP_MARKER);
-      if (!canUpdate) {
-        return false;
-      }
-    } catch (error) {
-      if (error?.code !== "ENOENT") {
-        throw error;
-      }
-    }
-  }
+// ④role 层载体：IDENTITY.md = renderRolePersonaBlock(role)，系统托管（带 marker）。
+// 所有 agent（含执行层）都写；persona 为空时退化为只含 agentId 标题的占位托管文档。
+function buildManagedIdentityDoc(agentId, role) {
+  const personaBlock = renderRolePersonaBlock(role);
+  const body = personaBlock ? `# ${agentId}\n\n${personaBlock}\n` : `# ${agentId}\n`;
+  return `${MANAGED_BOOTSTRAP_MARKER}\n${body}`;
+}
 
-  await atomicWriteFile(filePath, normalizedContent);
-  return true;
+// ⑤SOUL 层载体：纯用户人格，用户拥有，系统永不重写。bootstrap 时 writeIfMissing 一个
+// 不带 marker 的占位 SOUL，之后系统不再触碰它（不在 managed 写清单里）。
+function buildUserSoulPlaceholder(agentId) {
+  return `# ${agentId}\n\n<在此写本 agent 的自定义人格；本文件由你拥有，系统不会覆盖。>\n`;
 }
 
 const LEGACY_DELIVERY_GUIDANCE_FILE = ["RUNTIME", "RETURN.md"].join("-");
@@ -153,15 +141,17 @@ export async function syncAgentWorkspaceGuidance({
   );
   await mkdir(workspaceDir, { recursive: true });
 
-  // Execution-layer roles (worker/researcher/reviewer/planner) only get SOUL + HEARTBEAT.
-  // Coordination-layer roles (bridge/operator/agent) get full guidance suite.
-  // Reduces context injection by ~2000+ tokens for execution-layer agents.
+  // Execution-layer roles (worker/researcher/reviewer/planner) get the lean suite
+  // (IDENTITY persona + HEARTBEAT); coordination-layer roles get the full guidance suite.
+  // ④role lives in IDENTITY.md (managed) for ALL roles; ⑤SOUL is user-owned (never written here).
   const EXECUTION_LAYER_ROLES = new Set([
     AGENT_ROLE.EXECUTOR, AGENT_ROLE.RESEARCHER, AGENT_ROLE.REVIEWER, AGENT_ROLE.PLANNER,
   ]);
   const isExecutionLayer = EXECUTION_LAYER_ROLES.has(role);
 
-  for (const fileName of ["BOOTSTRAP.md", "IDENTITY.md", "USER.md", "TOOLS.md"]) {
+  // IDENTITY.md is now managed (persona carrier); the framework default scaffold for it is
+  // replaced by writeManagedFile below, so it stays out of this scaffold-removal sweep.
+  for (const fileName of ["BOOTSTRAP.md", "USER.md", "TOOLS.md"]) {
     await removeWorkspaceFileIf(join(workspaceDir, fileName), (content) => isDefaultOpenClawScaffoldFile(fileName, content));
   }
   if (!isExecutionLayer) {
@@ -171,12 +161,12 @@ export async function syncAgentWorkspaceGuidance({
     );
   }
 
-  const soulUpdated = await writeSoulFile(
-    join(workspaceDir, "SOUL.md"),
-    buildSoulTemplate(agentId, role),
+  const identityUpdated = await writeManagedFile(
+    join(workspaceDir, "IDENTITY.md"),
+    buildManagedIdentityDoc(agentId, role),
     {
-      role,
-      force: forcedFiles.has("SOUL.md"),
+      legacyPredicates: [(existing) => isDefaultOpenClawScaffoldFile("IDENTITY.md", existing)],
+      force: forcedFiles.has("IDENTITY.md"),
     },
   );
   const agentsDocUpdated = isExecutionLayer ? false : await writeManagedFile(
@@ -229,7 +219,7 @@ export async function syncAgentWorkspaceGuidance({
   }
 
   return [
-    { name: "SOUL.md", updated: soulUpdated },
+    { name: "IDENTITY.md", updated: identityUpdated },
     { name: "AGENTS.md", updated: agentsDocUpdated },
     { name: "BUILDING-MAP.md", updated: buildingMapUpdated },
     { name: "COLLABORATION-GRAPH.md", updated: collaborationGraphUpdated },

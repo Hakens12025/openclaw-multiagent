@@ -101,6 +101,14 @@ export async function executeAdminChangeSet({
     const commitGate = evaluateCommitVerificationGate({ draft, preview, requireVerification });
     if (commitGate.required && !commitGate.passed) {
       const blockedAt = Date.now();
+      // ⑩ The apply ALREADY mutated the system; when the commit-verification gate blocks, roll the
+      // structural change back (reuse the pre-apply snapshot the choke captured) so a blocked change-set
+      // never leaves a half-applied mutation. Non-structural surfaces have no snapshot → nothing to undo.
+      const rollback = normalizedResult.preApplySnapshot
+        ? await (await import("../control-plane/structure-snapshot.js"))
+            .restoreStructureSnapshot(normalizedResult.preApplySnapshot)
+            .catch((e) => ({ ok: false, error: e.message }))
+        : { ok: false, error: "no pre-apply snapshot captured (non-structural surface)" };
       await recordAdminChangeSetExecution({
         id: draft.id,
         executionId,
@@ -113,7 +121,7 @@ export async function executeAdminChangeSet({
         durationMs: blockedAt - startedAt,
         payload: preview.payload,
         managementContext: preview.managementContext,
-        result: { ...normalizedResult, commitGate },
+        result: { ...normalizedResult, commitGate, rollback },
         error: commitGate.reason,
       });
       throw new CommitVerificationBlockedError(preview.surfaceId, commitGate);

@@ -387,9 +387,15 @@ function renderGuidancePreview(agent) {
     return `<div class="agents-detail-preview error">${esc(preview.error)}</div>`;
   }
   const showManagedWarning = preview.guidanceState === "managed";
+  // 真实 on-disk 引导文件 → 「在 Finder 打开」超链接（复用 /watchdog/reveal-file 白名单 open -R）。
+  // 不存在的文件无从 reveal，故仅在 exists 时显示。
+  const revealButton = preview.exists === false
+    ? ""
+    : '<button class="agents-action-btn subtle" type="button" data-agent-preview-reveal="1" title="在 Finder 中定位该文件">📂 Finder</button>';
   const actionMarkup = preview.editing
     ? `
       <div class="agents-detail-preview-actions">
+        ${revealButton}
         <button class="agents-action-btn subtle" type="button" data-agent-preview-cancel="1" ${preview.saving ? "disabled" : ""}>CANCEL</button>
         <button class="agents-action-btn" type="button" data-agent-preview-save="1" ${preview.saving ? "disabled" : ""}>
           ${preview.saving ? "SAVING..." : "SAVE FILE"}
@@ -398,6 +404,7 @@ function renderGuidancePreview(agent) {
     `
     : `
       <div class="agents-detail-preview-actions">
+        ${revealButton}
         <button class="agents-action-btn subtle" type="button" data-agent-preview-edit="1">
           ${preview.exists === false ? "CREATE FILE" : "EDIT FILE"}
         </button>
@@ -547,6 +554,18 @@ function renderRosterDetail(agent) {
                     <span class="state-${esc(entry.state || "unknown")}">${esc(guidanceStateLabel(entry.state))}</span>
                   </button>
                 `).join("")}
+            <button
+              class="agents-detail-file optional ${state.guidancePreview?.agentId === agent.id && state.guidancePreview?.fileName === "WAKE.md" ? "active" : ""}"
+              type="button"
+              data-agent-preview="${esc(agent.id)}"
+              data-agent-preview-file="WAKE.md"
+              title="派工补充指引（可选）：系统派工时追加到 agent 的 wake 提示词末尾；不存在则无影响"
+            >
+              <div class="agents-detail-file-copy">
+                <strong>WAKE.md</strong>
+              </div>
+              <span class="state-optional">派工覆盖 · 可选</span>
+            </button>
           </div>
         </div>
         <div class="agents-detail-box">
@@ -867,6 +886,10 @@ function bindPageEvents(host) {
     });
   });
 
+  host.querySelectorAll("[data-agent-preview-reveal]").forEach((button) => {
+    button.addEventListener("click", () => { revealGuidanceFileInFinder(); });
+  });
+
   host.querySelectorAll("[data-agent-preview-input]").forEach((input) => {
     input.addEventListener("input", () => {
       state.guidancePreview = {
@@ -970,6 +993,28 @@ async function loadDiscovery() {
     state.takingOverAgentId = null;
     state.deletingAgentId = null;
     state.deletingMode = null;
+    renderPage();
+  }
+}
+
+// Reveal the currently-previewed guidance file (SOUL.md / HEARTBEAT.md / …) in the system file manager.
+// workspacePath is the (~-compacted) workspace DIR; the file lives at <dir>/<fileName>. The reveal
+// endpoint expands ~ and whitelists ~/.openclaw/workspaces, so a real on-disk guidance file reveals
+// safely; generated/non-file content never reaches here (the button is gated on preview.exists).
+async function revealGuidanceFileInFinder() {
+  const preview = state.guidancePreview;
+  if (!preview?.workspacePath || !preview?.fileName) return;
+  const filePath = `${String(preview.workspacePath).replace(/\/+$/, "")}/${preview.fileName}`;
+  try {
+    const response = await fetch(buildApiUrl("/watchdog/reveal-file"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: filePath }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) throw new Error(data?.error || `HTTP ${response.status}`);
+  } catch (error) {
+    state.guidancePreview = { ...state.guidancePreview, error: `无法在 Finder 打开：${error.message}` };
     renderPage();
   }
 }

@@ -12,6 +12,7 @@ import {
   listHarnessModuleCatalog,
   resolveHarnessModuleCatalogId,
 } from "./harness-module-catalog.js";
+import { validateHarnessComposition } from "./harness-composition.js";
 
 const VALID_EXECUTION_MODES = new Set([
   "freeform",
@@ -352,6 +353,9 @@ export function normalizeHarnessSelection(value) {
     moduleRefs: modules,
     moduleConfig,
     coverage,
+    // 组装连贯性建议（软,非阻断）：随 harness spec 流到 operator inspect / dashboard,
+    // 帮 operator 看见「无 gate/guard」等组装问题。freeform(0模块)→ problems 为空。
+    composition: validateHarnessComposition(modules),
     summary: {
       hardShapedCount: coverage.hardShaped.length,
       softGuidedCount: coverage.softGuided.length,

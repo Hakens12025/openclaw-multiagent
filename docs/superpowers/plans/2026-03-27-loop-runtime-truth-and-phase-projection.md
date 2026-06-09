@@ -13,15 +13,15 @@
 ### Task 1: P0 语义纠偏与伪真值切断
 
 **Files:**
-- Modify: `~/.openclaw/extensions/watchdog/hooks/after-tool-call.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/session-bootstrap.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/sse.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/contracts.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/terminal-commit.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/state-persistence.js`
-- Modify: `~/.openclaw/extensions/watchdog/dashboard.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-single.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-loop.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/hooks/after-tool-call.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/session-bootstrap.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/sse.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/terminal-commit.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/state-persistence.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/dashboard.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-single.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop.js`
 
 - [ ] 停止把 `AVG_CALLS_PER_STEP` 的计算结果继续写成 `phase/cursor/pct` 真值，至少先把它降级成 activity 字段或临时隐藏 phase strip。
 - [ ] 保留 `toolCallTotal`、`lastLabel`、最近工具调用摘要，但明确这些字段只表达“忙碌度”和“最近动作”，不表达阶段完成度。
@@ -32,13 +32,13 @@
 ### Task 2: 正式化 EvaluatorResult
 
 **Files:**
-- Create: `~/.openclaw/extensions/watchdog/lib/evaluator-result.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/router-outbox-handlers.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/agent-end-pipeline.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/pipeline-engine.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/contracts.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-loop.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/contractor-loop-permission.test.js`
+- Create: `/Users/hakens/.openclaw/extensions/watchdog/lib/evaluator-result.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/router-outbox-handlers.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/agent-end-pipeline.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/pipeline-engine.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/contractor-loop-permission.test.js`
 
 - [ ] 把 evaluator 当前 `next_action.json` / `code_verdict.json` 的弱协议收束成正式 `EvaluatorResult`，固定最小字段：`runId`、`round`、`score`、`verdict`、`continueHint`、`reworkTarget`、`bestArtifactRef`、`structuredFindings`、`constraintsForNextRound`。
 - [ ] 在 `router-outbox-handlers.js` 中把 evaluator 输出统一规范化，而不是只落成 `transition` 和零散 `feedback`。
@@ -49,15 +49,15 @@
 ### Task 3: 统一 HarnessRun 真值
 
 **Files:**
-- Modify: `~/.openclaw/extensions/watchdog/lib/harness-run.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/harness-run-store.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/agent-end-pipeline.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/automation-executor.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/automation-runtime.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/harness-dashboard.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/operator-snapshot.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-operator.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-agent-model.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/harness-run.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/harness-run-store.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/agent-end-pipeline.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/automation-executor.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/automation-runtime.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/harness-dashboard.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/operator-snapshot.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-operator.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-agent-model.js`
 
 - [ ] 以 `harness-run.js` 里的 rich object 为正式对象，升级 `harness-run-store.js` 成它的持久化层，不再保留单独的 weak run 叙事。
 - [ ] 把 `agent-end-pipeline.js` 的 run 记录路径切到统一 `HarnessRun` 结构，补齐 `round/profileId/moduleRuns/gateSummary/toolUsage/artifact/score`。
@@ -68,14 +68,14 @@
 ### Task 4: LoopPolicy 与 RoundSpec 绑定
 
 **Files:**
-- Create: `~/.openclaw/extensions/watchdog/lib/loop-policy.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/graph-loop-registry.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/pipeline-engine.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/loop-session-store.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/admin-surface-operations.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/automation-executor.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-loop.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/unified-control-plane-p0.test.js`
+- Create: `/Users/hakens/.openclaw/extensions/watchdog/lib/loop-policy.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/graph-loop-registry.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/pipeline-engine.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/loop-session-store.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/admin-surface-operations.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/automation-executor.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/unified-control-plane-p0.test.js`
 
 - [ ] 保持 `LoopSpec` 只描述 loop 拓扑，把 evaluator profile、harness profile、rubric、continue/conclude 规则放入新增 `LoopPolicy`。
 - [ ] 定义 `RoundSpec` 的最小运行态：`round`、候选目标、输入 artifact refs、本轮约束、bound harness/evaluator profile、本轮 output contract。
@@ -86,15 +86,15 @@
 ### Task 5: 统一阶段投影协议
 
 **Files:**
-- Create: `~/.openclaw/extensions/watchdog/lib/stage-projection.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/contracts.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/sse.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/session-bootstrap.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/pipeline-engine.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/loop-session-store.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/harness-dashboard.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-single.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-loop-platform.js`
+- Create: `/Users/hakens/.openclaw/extensions/watchdog/lib/stage-projection.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/sse.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/session-bootstrap.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/pipeline-engine.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/loop-session-store.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/harness-dashboard.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-single.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop-platform.js`
 
 - [ ] 定义统一投影最小字段集合：`stagePlan`、`currentStage`、`completedStages`、`done/total/pct`、`round`、`gate`、`evidence`、`runtimeStatus`、`projectionSource`。
 - [ ] 单次任务优先使用 `contract.phases + pipeline.currentStage + stageHistory + stage_result` 组合出真实阶段投影；loop 任务再叠加 `loopSession.round + phaseOrder + HarnessRun/EvaluatorResult`。
@@ -105,13 +105,13 @@
 ### Task 6: Dashboard 接线与旧估算器退役
 
 **Files:**
-- Modify: `~/.openclaw/extensions/watchdog/dashboard.js`
-- Modify: `~/.openclaw/extensions/watchdog/routes/dashboard.js`
-- Modify: `~/.openclaw/extensions/watchdog/hooks/after-tool-call.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/contracts.js`
-- Modify: `~/.openclaw/extensions/watchdog/lib/sse.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-single.js`
-- Test: `~/.openclaw/extensions/watchdog/tests/suite-loop.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/dashboard.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/routes/dashboard.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/hooks/after-tool-call.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/lib/sse.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-single.js`
+- Test: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop.js`
 
 - [ ] dashboard 主卡片改读统一阶段投影对象，区分 `stage truth`、`activity signal`、`gate/evidence`、`round`。
 - [ ] loop 和单次任务共享一套阶段语言，只在可用时叠加 `R{n}` 和 gate verdict，不额外发明第二套 UI 协议。
@@ -122,19 +122,19 @@
 ### Task 7: 测试、灰度与验证口径
 
 **Files:**
-- Modify: `~/.openclaw/extensions/watchdog/tests/suite-single.js`
-- Modify: `~/.openclaw/extensions/watchdog/tests/suite-loop.js`
-- Modify: `~/.openclaw/extensions/watchdog/tests/suite-loop-platform.js`
-- Modify: `~/.openclaw/extensions/watchdog/tests/suite-operator.js`
-- Modify: `~/.openclaw/extensions/watchdog/tests/unified-control-plane-p0.test.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-single.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-loop-platform.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/suite-operator.js`
+- Modify: `/Users/hakens/.openclaw/extensions/watchdog/tests/unified-control-plane-p0.test.js`
 
 - [ ] 先独立落 Task 1，并确认“没有真实阶段时宁可降级，不再伪装 phase truth”已经成立。
 - [ ] Task 2-4 完成后，再进入 Task 5-6，避免先改 UI 再返工 runtime object。
 - [ ] 回归命令：
-  - `node ~/.openclaw/extensions/watchdog/test-runner.js --preset single`
-  - `node ~/.openclaw/extensions/watchdog/test-runner.js --preset loop-basic`
-  - `node ~/.openclaw/extensions/watchdog/test-runner.js --suite operator --filter harness`
-  - `node ~/.openclaw/extensions/watchdog/test-runner.js --suite loop --filter projection`
+  - `node /Users/hakens/.openclaw/extensions/watchdog/test-runner.js --preset single`
+  - `node /Users/hakens/.openclaw/extensions/watchdog/test-runner.js --preset loop-basic`
+  - `node /Users/hakens/.openclaw/extensions/watchdog/test-runner.js --suite operator --filter harness`
+  - `node /Users/hakens/.openclaw/extensions/watchdog/test-runner.js --suite loop --filter projection`
 - [ ] 手工验证 SSE / dashboard：
   - 单次任务能显示真实当前阶段或安全降级
   - loop 任务能显示 `round + currentStage + gate/evidence`

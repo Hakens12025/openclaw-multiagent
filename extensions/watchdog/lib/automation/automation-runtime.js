@@ -140,6 +140,9 @@ function normalizeAutomationRuntimeState(value) {
     bestArtifact: normalizeString(source.bestArtifact) || null,
     lastScore: normalizeFiniteNumber(source.lastScore, null),
     noImprovementStreak: normalizePositiveInteger(source.noImprovementStreak, 0),
+    // 跨轮内容级 spin 检测状态（deriveDecision 的 no_progress_repeat 守卫消费）。
+    repeatStreak: normalizePositiveInteger(source.repeatStreak, 0),
+    lastArtifactFingerprint: normalizeString(source.lastArtifactFingerprint) || null,
     childAutomationIds: uniqueStrings(source.childAutomationIds),
     recentRounds: (Array.isArray(source.recentRounds) ? source.recentRounds : [])
       .map((entry) => normalizeRoundSummary(entry))

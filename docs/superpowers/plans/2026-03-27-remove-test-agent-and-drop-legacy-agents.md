@@ -41,5 +41,5 @@
 - [ ] Run the targeted test commands again and verify they pass.
 - [ ] Regenerate runtime workspace guidance from `openclaw.json`.
 - [ ] Confirm representative `BUILDING-MAP.md` files no longer mention `test` as a bridge node.
-- [ ] Delete `~/.openclaw/workspaces/test`.
+- [ ] Delete `/Users/hakens/.openclaw/workspaces/test`.
 - [ ] Re-run the targeted verification commands and inspect output before reporting completion.

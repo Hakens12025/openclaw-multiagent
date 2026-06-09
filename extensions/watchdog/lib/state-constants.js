@@ -22,6 +22,5 @@ export const PLANNER_DEFERRED_RETRY_MAX_ATTEMPTS = 18; // 18 * 10s = 3min max
 
 // Tracker / runtime stage timeout thresholds
 export const NON_RUNNING_TRACKER_RETENTION_MS = 60 * 60_000;         // 1hr: evict finished trackers
-export const RUNNING_TRACKER_ABSOLUTE_TIMEOUT_FLOOR_MS = 2 * 60 * 60_000; // 2hr: absolute timeout
 export const RUNNING_TRACKER_STALE_SILENCE_MS = 20 * 60_000;         // 20min: silence → inactivity wake
 export const LATE_COMPLETION_LEASE_MS = 10 * 60 * 1000;              // 10min: grace window

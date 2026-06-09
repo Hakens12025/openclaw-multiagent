@@ -98,8 +98,6 @@ async function systemActionRunCreateTask(normalizedAction, {
   sessionKey,
   contractData,
   api,
-  enqueueFn,
-  wakePlanner,
   logger,
   actionReplyTo,
 }) {
@@ -126,8 +124,6 @@ async function systemActionRunCreateTask(normalizedAction, {
     systemActionDeliveryTicket: systemActionDelivery.deliveryTicket,
     ingressDirective: normalizedAction.params,
     api,
-    enqueue: enqueueFn,
-    wakePlanner,
     logger,
   });
   const wake = ingressResult && "wake" in ingressResult

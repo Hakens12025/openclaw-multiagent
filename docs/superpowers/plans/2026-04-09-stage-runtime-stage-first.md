@@ -46,7 +46,7 @@ test("buildInitialTaskStagePlan returns a definition-only canonical plan", () =>
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-plan.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-plan.test.js
 ```
 
 Expected: FAIL because the current implementation still exposes `currentStageId` and `completedStageIds` on `stagePlan`.
@@ -68,7 +68,7 @@ test("bindInboxContractEnvelope maps stageRuntime separately from definition-onl
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
 ```
 
 Expected: FAIL because `session-bootstrap` does not yet preserve separate `stageRuntime`.
@@ -112,7 +112,7 @@ test("applyTrackingStageProjection derives progress from stageRuntime instead of
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/stage-projection.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/stage-projection.test.js
 ```
 
 Expected: FAIL because `stage-projection` still mutates `stagePlan` from `stageRunResult`.
@@ -154,7 +154,7 @@ export function normalizeTaskStageRuntime(runtime, stagePlan) {
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-plan.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-plan.test.js
 ```
 
 Expected: plan-shape tests pass, runtime-shape tests still fail elsewhere.
@@ -184,7 +184,7 @@ const trackingContract = {
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
 ```
 
 Expected: bootstrap/lifecycle tests move to green; projection tests still fail.
@@ -229,7 +229,7 @@ if (trackingState.status === CONTRACT_STATUS.COMPLETED && completedSet.size === 
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/stage-projection.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/stage-projection.test.js
 ```
 
 Expected: projection tests pass with `stageRuntime` inputs.
@@ -239,9 +239,9 @@ Expected: projection tests pass with `stageRuntime` inputs.
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-plan.test.js
-node --test ~/.openclaw/extensions/watchdog/tests/stage-projection.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-plan.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/stage-projection.test.js
 ```
 
 Expected: all three files PASS.
@@ -267,7 +267,7 @@ const stagePlan = rawPlan?.stages?.length > 0
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
 ```
 
 Expected: PASS with no regression in marker-backed stage plan behavior.
@@ -292,8 +292,8 @@ assert.equal(payload.stageRuntime.currentStageId, "stage-2");
 Run:
 
 ```bash
-node --test ~/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
-node --test ~/.openclaw/extensions/watchdog/tests/dashboard-stage-visibility.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/task-stage-runtime.test.js
+node --test /Users/hakens/.openclaw/extensions/watchdog/tests/dashboard-stage-visibility.test.js
 ```
 
 Expected: PASS.
@@ -301,7 +301,7 @@ Expected: PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
-git -C ~/.openclaw add \
+git -C /Users/hakens/.openclaw add \
   docs/superpowers/plans/2026-04-09-stage-runtime-stage-first.md \
   extensions/watchdog/lib/task-stage-plan.js \
   extensions/watchdog/lib/session-bootstrap.js \
@@ -313,7 +313,7 @@ git -C ~/.openclaw add \
   extensions/watchdog/tests/task-stage-plan.test.js \
   extensions/watchdog/tests/task-stage-runtime.test.js \
   extensions/watchdog/tests/stage-projection.test.js
-git -C ~/.openclaw commit -m "refactor: split stage runtime truth from stage plan"
+git -C /Users/hakens/.openclaw commit -m "refactor: split stage runtime truth from stage plan"
 ```
 
 ---

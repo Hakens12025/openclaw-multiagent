@@ -150,7 +150,6 @@ export async function runLoopDirectCase(testCase) {
             },
           },
         },
-        enqueue: () => {},
         originSurfaceId: "runtime.loop.start",
         originDraftId: null,
         originExecutionId: null,

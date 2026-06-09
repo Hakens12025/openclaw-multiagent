@@ -133,7 +133,7 @@ const apiRoutes = (() => {
     config: {},
   };
   const logger = { info() {}, warn() {}, error() {} };
-  registerApiRoutes(api, logger, { enqueueFn() {}, wakePlanner() {} });
+  registerApiRoutes(api, logger, {});
   return routes;
 })();
 

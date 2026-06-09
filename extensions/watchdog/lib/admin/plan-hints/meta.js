@@ -15,6 +15,8 @@ export const UNSUPPORTED_VERIFICATION_SURFACES = new Set([
   "runtime.reset",
   "test_runs.start",
   "test.inject",
+  "apply.chart_create",
+  "apply.chart_move",
 ]);
 
 export const SURFACE_DEFAULT_PAYLOADS = Object.freeze({

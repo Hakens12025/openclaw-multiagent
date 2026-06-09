@@ -298,8 +298,6 @@ export const AGENT_END_MAIN_STAGES = Object.freeze([
         sessionKey: context.sessionKey,
         contractData: context.effectiveContractData,
         api: context.api,
-        enqueueFn: () => null,
-        wakePlanner: context.wakePlanner,
         logger: context.logger,
         injectedAction: firstAction,
       });

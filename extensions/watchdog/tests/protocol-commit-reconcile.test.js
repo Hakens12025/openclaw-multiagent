@@ -184,7 +184,6 @@ test("canonical outbox commit reconciles running worker session without natural 
 
   const { api, getHandler } = createHookApi();
   afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
     wakeContractor: async () => null,
   });
 
@@ -287,7 +286,7 @@ test("failed planner inbox reads must not auto-delete inbox contract truth", asy
     });
 
     const { api, getHandler } = createHookApi();
-    afterToolCallHook.register(api, logger, { enqueueFn() {}, wakePlanner() {} });
+    afterToolCallHook.register(api, logger);
     const afterToolCall = getHandler("after_tool_call");
 
     await afterToolCall({
@@ -349,7 +348,7 @@ test("successful planner inbox reads still auto-delete consumed inbox contract t
     });
 
     const { api, getHandler } = createHookApi();
-    afterToolCallHook.register(api, logger, { enqueueFn() {}, wakePlanner() {} });
+    afterToolCallHook.register(api, logger);
     const afterToolCall = getHandler("after_tool_call");
 
     await afterToolCall({
@@ -435,7 +434,6 @@ test("canonical outbox commit follows workspace symlink aliases used by real wor
 
   const { api, getHandler } = createHookApi();
   afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
     wakeContractor: async () => null,
   });
 
@@ -543,10 +541,7 @@ test("loop hard stop requires runtime_result instead of completing from contract
   };
 
   const { api, getHandler } = createHookApi();
-  afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
-    wakePlanner: async () => null,
-  });
+  afterToolCallHook.register(api, logger);
 
   try {
     await persistContractSnapshot(contractPath, sharedContract, logger);
@@ -671,10 +666,7 @@ test("loop hard stop after output commit keeps following graph topology", async 
   };
 
   const { api, getHandler } = createHookApi();
-  afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
-    wakePlanner: async () => null,
-  });
+  afterToolCallHook.register(api, logger);
 
   try {
     await persistContractSnapshot(contractPath, sharedContract, logger);
@@ -785,10 +777,7 @@ test("loop hard stop terminalizes a running contract even when no output artifac
   };
 
   const { api, getHandler } = createHookApi();
-  afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
-    wakePlanner: async () => null,
-  });
+  afterToolCallHook.register(api, logger);
 
   try {
     await persistContractSnapshot(contractPath, sharedContract, logger);
@@ -977,7 +966,6 @@ test("canonical outbox commit ignores stale runtime_result artifact inventory an
 
   const { api, getHandler } = createHookApi();
   afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
     wakeContractor: async () => null,
   });
 
@@ -1103,7 +1091,6 @@ test("canonical outbox commit is observed even when the tool event has no writab
 
   const { api, getHandler } = createHookApi();
   afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
     wakeContractor: async () => null,
   });
 
@@ -1220,7 +1207,6 @@ test("output_commit stays observational and does not finalize or release planner
 
   const { api, getHandler } = createHookApi();
   afterToolCallHook.register(api, logger, {
-    enqueueFn: () => {},
     wakeContractor: async () => null,
   });
 

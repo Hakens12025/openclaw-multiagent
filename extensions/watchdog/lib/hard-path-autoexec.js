@@ -2,24 +2,39 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { agentWorkspace } from "./state.js";
 import { cacheContractSnapshot } from "./store/contract-store.js";
 import { persistContractSnapshot } from "./contracts.js";
 import { CONTRACT_STATUS } from "./core/runtime-status.js";
 
-// Shell metacharacters that could enable command injection
-const SHELL_INJECTION_PATTERN = /[;&|`$()<>]/;
+// Strict allowlist for a hard-path experiment command: alphanumerics + safe punctuation + spaces ONLY.
+// The prior /[;&|`$()<>]/ BLOCKLIST missed newline/CR, and `exec` IGNORES shell:false (it always spawns a
+// shell) — so a newline could inject a second command. An allowlist (no shell metachars incl \n/\r) +
+// execFile (no shell, args passed literally) below makes shell injection impossible.
+const HARD_PATH_COMMAND_ALLOWLIST = /^[A-Za-z0-9_\-./= ]+$/u;
+// The executable (argv[0]) MUST be a known experiment interpreter. A hard-path command is DATA-DRIVEN
+// (sourced from contract.json, which an LLM planner / upstream agent / contract-creating API can populate),
+// so the char-allowlist alone is NOT enough: `rm -rf /path`, `dd ...`, `mv ...`, `chmod ...` contain no
+// shell metacharacters and would pass + execute literally under execFile. Restricting argv[0] to a small
+// interpreter allowlist rejects arbitrary destructive commands while keeping legitimate experiment runs
+// (e.g. `python3 solve.py --n=15`). Extend this set deliberately if a new runner is needed.
+const HARD_PATH_EXECUTABLE_ALLOWLIST = new Set(["python3", "python", "node"]);
 
 function validateHardPathCommand(command) {
   if (!command || typeof command !== "string") return false;
-  if (SHELL_INJECTION_PATTERN.test(command)) return false;
-  return true;
+  if (!HARD_PATH_COMMAND_ALLOWLIST.test(command)) return false;
+  const argv0 = command.trim().split(/\s+/u)[0] || "";
+  const exe = argv0.includes("/") ? argv0.slice(argv0.lastIndexOf("/") + 1) : argv0;
+  return HARD_PATH_EXECUTABLE_ALLOWLIST.has(exe);
 }
 
 function execAsync(command, options) {
+  // No shell: split the allowlisted (metachar-free) command into argv and execFile it. execFile honors
+  // no-shell and passes args literally, so nothing is ever shell-interpreted.
+  const argv = String(command).trim().split(/\s+/u).filter(Boolean);
   return new Promise((resolve, reject) => {
-    exec(command, { ...options, shell: false }, (err, stdout, stderr) => {
+    execFile(argv[0], argv.slice(1), { ...options }, (err, stdout, stderr) => {
       if (err) reject(err);
       else resolve({ stdout, stderr });
     });

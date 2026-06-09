@@ -90,10 +90,9 @@ ContractDefinition -> ExecutionObservation -> TerminalOutcome
 
 ## 当前状态
 
-- **EvaluationResult**: 部分存在
-- **AutomationDecision**: 部分实现
-- **ProfileLifecycle**: 尚未实现
-- **Phase 1 目标**: 先作为运行时内部对象实现
-- **来源**: 备忘录 76, 80, 100
+- **EvaluationResult / AutomationDecision / ProfileLifecycle**: 均已实现（v115）。
+- **ProfileLifecycle**: `lib/automation/profile-lifecycle.js`（streak 渐进硬化 trustLevel → governanceSnapshot，TRUST_LADDER = experimental/provisional/stable，连 2 fail → retired），经 `inspect.profile_lifecycle` 观测，合流于 `lib/automation/resolve-governance.js`，闭环 E2E 见 `tests/automation-profile-lifecycle-closed-loop-p4.test.js`。
+- 与 [四关节自治闭环](self-governance-loop.md) 一致（不再自相矛盾）。
+- **来源**: 备忘录 76, 80, 100 + v115 实现
 
-相关概念: [harness](harness.md) | [automation-of-automation](automation-of-automation.md) | [evaluator](evaluator.md) | [system-layering](system-layering.md)
+相关概念: [harness](harness.md) | [automation-of-automation](automation-of-automation.md) | [evaluator](evaluator.md) | [system-layering](system-layering.md) | [四关节自治闭环](self-governance-loop.md)

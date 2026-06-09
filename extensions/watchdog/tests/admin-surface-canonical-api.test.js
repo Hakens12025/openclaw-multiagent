@@ -52,11 +52,9 @@ function buildRegisteredRoutes() {
     },
   };
   registerApiRoutes(api, console, {
-    enqueueFn: async () => {},
     wakeContractor: async () => {},
   });
   registerA2ARoutes(api, console, {
-    enqueueFn: async () => {},
     wakeContractor: async () => {},
   });
   return routes;
@@ -190,6 +188,7 @@ test('schedules.delete route requires canonical scheduleId', async () => {
 
   const req = buildRequest('/watchdog/schedules/delete', {
     id: 'legacy-schedule-id',
+    explicitConfirm: true, // schedules.delete is a destructive surface → requires explicit confirm (matches its siblings)
   });
   const res = buildResponse();
 

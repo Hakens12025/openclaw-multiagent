@@ -240,8 +240,6 @@ async function completeLoopStageFromContract(agentId, inboxContract, {
       },
     },
     logger,
-    enqueueFn: () => {},
-    wakePlanner: async () => null,
     trackingState,
   });
 
@@ -327,8 +325,6 @@ async function completeLoopStageWithPlannerOutput(agentId, inboxContract, {
       },
     },
     logger,
-    enqueueFn: () => {},
-    wakePlanner: async () => null,
     trackingState,
   });
 
@@ -377,7 +373,7 @@ testWithGlobalLoopRuntime("startLoopRound defaults loop runtime budget to three 
       loopId,
       startAgent: entryAgent,
       requestedTask: "验证 loop 默认预算",
-    }, buildWakeAndClaim(), null, null, logger);
+    }, buildWakeAndClaim(), null, logger);
     contractId = startResult?.contractId || null;
 
     assert.equal(startResult?.action, "started");
@@ -441,7 +437,7 @@ testWithGlobalLoopRuntime("loop-tagged contracts keep graph routing even when pl
       loopId,
       startAgent: plannerAgent,
       requestedTask: "你好",
-    }, buildWakeAndClaim(), null, null, logger);
+    }, buildWakeAndClaim(), null, logger);
     contractId = startResult?.contractId || null;
 
     assert.equal(startResult?.action, "started");
@@ -523,7 +519,7 @@ testWithGlobalLoopRuntime("loop runtime governance concludes when maxExperiments
       requestedTask: "验证 loop runtime maxExperiments 正式收口",
       budget: { maxExperiments: 1 },
       taskStagePlan,
-    }, buildWakeAndClaim(), null, null, logger);
+    }, buildWakeAndClaim(), null, logger);
     contractId = startResult?.contractId || null;
 
     assert.equal(startResult?.action, "started");
@@ -612,7 +608,7 @@ testWithGlobalLoopRuntime("loop runtime governance concludes before routing beyo
       requestedTask: "验证 loop runtime maxRounds 正式收口",
       budget: { maxRounds: 1 },
       taskStagePlan,
-    }, buildWakeAndClaim(), null, null, logger);
+    }, buildWakeAndClaim(), null, logger);
     contractId = startResult?.contractId || null;
 
     assert.equal(startResult?.action, "started");

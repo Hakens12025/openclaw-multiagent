@@ -1,6 +1,7 @@
 export const AGENT_IDS = Object.freeze({
   CONTROLLER: "controller",
   OPERATOR: "operator",
+  VIZ_MASTER: "viz-master",
   QQ_BRIDGE: "agent-for-kksl",
   PLANNER: "planner",
   RESEARCHER: "researcher",
@@ -30,6 +31,7 @@ export const SPECIALIZED_EXECUTOR_FALLBACK_IDS = Object.freeze([
 export const AGENT_WORKSPACE_OVERRIDES = Object.freeze({
   [AGENT_IDS.CONTROLLER]: "workspaces/controller",
   [AGENT_IDS.OPERATOR]: "workspaces/operator",
+  [AGENT_IDS.VIZ_MASTER]: "workspaces/viz-master",
   [AGENT_IDS.QQ_BRIDGE]: "workspaces/kksl",
 });
 
@@ -47,9 +49,15 @@ export const QQ_INGRESS_AGENT_IDS = new Set([
   AGENT_IDS.QQ_BRIDGE,
 ]);
 
+// Meta-agents own a control-plane surface family (operator owns "*",
+// viz-master owns "chart"). A meta-agent is the SOLE WRITER of its surface
+// family; both are runtime/protected agents with their own agent block and an
+// entry in META_AGENT_SURFACE_OWNERSHIP.
+export const META_AGENT_IDS = Object.freeze(new Set([AGENT_IDS.OPERATOR, AGENT_IDS.VIZ_MASTER]));
+
 export const PROTECTED_AGENT_IDS = new Set([
+  ...META_AGENT_IDS,
   AGENT_IDS.CONTROLLER,
-  AGENT_IDS.OPERATOR,
   AGENT_IDS.QQ_BRIDGE,
   AGENT_IDS.PLANNER,
 ]);

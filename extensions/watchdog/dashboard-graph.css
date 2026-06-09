@@ -807,3 +807,24 @@
     transition: color 0.15s, border-color 0.15s;
   }
   .graph-preview-banner .graph-preview-exit:hover { color: var(--accent-orange); border-color: var(--accent-orange); }
+
+  /* ── Group-compose box-select (marquee) ── */
+  /* COMPOSE GROUP tool while armed: solid orange to signal "draw a box now". */
+  .graph-cycle-register-btn.active {
+    color: var(--bg-primary);
+    background: var(--accent-orange);
+  }
+  /* The drag rectangle: translucent orange fill + dashed orange border (web-AI lasso feel). */
+  .graph-group-marquee {
+    fill: rgba(214,124,46,0.12);
+    stroke: var(--accent-orange);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 3;
+    pointer-events: none;
+  }
+  /* Agents whose center is inside the box: orange outline so the selection is obvious before release. */
+  .svg-node-box.group-selected {
+    stroke: var(--accent-orange);
+    stroke-width: 2.5;
+    fill: rgba(214,124,46,0.10);
+  }

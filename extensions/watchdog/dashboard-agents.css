@@ -725,6 +725,14 @@
   color: var(--accent-orange);
 }
 
+/* WAKE.md 等可选覆盖文件：弱化呈现（虚线左边框 + 中性色），与"被纳管/必需"文件区分。 */
+.agents-detail-file.optional {
+  border-left: 2px dashed var(--border-secondary);
+}
+.agents-detail-file .state-optional {
+  color: var(--text-muted);
+}
+
 .agents-detail-list > div,
 .agents-detail-empty {
   color: var(--text-secondary);

@@ -13,7 +13,7 @@ import {
   unignoreHeartbeatSession,
 } from "../lib/store/heartbeat-session-store.js";
 
-export function register(api, logger, { enqueueFn, wakePlanner }) {
+export function register(api, logger) {
   api.on("agent_end", async (event, ctx) => {
     const sessionKey = ctx.sessionKey;
     const trackingState = getTrackingState(sessionKey);
@@ -33,8 +33,6 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
       ctx,
       api,
       logger,
-      enqueueFn,
-      wakePlanner,
       trackingState,
     });
 

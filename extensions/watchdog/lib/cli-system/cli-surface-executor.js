@@ -1,6 +1,7 @@
 import { executeAdminSurfaceOperation } from "../admin/admin-surface-operations.js";
 import { normalizeString } from "../core/normalize.js";
 import { getCliSystemSurface } from "./cli-surface-registry.js";
+import { assertActorOwnsSurface } from "./meta-agent-surface-ownership.js";
 
 export async function executeCliSystemSurface({
   surfaceId,
@@ -16,9 +17,7 @@ export async function executeCliSystemSurface({
     throw new Error(`unknown cli-system surface: ${normalizedSurfaceId || "unknown"}`);
   }
 
-  if (actor !== "operator") {
-    throw new Error(`cli-system surface requires operator actor: ${normalizedSurfaceId}`);
-  }
+  assertActorOwnsSurface(actor, normalizedSurfaceId);
   if (surface.operatorExecutable !== true) {
     throw new Error(`cli-system surface is not operator executable: ${normalizedSurfaceId}`);
   }

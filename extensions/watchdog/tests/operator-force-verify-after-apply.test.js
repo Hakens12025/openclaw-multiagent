@@ -86,7 +86,7 @@ test("verify-start failure is recorded as failed_to_start, never silently passed
   failVerifyStart = false;
 });
 
-test("operator active-apply plan attaches a forced verify record to each apply step", async () => {
+test("operator active-apply plan runs ONE forced verify for the plan (supported surface)", async () => {
   sinkCalls.length = 0;
   failVerifyStart = false;
   const out = await executeOperatorExecutablePlan({
@@ -100,12 +100,37 @@ test("operator active-apply plan attaches a forced verify record to each apply s
   });
 
   assert.equal(out.ok, true);
-  const policyStep = out.results.find((r) => r.surfaceId === "agents.policy");
-  assert.equal(policyStep.verification.required, true);
-  assert.equal(policyStep.verification.status, "started", "supported apply forces a verify");
+  // verify is plan-level (one run per unique preset), not per-step.
+  assert.equal(out.verifications.length, 1, "one forced verify for the plan");
+  assert.equal(out.verifications[0].required, true);
+  assert.equal(out.verifications[0].status, "started", "supported apply forces a verify");
   // apply + verify(test_runs.start) 各一次经终端 sink
   assert.equal(sinkCalls.filter((c) => c.surfaceId === "agents.policy").length, 1, "apply executed once");
   assert.equal(sinkCalls.filter((c) => c.surfaceId === "test_runs.start").length, 1, "verify forced once after apply");
+});
+
+// The bug behind "applied but verify failed 1/2": per-step verify fired one test_runs.start PER step,
+// but startTestRun rejects a concurrent run (test-runs.js: "another test run is already active"), so
+// step 2+ always reported failed_to_start. Verify now runs ONCE per unique preset for the whole plan —
+// a multi-step plan launches a single test_runs.start, with NO false failed_to_start.
+test("multi-step plan launches ONE forced verify (deduped by preset), not one per step", async () => {
+  sinkCalls.length = 0;
+  failVerifyStart = false;
+  const out = await executeOperatorExecutablePlan({
+    plan: {
+      intent: "platform_mutation",
+      summary: "multi-step force-verify",
+      steps: [
+        { surfaceId: "agents.policy", title: "p1", summary: "change a1", payload: { agentId: "a1" } },
+        { surfaceId: "agents.policy", title: "p2", summary: "change a2", payload: { agentId: "a2" } },
+      ],
+    },
+  });
+
+  assert.equal(out.ok, true);
+  assert.equal(sinkCalls.filter((c) => c.surfaceId === "agents.policy").length, 2, "both applies ran");
+  assert.equal(sinkCalls.filter((c) => c.surfaceId === "test_runs.start").length, 1, "verify launched ONCE, not per step");
+  assert.deepEqual(out.verificationSummary, { total: 1, failedToStart: 0, anyFailedToStart: false, failedSurfaceIds: [] });
 });
 
 test("operator plan with forceVerify=false skips the gate (configurable)", async () => {
@@ -118,8 +143,8 @@ test("operator plan with forceVerify=false skips the gate (configurable)", async
     },
     forceVerify: false,
   });
-  const step = out.results[0];
-  assert.equal(step.verification.required, false);
+  assert.equal(out.verifications.length, 0, "no forced verify when opted out");
+  assert.equal(out.verificationSummary.total, 0);
   assert.equal(sinkCalls.filter((c) => c.surfaceId === "test_runs.start").length, 0, "no forced verify when opted out");
 });
 

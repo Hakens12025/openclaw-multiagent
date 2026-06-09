@@ -19,7 +19,7 @@ mock.module("../lib/agent/agent-identity.js", {
   },
 });
 
-mock.module("~/.openclaw/extensions/qqbot/dist/src/outbound.js", {
+mock.module("/Users/hakens/.openclaw/extensions/qqbot/dist/src/outbound.js", {
   namedExports: {
     sendText: async (payload) => {
       sendTextCalls.push(payload);
@@ -32,7 +32,7 @@ mock.module("~/.openclaw/extensions/qqbot/dist/src/outbound.js", {
   },
 });
 
-mock.module("~/.openclaw/extensions/qqbot/dist/src/api.js", {
+mock.module("/Users/hakens/.openclaw/extensions/qqbot/dist/src/api.js", {
   namedExports: {
     getAccessToken: async () => "token",
     sendC2CInputNotify: async () => ({}),

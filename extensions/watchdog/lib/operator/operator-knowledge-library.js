@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { compactText, normalizeString } from "../core/normalize.js";
+import { splitMarkdownSections } from "../core/markdown-sections.js";
 import { listOperatorKnowledgeSkillDocSpecs } from "../semantic-skill-registry.js";
 import { OC } from "../state.js";
 
@@ -45,57 +46,9 @@ function tokenizeRequest(value) {
   };
 }
 
-function stripMarkdownNoise(value) {
-  return String(value || "")
-    .replace(/^---\s*\n[\s\S]*?\n---\s*/m, " ")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/^<!--[\s\S]*?-->/, " ")
-    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
-    .replace(/\[[^\]]+]\([^)]*\)/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^[>#*-]\s+/gm, "")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\|/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function extractHeaderSummary(markdown) {
   const match = String(markdown || "").match(/<!--[\s\S]*?摘要：([^\n]+)[\s\S]*?-->/);
   return compactText(match?.[1] || "", MAX_NOTE_EXCERPT_LENGTH);
-}
-
-function splitMarkdownSections(markdown) {
-  const text = String(markdown || "");
-  const lines = text.split("\n");
-  const sections = [];
-  let currentHeading = null;
-  let currentLevel = null;
-  let buffer = [];
-
-  function flush() {
-    const raw = stripMarkdownNoise(buffer.join("\n"));
-    if (!raw) return;
-    sections.push({
-      heading: currentHeading,
-      level: currentLevel,
-      text: raw,
-    });
-  }
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
-    if (headingMatch) {
-      flush();
-      currentLevel = headingMatch[1].length;
-      currentHeading = normalizeText(headingMatch[2]);
-      buffer = [];
-      continue;
-    }
-    buffer.push(line);
-  }
-  flush();
-  return sections;
 }
 
 function extractTitleTags(title) {

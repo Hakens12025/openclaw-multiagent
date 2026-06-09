@@ -73,8 +73,6 @@ export function composeEntryMessageWithRework(baseMessage, pendingReworkGuidance
 export async function startAutomationRound(automationId, {
   trigger = "manual",
   api,
-  enqueue,
-  wakePlanner,
   logger,
   onAlert,
   dispatchAcceptIngressMessageFn = dispatchAcceptIngressMessage,
@@ -83,7 +81,7 @@ export async function startAutomationRound(automationId, {
   if (!normalizedId) {
     throw new Error("missing automation id");
   }
-  ensureRuntimeContext({ api, enqueue, wakePlanner });
+  ensureRuntimeContext({ api });
 
   const spec = await getAutomationSpec(normalizedId);
   if (!spec) {
@@ -195,8 +193,6 @@ export async function startAutomationRound(automationId, {
       deliveryTargets: spec.deliveryTargets,
       automationContext,
       api,
-      enqueue,
-      wakePlanner,
       logger,
     });
   } catch (error) {

@@ -26,11 +26,11 @@ export const CONTRACTS_DIR = CONTROL_PLANE_PATHS.contractsDir;
 export const OUTPUT_DIR = CONTROL_PLANE_PATHS.outputDir;
 export const REPORTS_DIR = join(OC, "test-reports");
 export const CONFIG_FILE = join(OC, "openclaw.json");
-const LEGACY_WEB_DELIVERIES_DIR = join(OC, "workspaces", "controller", "deliveries");
-const LEGACY_QQ_DELIVERIES_DIR = join(OC, "workspaces", "kksl", "deliveries");
 
-export let DELIVERIES_DIR = LEGACY_WEB_DELIVERIES_DIR;
-export let QQ_DELIVERIES_DIR = LEGACY_QQ_DELIVERIES_DIR;
+// Delivery dirs resolve purely from the gateway agent binding (set by loadConfig).
+// null = no resolved gateway agent for that source → no delivery dir to clean.
+export let DELIVERIES_DIR = null;
+export let QQ_DELIVERIES_DIR = null;
 export let WORKER_IDS = [];
 export let RUNTIME_AGENT_IDS = [];
 
@@ -39,11 +39,11 @@ let cfg = null;
 let ACTIVE_WORK_AGENT_IDS = new Set();
 let preservedWorkspaceSnapshot = null;
 
-function resolveGatewayDeliveryDir(source, fallbackDir) {
+function resolveGatewayDeliveryDir(source) {
   const gatewayAgentId = resolveGatewayAgentIdForSource(source);
   return gatewayAgentId
     ? join(agentWorkspace(gatewayAgentId), "deliveries")
-    : fallbackDir;
+    : null;
 }
 
 function resolveRuntimeWorkAgentIds() {
@@ -78,8 +78,8 @@ export async function loadConfig() {
   const runtimeConfig = resolveFormalRuntimeConfig(cfg);
   WORKER_IDS = runtimeConfig.workerIds;
   RUNTIME_AGENT_IDS = runtimeConfig.runtimeAgentIds;
-  DELIVERIES_DIR = resolveGatewayDeliveryDir("webui", LEGACY_WEB_DELIVERIES_DIR);
-  QQ_DELIVERIES_DIR = resolveGatewayDeliveryDir("qq", LEGACY_QQ_DELIVERIES_DIR);
+  DELIVERIES_DIR = resolveGatewayDeliveryDir("webui");
+  QQ_DELIVERIES_DIR = resolveGatewayDeliveryDir("qq");
   ACTIVE_WORK_AGENT_IDS = new Set(runtimeConfig.activeWorkAgentIds);
 }
 
@@ -200,7 +200,7 @@ export async function cleanTestArtifacts() {
       join(agentWorkspace(agentId), "inbox"),
       join(agentWorkspace(agentId), "outbox"),
     ]),
-  ];
+  ].filter(Boolean);
   for (const dir of dirs) {
     try {
       const files = await readdir(dir);
@@ -221,7 +221,7 @@ function getPreservedWorkspaceDirs() {
       join(agentWorkspace(agentId), "outbox"),
     ]),
     QQ_DELIVERIES_DIR,
-  ];
+  ].filter(Boolean);
 }
 
 async function ensurePreservedWorkspaceSnapshot() {
@@ -304,7 +304,7 @@ export async function fullReset() {
       join(agentWorkspace(agentId), "outbox"),
     ]),
     QQ_DELIVERIES_DIR,
-  ];
+  ].filter(Boolean);
   for (const dir of inboxOutbox) {
     try {
       const files = await readdir(dir);

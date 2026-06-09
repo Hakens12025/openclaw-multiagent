@@ -41,12 +41,17 @@ export function formatA2ATaskSendResponse(result, createdAt = Date.now()) {
   };
 }
 
-export function register(api, logger, { enqueueFn, wakePlanner }) {
+export function register(api, logger) {
 
   // GET /a2a/agent.json
   api.registerHttpRoute({
     path: "/a2a/agent.json", auth: "plugin", match: "exact",
     handler: async (req, res) => {
+      const authHeader = req.headers["authorization"] || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+      if (cfg.gatewayToken && token !== cfg.gatewayToken) {
+        res.writeHead(401, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Unauthorized" })); return true;
+      }
       const { agents, skills } = await loadCapabilityRegistry();
       const systemCard = {
         name: "OpenClaw Multi-Agent System",
@@ -101,7 +106,7 @@ export function register(api, logger, { enqueueFn, wakePlanner }) {
           source,
           replyTo: payload.replyTo,
           ingressDirective: payload,
-          api, enqueue: enqueueFn, wakePlanner, logger,
+          api, logger,
         });
       } finally {
         if (signalAgentId) {

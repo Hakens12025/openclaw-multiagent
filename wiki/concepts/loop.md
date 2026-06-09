@@ -26,6 +26,14 @@ researcher → worker → evaluator → (judgment) → researcher ...
 - loop-session 吸收循环决策状态
 - system_action 当前入口使用 `start_loop` / `advance_loop`
 
+### 环自带 limit（v120）
+
+LoopSpec 声明式携带 `maxRounds` / `maxExperiments`（`lib/loop/loop-budget.js`，DEFAULT 3 / 30）。`resolveLoopStartBudget` 的优先级（后者覆盖前者）：DEFAULT < LoopSpec-declared < runtime budget < explicit runtime config —— 环字面上带着自己的 limit，未声明时 fall-through 到 DEFAULT。超限时**复用既有 budget governance 优雅 force-conclude**，不是新建限流器。
+
+### reviewer 控制环（v121）
+
+reviewer 可早停/强停循环。配套修了一个 idle 误判 bug：loop reviewer 环节拿到的是 contract（不是扁平 artifact-inbox 文件），早先 artifact-lane 分支把「有 live contract 的 reviewer」误判为 idle → `agent_end` 被跳过 → 循环卡在 reviewer 环节不前进。修复 = artifact 分支也认「已绑定 contract 即有活干」（`lib/heartbeat-gate.js` `hasActionableHeartbeatWork`，空 reviewer 仍 idle，向后兼容）。
+
 ## 为什么存在
 
 - 消除旧编排 god object：把单体引擎职责拆解为循环原语
@@ -45,6 +53,8 @@ researcher → worker → evaluator → (judgment) → researcher ...
 2. 备忘录69 loop-session 成为真值源，旧 Path B 删除
 3. 备忘录74 提出判别式循环 / GAN-like 模式
 4. 备忘录92 正式提出旧编排引擎收口计划，loop-session 吸收决策逻辑
+5. v120-stable: LoopSpec 自带 `maxRounds`/`maxExperiments`（`loop-budget.js`），超限复用既有 budget governance 优雅收敛
+6. v121-stable: reviewer 控制环（早停/强停）+ heartbeat artifact-branch idle 误判修复（已绑定 contract 即有活干）
 
 ## 当前状态
 

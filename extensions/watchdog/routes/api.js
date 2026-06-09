@@ -13,6 +13,10 @@ import {
   buildOperatorPlan,
   executeOperatorPlan,
 } from "../lib/operator-runtime.js";
+import {
+  buildVizMasterPlan,
+  executeVizMasterPlan,
+} from "../lib/viz/viz-master-runtime.js";
 import { writeLocalAgentGuidanceContent } from "../lib/agent/agent-enrollment-guidance.js";
 import { syncAllRuntimeWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import { register as registerAdminChangeSetRoutes } from "./admin-change-sets.js";
@@ -23,7 +27,6 @@ import { terminalizeContractForTestRunner } from "../lib/test-runner-terminalize
 import { revealFileInFinder } from "../lib/agent/agent-reveal-file.js";
 
 export function register(api, logger, deps) {
-  const { enqueueFn, wakePlanner } = deps;
   const { gatewayToken } = cfg;
   const JSON_HEADERS = {
     "Content-Type": "application/json",
@@ -88,8 +91,6 @@ export function register(api, logger, deps) {
   function buildAdminSurfaceRuntimeContext(surfaceId) {
     return {
       api,
-      enqueue: enqueueFn,
-      wakePlanner,
       originDraftId: null,
       originSurfaceId: surfaceId,
     };
@@ -113,8 +114,6 @@ export function register(api, logger, deps) {
   function buildChangeSetRuntimeContext() {
     return {
       api,
-      enqueue: enqueueFn,
-      wakePlanner,
     };
   }
 
@@ -369,7 +368,9 @@ export function register(api, logger, deps) {
   registerAdminSurfacePostRoute("/watchdog/schedules/update", "schedules.update");
   registerAdminSurfacePostRoute("/watchdog/schedules/enable", "schedules.enable");
   registerAdminSurfacePostRoute("/watchdog/schedules/disable", "schedules.disable");
-  registerAdminSurfacePostRoute("/watchdog/schedules/delete", "schedules.delete");
+  registerAdminSurfacePostRoute("/watchdog/schedules/delete", "schedules.delete", {
+    requireExplicitConfirm: true,
+  });
   registerAdminSurfacePostRoute("/watchdog/automations/create", "automations.create");
   registerAdminSurfacePostRoute("/watchdog/automations/update", "automations.update");
   registerAdminSurfacePostRoute("/watchdog/automations/enable", "automations.enable");
@@ -410,6 +411,22 @@ export function register(api, logger, deps) {
     }),
   });
 
+  // ── Knowledge bases ─────────────────────────────────────────────────────────
+  registerAdminSurfacePostRoute("/watchdog/knowledge/add", "apply.knowledge_add");
+  registerAdminSurfacePostRoute("/watchdog/knowledge/reindex", "apply.knowledge_reindex");
+  registerAdminSurfacePostRoute("/watchdog/knowledge/remove", "apply.knowledge_remove", {
+    requireExplicitConfirm: true,
+  });
+  registerAdminSurfacePostRoute("/watchdog/knowledge/configure", "apply.knowledge_configure");
+  registerAdminSurfacePostRoute("/watchdog/knowledge/eval-set/save", "apply.knowledge_eval_set_save");
+  registerAdminSurfacePostRoute("/watchdog/knowledge/eval-set/remove", "apply.knowledge_eval_set_remove");
+  registerAdminSurfacePostRoute("/watchdog/knowledge/eval-run", "apply.knowledge_eval_run");
+  registerAdminSurfacePostRoute("/watchdog/knowledge/eval-faithfulness", "apply.knowledge_eval_faithfulness");
+
+  // ── Charts (非真值控制面,viz-master 拥有 chart 面) ─────────────────────────
+  registerAdminSurfacePostRoute("/watchdog/charts/create", "apply.chart_create");
+  registerAdminSurfacePostRoute("/watchdog/charts/move", "apply.chart_move");
+
   // ── Runtime Operator ───────────────────────────────────────────────────────
   registerPostActionRoute("/watchdog/operator/plan", async (payload) => buildOperatorPlan({
     message: payload.message,
@@ -426,6 +443,23 @@ export function register(api, logger, deps) {
     logger,
     onAlert: emitAlert,
     runtimeContext: buildAdminSurfaceRuntimeContext("operator.execute"),
+  }));
+
+  // ── Runtime Viz-Master (chart-only meta-agent，镜像 operator plan/execute) ──
+  registerPostActionRoute("/watchdog/viz/plan", async (payload) => buildVizMasterPlan({
+    message: payload.message,
+    history: payload.history,
+    currentPlan: payload.currentPlan,
+    logger,
+  }));
+
+  registerPostActionRoute("/watchdog/viz/execute", async (payload) => executeVizMasterPlan({
+    plan: payload.plan,
+    dryRun: payload.dryRun === true,
+    explicitConfirm: payload.explicitConfirm === true,
+    logger,
+    onAlert: emitAlert,
+    runtimeContext: buildAdminSurfaceRuntimeContext("viz-master.execute"),
   }));
 
   // ── Agent Graph ─────────────────────────────────────────────────────────────

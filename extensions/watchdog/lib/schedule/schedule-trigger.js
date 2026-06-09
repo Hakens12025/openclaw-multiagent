@@ -55,15 +55,13 @@ async function findActiveScheduleContract(scheduleId) {
 
 export async function executeScheduleTrigger(scheduleId, {
   api,
-  enqueue,
-  wakePlanner,
   logger,
 } = {}) {
   const normalizedId = normalizeString(scheduleId);
   if (!normalizedId) {
     throw new Error("missing schedule id");
   }
-  if (!api || typeof enqueue !== "function" || typeof wakePlanner !== "function") {
+  if (!api) {
     throw new Error("missing runtime context for schedule trigger");
   }
 
@@ -114,8 +112,6 @@ export async function executeScheduleTrigger(scheduleId, {
       deliveryTargets: spec.deliveryTargets,
       scheduleContext: buildScheduleContext(spec),
       api,
-      enqueue,
-      wakePlanner,
       logger,
     });
   } finally {

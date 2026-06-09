@@ -89,3 +89,31 @@ export async function runVerifyAfterApply({
     };
   }
 }
+
+// 多步 plan 的 forced-verify：按 (presetId, cleanMode) 去重，整份 plan 只对每个唯一 preset 启动 ONE
+// verify run（apply 完成后）。理由：一道 verify = 一整套系统 test 套件（preset），它验的是「改完后的
+// 系统状态」而非单条 surface；逐步启动既重复跑同一套件，又会自冲突——test-runs.js startTestRun 在已有
+// activeRunId 时抛 "another test run is already active"，于是多步 plan 只验到第一条改动步，后续步全报
+// failed_to_start（就是 "applied but verify failed 1/2" 的来源）。去重后同构 preset 只跑一次。
+export async function runPlanVerificationsAfterApply({
+  surfaceIds = [],
+  logger = null,
+  onAlert = null,
+  runtimeContext = null,
+  forceVerify = true,
+} = {}) {
+  // 唯一 preset → 代表 surfaceId（首个，作 origin 关联）。
+  const byPreset = new Map();
+  for (const sid of Array.isArray(surfaceIds) ? surfaceIds : []) {
+    const surfaceId = normalizeString(sid);
+    if (!surfaceId || !isVerifyRequiredAfterApply(surfaceId, { forceVerify })) continue;
+    const cap = normalizeRecord(getCliSystemSurface(surfaceId)?.verificationCapability);
+    const key = `${cap.presetId || ""}::${cap.cleanMode || ""}`;
+    if (!byPreset.has(key)) byPreset.set(key, surfaceId);
+  }
+  const verifications = [];
+  for (const [, surfaceId] of byPreset) {
+    verifications.push(await runVerifyAfterApply({ surfaceId, logger, onAlert, runtimeContext, forceVerify }));
+  }
+  return verifications;
+}

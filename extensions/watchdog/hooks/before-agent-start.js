@@ -77,7 +77,7 @@ function ignoreTerminalSessionReentry(sessionKey, logger, reason = null) {
   );
 }
 
-export function register(api, logger, { enqueue, wakePlanner }) {
+export function register(api, logger) {
   api.on("before_agent_start", async (_event, ctx) => {
     const sessionKey = ctx.sessionKey;
     const agentId = ctx.agentId ?? "unknown";
@@ -104,8 +104,6 @@ export function register(api, logger, { enqueue, wakePlanner }) {
       agentId,
       sessionKey,
       api,
-      enqueue,
-      wakePlanner,
       logger,
     });
 

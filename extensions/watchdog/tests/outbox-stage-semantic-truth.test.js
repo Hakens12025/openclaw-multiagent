@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   collectWorkerOutbox,
 } from "../lib/routing/runtime-mailbox-outbox-handlers.js";
+import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
 import { agentWorkspace } from "../lib/state.js";
 import {
   buildInitialTaskStagePlan,
@@ -80,6 +82,48 @@ test("collectWorkerOutbox carries semantic stage id from active contract truth w
     assert.equal("semanticStageAction" in (result.stageRunResult || {}), false);
     assert.equal(result.stageCompletion?.status, "completed");
   } finally {
+    await cleanupWorkspace(agentId, artifactPath);
+  }
+});
+
+// Regression: the task-facing inbox copy STRIPS `output` (not in TASK_FACING_INBOX_ALLOW_KEYS), but the
+// SHARED contract carries it. collectWorkerOutbox must resolve `output` from the shared contract so the
+// worker's primary mirrors to the canonical contract.output path — otherwise evaluateContractOutcome fails
+// the contract with "contract.output missing_file" despite a real delivery (live-reproduced: a "讲个笑话"
+// dispatch showed contract→failed; with this resolution it shows completed).
+test("collectWorkerOutbox mirrors the primary to the SHARED contract.output when the inbox copy strips it", async () => {
+  const agentId = `worker-output-mirror-${Date.now()}`;
+  const outboxDir = join(agentWorkspace(agentId), "outbox");
+  const contractId = `TC-WORKER-OUTPUT-MIRROR-${Date.now()}`;
+  const canonicalOutput = join(tmpdir(), `oc-mirror-${contractId}.md`);
+  let artifactPath = null;
+  try {
+    // inbox copy = task-facing, NO `output` (exactly what stageInboxContract writes)
+    await writeActiveContract(agentId, {
+      id: contractId, task: "讲个笑话", assignee: agentId, status: "running",
+    });
+    // shared contract (routing truth) HAS output → the canonical deliverable path
+    await persistContractSnapshot(getContractPath(contractId), {
+      id: contractId, task: "讲个笑话", assignee: agentId, status: "running", output: canonicalOutput,
+    });
+    await mkdir(outboxDir, { recursive: true });
+    // worker wrote a free-named artifact + a minimal runtime_result (status completed, primaryArtifactPath,
+    // NO artifacts[] array) — the real-world shape that previously failed.
+    await writeFile(join(outboxDir, "artifact.md"), "# 笑话\n\nOct 31 = Dec 25\n", "utf8");
+    await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
+      version: 1, status: "completed", summary: "joke", primaryArtifactPath: "artifact.md",
+    }), "utf8");
+
+    const result = await collectWorkerOutbox({
+      agentId, outboxDir, files: ["runtime_result.json", "artifact.md"], logger,
+    });
+    artifactPath = result.primaryOutputPath;
+
+    const mirrored = await readFile(canonicalOutput, "utf8").catch(() => null);
+    assert.ok(mirrored && mirrored.includes("Oct 31"), "primary mirrored to the shared contract.output canonical path");
+  } finally {
+    await rm(canonicalOutput, { force: true }).catch(() => {});
+    await rm(getContractPath(contractId), { force: true }).catch(() => {});
     await cleanupWorkspace(agentId, artifactPath);
   }
 });

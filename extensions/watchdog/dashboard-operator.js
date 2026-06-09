@@ -527,14 +527,34 @@ export async function executeOperatorPlanFromUI() {
   renderOperatorPlan();
   try {
     const token = operatorToken();
-    const response = await fetch(`/watchdog/operator/execute?token=${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan: operatorState.plan }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || `HTTP ${response.status}`);
+    const doExecute = async (explicitConfirm) => {
+      const r = await fetch(`/watchdog/operator/execute?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: operatorState.plan, ...(explicitConfirm ? { explicitConfirm: true } : {}) }),
+      });
+      return { response: r, payload: await r.json().catch(() => ({})) };
+    };
+    let { response, payload } = await doExecute(false);
+    // Suggest-only boundary: a plan with a destructive (confirmation:'explicit') surface — agents.delete /
+    // agents.hard_delete / runtime.reset / schedules.delete / automations.delete / agent_joins.delete — comes
+    // back ok:false + blocked:'explicit_confirmation_required' (NO error field). Don't render it as the opaque
+    // "HTTP 200" fallback: name the destructive surfaces, get an explicit human confirm, then re-run with
+    // explicitConfirm:true. This IS the human-approval gate working — just make it visible.
+    if (response.ok && payload?.ok === false && payload?.blocked === 'explicit_confirmation_required') {
+      const surfaces = Array.isArray(payload.requiresExplicitConfirm)
+        ? payload.requiresExplicitConfirm.map((s) => formatSurfaceDisplayId(s.surfaceId, s.surfaceId)).join('、')
+        : '';
+      if (!window.confirm(`此计划包含需要显式确认的破坏性操作：${surfaces || '(未列出)'}。\n\n确认执行吗？`)) {
+        pushOperatorMessage('assistant', `已取消执行——计划含破坏性操作（${surfaces || '未列出'}），需要你显式确认才会动手。`);
+        renderOperatorConversation();
+        return;
+      }
+      ({ response, payload } = await doExecute(true));
+    }
+    if (!response.ok || !payload || payload.ok === false) {
+      // Never surface a bare "HTTP 200": prefer the error, then the block reason, then the status.
+      throw new Error(payload?.error || payload?.blocked || `operator 执行失败 (HTTP ${response.status})`);
     }
 
     const stepText = Array.isArray(payload.results)

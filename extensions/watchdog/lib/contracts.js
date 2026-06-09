@@ -1,6 +1,6 @@
 // lib/contracts.js — Contract CRUD, persistence, scanning, and TASK_STATE
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   CONTRACTS_DIR,
@@ -234,7 +234,7 @@ export async function writeTaskState(trackingState, logger) {
   ].join("\n");
 
   try {
-    await writeFile(CONTROL_PLANE_PATHS.taskStateFile, content);
+    await atomicWriteFile(CONTROL_PLANE_PATHS.taskStateFile, content);
   } catch (e) {
     logger.warn(`[watchdog] writeTaskState error: ${e.message}`);
   }

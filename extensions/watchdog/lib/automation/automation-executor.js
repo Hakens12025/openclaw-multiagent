@@ -18,13 +18,11 @@ export { reconcileAutomationRuntimeStates } from "./automation-reconcile.js";
 
 export async function pollDueAutomations({
   api,
-  enqueue,
-  wakePlanner,
   logger,
   onAlert,
   limit = 4,
 } = {}) {
-  ensureRuntimeContext({ api, enqueue, wakePlanner });
+  ensureRuntimeContext({ api });
 
   const specs = await listAutomationSpecs({ enabled: true });
   const now = Date.now();
@@ -47,8 +45,6 @@ export async function pollDueAutomations({
       results.push(await startAutomationRound(spec.id, {
         trigger: "due_poll",
         api,
-        enqueue,
-        wakePlanner,
         logger,
         onAlert,
       }));

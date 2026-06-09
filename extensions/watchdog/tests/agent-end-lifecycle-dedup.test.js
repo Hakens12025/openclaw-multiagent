@@ -39,8 +39,8 @@ test("concurrent calls with the same sessionKey return same resolved value (life
   const api = makeApi();
 
   // Fire two calls simultaneously without any await between them
-  const p1 = runAgentEndLifecycle({ event, ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
-  const p2 = runAgentEndLifecycle({ event, ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
+  const p1 = runAgentEndLifecycle({ event, ctx, api, logger, trackingState: null });
+  const p2 = runAgentEndLifecycle({ event, ctx, api, logger, trackingState: null });
 
   const [r1, r2] = await Promise.all([p1, p2]);
 
@@ -55,8 +55,8 @@ test("sequential calls with the same sessionKey create independent runs", async 
   const ctx = makeCtx(agentId, sessionKey);
   const api = makeApi();
 
-  const r1 = await runAgentEndLifecycle({ event, ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
-  const r2 = await runAgentEndLifecycle({ event, ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
+  const r1 = await runAgentEndLifecycle({ event, ctx, api, logger, trackingState: null });
+  const r2 = await runAgentEndLifecycle({ event, ctx, api, logger, trackingState: null });
 
   // Sequential calls should each produce their own context (the dedup map was cleared after r1 finished)
   assert.notStrictEqual(r1, r2, "sequential calls should produce independent lifecycle contexts");
@@ -71,11 +71,11 @@ test("after first run completes, new concurrent pair also deduplicates to one ru
   const api = makeApi();
 
   // First run completes
-  await runAgentEndLifecycle({ event: makeMinimalEvent(true), ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
+  await runAgentEndLifecycle({ event: makeMinimalEvent(true), ctx, api, logger, trackingState: null });
 
   // New concurrent pair after map is cleared
-  const p3 = runAgentEndLifecycle({ event: makeMinimalEvent(true), ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
-  const p4 = runAgentEndLifecycle({ event: makeMinimalEvent(true), ctx, api, logger, enqueueFn: null, wakePlanner: null, trackingState: null });
+  const p3 = runAgentEndLifecycle({ event: makeMinimalEvent(true), ctx, api, logger, trackingState: null });
+  const p4 = runAgentEndLifecycle({ event: makeMinimalEvent(true), ctx, api, logger, trackingState: null });
 
   const [r3, r4] = await Promise.all([p3, p4]);
   assert.strictEqual(r3, r4, "second concurrent pair should also deduplicate to a single lifecycle context");

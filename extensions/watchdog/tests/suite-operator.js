@@ -720,8 +720,6 @@ export async function runOperatorCase(testCase) {
 
         const payload = await startAutomationRound(automationId, {
           api: {},
-          enqueue: () => {},
-          wakePlanner: async () => null,
           logger,
           dispatchAcceptIngressMessageFn: async (_message, options) => {
             capturedOptions = options;
@@ -849,8 +847,6 @@ export async function runOperatorCase(testCase) {
 
         const startPayload = await startAutomationRound(automationId, {
           api: {},
-          enqueue: () => {},
-          wakePlanner: async () => null,
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
@@ -964,8 +960,6 @@ export async function runOperatorCase(testCase) {
 
         const startPayload = await startAutomationRound(automationId, {
           api: {},
-          enqueue: () => {},
-          wakePlanner: async () => null,
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
@@ -1064,8 +1058,6 @@ export async function runOperatorCase(testCase) {
 
         const startPayload = await startAutomationRound(automationId, {
           api: {},
-          enqueue: () => {},
-          wakePlanner: async () => null,
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
@@ -1179,8 +1171,6 @@ export async function runOperatorCase(testCase) {
 
         await startAutomationRound(pendingAutomationId, {
           api: {},
-          enqueue: () => {},
-          wakePlanner: async () => null,
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,
@@ -1189,8 +1179,6 @@ export async function runOperatorCase(testCase) {
         });
         await startAutomationRound(failingAutomationId, {
           api: {},
-          enqueue: () => {},
-          wakePlanner: async () => null,
           logger: buildTestLogger(),
           dispatchAcceptIngressMessageFn: async () => ({
             ok: true,

@@ -61,8 +61,6 @@ test("门A：pendingReworkGuidance 拼进下一轮 entry.message（含 failureCl
 
     await startAutomationRound(automationId, {
       api: {},
-      enqueue: () => {},
-      wakePlanner: async () => null,
       logger: buildLogger(),
       dispatchAcceptIngressMessageFn: async (message) => {
         capturedMessage = message; // 捕获真正投到下一轮的任务文本
@@ -101,8 +99,6 @@ test("门A补充：无 pendingReworkGuidance 时 entry.message 原样投递（�
 
     await startAutomationRound(automationId, {
       api: {},
-      enqueue: () => {},
-      wakePlanner: async () => null,
       logger: buildLogger(),
       dispatchAcceptIngressMessageFn: async (message) => {
         capturedMessage = message;

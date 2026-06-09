@@ -141,6 +141,12 @@ export function buildAdminSurfaceSubject(surface) {
   if (surfaceId === "test.inject") {
     return { kind: "test", scope: "global", selectorKey: null, aspect: "inject" };
   }
+  if (surfaceId.startsWith("apply.chart_") || surfaceId === "inspect.charts") {
+    return { kind: "chart", scope: "global", selectorKey: null, aspect: surfaceId };
+  }
+  if (surfaceId.startsWith("apply.knowledge_") || surfaceId.startsWith("inspect.knowledge_")) {
+    return { kind: "knowledge", scope: "global", selectorKey: null, aspect: surfaceId };
+  }
   return {
     kind: "platform",
     scope: "global",

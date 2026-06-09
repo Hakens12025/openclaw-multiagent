@@ -42,8 +42,6 @@ test("automation admin, executor, and runtime summary do not propagate route hin
 
     const start = await startAutomationRound(automationId, {
       api: {},
-      enqueue: () => {},
-      wakePlanner: async () => null,
       logger: buildLogger(),
       dispatchAcceptIngressMessageFn: async (message, options = {}) => {
         dispatchCalls.push({ message, options });

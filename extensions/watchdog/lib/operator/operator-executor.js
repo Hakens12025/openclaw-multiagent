@@ -1,8 +1,40 @@
 import { inspectCliSystemGraphState } from "../cli-system/cli-graph-inspector.js";
 import { executeCliSystemSurface, getCliSystemSurface } from "../cli-system/cli-surface-registry.js";
-import { runVerifyAfterApply } from "../cli-system/cli-surface-verify-gate.js";
+import { runPlanVerificationsAfterApply } from "../cli-system/cli-surface-verify-gate.js";
 import { captureStructureSnapshot, restoreStructureSnapshot } from "../control-plane/structure-snapshot.js";
 import { assertOperatorPlanAgentFeasibility, normalizeOperatorPlan } from "./operator-plan.js";
+
+// Meta→meta delegation registry: a delegatable meta-agent id → a loader for its runtime
+// { build, execute } pair. ONE row per meta-agent (data, not an `if (id===...)` branch); the
+// dynamic import is deferred inside the loader so there is no operator-executor ↔ runtime import
+// cycle. This is operator's executor invoking another meta-agent's brain as an IN-PROCESS function
+// call (R2) — not the worker conveyor belt, not a graph edge, not dispatch.
+const META_AGENT_DELEGATES = Object.freeze({
+  "viz-master": async () => {
+    const m = await import("../viz/viz-master-runtime.js");
+    return { build: m.buildVizMasterPlan, execute: m.executeVizMasterPlan };
+  },
+});
+
+// Run a meta.delegate step: the target meta-agent plans its own sub-task (its own LLM brain) and
+// executes under its OWN actor, so its ownership backstop confines what it may write. Returns the
+// sub-plan's result ({ ok, ... }); a non-executable sub-plan (advice-only) is surfaced as ok:false.
+async function runMetaDelegate(payload, { logger, onAlert, runtimeContext, explicitConfirm, delegateDepth }) {
+  const targetActor = payload?.targetActor;
+  const loadDelegate = META_AGENT_DELEGATES[targetActor];
+  if (!loadDelegate) {
+    return { ok: false, error: `meta.delegate: unknown target meta-agent "${targetActor}"` };
+  }
+  const { build, execute } = await loadDelegate();
+  const planned = await build({ message: payload.request, logger });
+  if (!planned?.plan?.steps?.length) {
+    return { ok: false, error: planned?.plan?.reply || planned?.reply || `${targetActor} produced no executable plan` };
+  }
+  // Thread the parent's confirmation (NOT a hardcoded true) + one more delegation hop. A future
+  // delegate owning a destructive (confirmation:"explicit") surface must still require the human
+  // confirm the parent carried, never auto-approve it.
+  return execute({ plan: planned.plan, explicitConfirm, delegateDepth: delegateDepth + 1, logger, onAlert, runtimeContext });
+}
 
 export async function executeOperatorExecutablePlan({
   plan,
@@ -12,8 +44,15 @@ export async function executeOperatorExecutablePlan({
   dryRun = false,
   forceVerify = true,
   explicitConfirm = false,
+  actor = "operator",
+  delegateDepth = 0,
 } = {}) {
   const normalizedPlan = normalizeOperatorPlan(plan);
+
+  // E2 — feasibility pre-flight: reject a plan whose graph/loop/group steps reference an agent that
+  // neither already exists nor is created by an earlier step in the SAME plan (dangling edge → half-apply).
+  // Runs BEFORE the dryRun return so a PREVIEW also surfaces infeasibility (not only the live execute path).
+  await assertOperatorPlanAgentFeasibility(normalizedPlan);
 
   if (dryRun === true) {
     return {
@@ -24,11 +63,6 @@ export async function executeOperatorExecutablePlan({
       graph: await inspectCliSystemGraphState(),
     };
   }
-
-  // E2 — feasibility pre-flight: reject a plan whose graph/loop/group steps reference an agent that
-  // neither already exists nor is created by an earlier step in the SAME plan (dangling edge → half-apply).
-  // Runs after dryRun (so a dry-run still previews infeasible plans) and before any mutation.
-  await assertOperatorPlanAgentFeasibility(normalizedPlan);
 
   // C2 — suggest-only boundary: refuse to auto-run explicit-confirmation (destructive) surfaces
   // unless the human explicitly confirmed. Pre-flight BEFORE applying any step, so a destructive
@@ -43,6 +77,24 @@ export async function executeOperatorExecutablePlan({
       summary: normalizedPlan.summary,
       plan: normalizedPlan,
       requiresExplicitConfirm: needsConfirm.map((step) => ({ surfaceId: step.surfaceId, title: step.title })),
+    };
+  }
+
+  // ⑮ Designer-only boundary as a HARD gate (not just the operator-brain prompt): operator DESIGNS
+  // structure + agent content; it never RUNS the user's concrete task. runtime.loop.start/resume is a
+  // downstream user/ingress action, never an operator build step. Block it here so a misbehaving planner
+  // cannot smuggle a run into a build plan — the README's "designer-only / suggest-only" claim now holds
+  // in code, not prose. (A composed-but-not-running loop is the correct end state of an operator build.)
+  const designerOnlyViolations = normalizedPlan.steps.filter(
+    (step) => step.surfaceId === "runtime.loop.start" || step.surfaceId === "runtime.loop.resume",
+  );
+  if (designerOnlyViolations.length > 0) {
+    return {
+      ok: false,
+      blocked: "operator_is_designer_only",
+      summary: normalizedPlan.summary,
+      plan: normalizedPlan,
+      designerOnlyViolations: designerOnlyViolations.map((step) => ({ surfaceId: step.surfaceId, title: step.title })),
     };
   }
 
@@ -66,31 +118,46 @@ export async function executeOperatorExecutablePlan({
   const results = [];
   try {
     for (const step of normalizedPlan.steps) {
+      if (step.surfaceId === "meta.delegate") {
+        // R2 in-process delegation: operator summons the owning meta-agent's brain+executor as a
+        // function call. The sub-plan runs under the TARGET actor (its ownership backstop confines
+        // it). A sub-failure throws → rolls back exactly like any other step throw below.
+        // OPERATOR-ONLY + one-hop, as STRUCTURAL guarantees (not prompt convention): a delegated
+        // sub-plan runs under its target's actor and must never re-delegate (no lateral escalation,
+        // no recursion). The depth guard bounds it even if the actor gate is ever loosened.
+        if (actor !== "operator") {
+          throw new Error(`meta.delegate is operator-only (actor=${actor})`);
+        }
+        if (delegateDepth >= 1) {
+          throw new Error("meta.delegate depth limit reached (one hop)");
+        }
+        const delegated = await runMetaDelegate(step.payload, { logger, onAlert, runtimeContext, explicitConfirm, delegateDepth });
+        if (delegated && delegated.ok === false) {
+          throw new Error(typeof delegated.error === "string" && delegated.error ? delegated.error : `meta.delegate to ${step.payload?.targetActor} failed`);
+        }
+        results.push({ surfaceId: step.surfaceId, title: step.title, summary: step.summary, payload: step.payload, result: delegated });
+        continue;
+      }
       const result = await executeCliSystemSurface({
         surfaceId: step.surfaceId,
         payload: step.payload,
-        actor: "operator",
+        actor,
         logger,
         onAlert,
         runtimeContext,
       });
-      // ② 强制 verify 门（forceVerify after apply）：apply 成功后，若该 surface 有
-      // verificationCapability.supported，平台强制启动一道 verify 把改动验回来（不靠自觉）。
-      // 与 P3 commit 门互补——同一套 verify 机制的 operator 主动 apply 插入点。
-      const verification = await runVerifyAfterApply({
-        surfaceId: step.surfaceId,
-        logger,
-        onAlert,
-        runtimeContext,
-        forceVerify,
-      });
+      // P1 — a SOFT failure ({ok:false}, e.g. skills.create on an existing skill returns ok:false
+      // WITHOUT throwing) must not be silently recorded as success: throw so it hits the same rollback
+      // path a thrown error would, instead of leaving a half-applied plan reporting top-level ok:true.
+      if (result && result.ok === false) {
+        throw new Error(typeof result.error === "string" && result.error ? result.error : `operator step ${step.surfaceId} reported failure`);
+      }
       results.push({
         surfaceId: step.surfaceId,
         title: step.title,
         summary: step.summary,
         payload: step.payload,
         result,
-        verification,
       });
     }
   } catch (stepError) {
@@ -114,17 +181,27 @@ export async function executeOperatorExecutablePlan({
     };
   }
 
-  // E3 — surface the verify outcome at plan level. runVerifyAfterApply returns status
-  // "failed_to_start" when a required verify could not even be launched; aggregate it so the
-  // caller (operator chat) can warn the user the change was NOT verified. Reads verification
-  // results only — it never touches the forceVerify gate (#37) mechanism itself.
-  const requiredVerifications = results.filter((r) => r.verification?.required === true);
-  const failedVerifications = requiredVerifications.filter((r) => r.verification?.status === "failed_to_start");
+  // ② forced verify — run ONCE per unique (preset,cleanMode) across the WHOLE plan, AFTER all steps
+  // apply (not per-step). A verify run is a full system suite that validates the resulting state, and
+  // startTestRun rejects a concurrent launch — per-step would make every step after the first report
+  // failed_to_start. runPlanVerificationsAfterApply dedupes; today all apply surfaces share preset
+  // "single" → exactly one verify per plan. Reads/launches verify only; never touches the gate itself.
+  const verifications = await runPlanVerificationsAfterApply({
+    surfaceIds: normalizedPlan.steps.map((step) => step.surfaceId),
+    logger,
+    onAlert,
+    runtimeContext,
+    forceVerify,
+  });
+
+  // E3 — surface the verify outcome at plan level so operator chat can warn if a required verify could
+  // not even be launched (status "failed_to_start").
+  const failedVerifications = verifications.filter((v) => v?.status === "failed_to_start");
   const verificationSummary = {
-    total: requiredVerifications.length,
+    total: verifications.length,
     failedToStart: failedVerifications.length,
     anyFailedToStart: failedVerifications.length > 0,
-    failedSurfaceIds: failedVerifications.map((r) => r.surfaceId),
+    failedSurfaceIds: failedVerifications.map((v) => v.surfaceId),
   };
 
   return {
@@ -134,6 +211,7 @@ export async function executeOperatorExecutablePlan({
     summary: normalizedPlan.summary,
     plan: normalizedPlan,
     results,
+    verifications,
     verificationSummary,
     graph: await inspectCliSystemGraphState(),
   };

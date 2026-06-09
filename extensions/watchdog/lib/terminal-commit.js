@@ -8,6 +8,12 @@ import { removeDispatchContract } from "./routing/dispatch-runtime-state.js";
 
 function buildTerminalLabel(terminalStatus, terminalOutcome) {
   if (terminalStatus === CONTRACT_STATUS.COMPLETED) {
+    // real[13]：loop 预算用尽（reviewer 从未 approve）被 origin 标为 COMPLETED 以优雅收敛，
+    // 但 glance/badge 层不应把「次数耗尽」粉饰成「已验证通过」。已持久化的 terminalOutcome.reason
+    // 区分两者（reviewer-conclude 退出会填 verdict/score，预算退出只带 reason）。
+    if (typeof terminalOutcome?.reason === "string" && terminalOutcome.reason.startsWith("loop_budget_exhausted")) {
+      return `已收敛(预算用尽): ${terminalOutcome.reason.slice(0, 120)}`;
+    }
     return "已完成";
   }
   if (terminalStatus === CONTRACT_STATUS.AWAITING_INPUT) {

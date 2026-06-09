@@ -6,6 +6,7 @@ import {
   AGENT_WORKSPACE_OVERRIDES,
   BRIDGE_AGENT_IDS,
   GATEWAY_AGENT_IDS,
+  META_AGENT_IDS,
   PROTECTED_AGENT_IDS,
 } from "../lib/agent/agent-metadata.js";
 import { buildOperatorPlanningFocus } from "../lib/operator/operator-brain.js";
@@ -33,6 +34,12 @@ test("operator is NOT a bridge or gateway (runtime admin only)", () => {
 test("controller and operator are protected", () => {
   assert.ok(PROTECTED_AGENT_IDS.has(AGENT_IDS.CONTROLLER));
   assert.ok(PROTECTED_AGENT_IDS.has(AGENT_IDS.OPERATOR));
+});
+
+test("viz-master is a protected meta-agent", () => {
+  assert.ok(META_AGENT_IDS.has("viz-master"));
+  assert.ok(PROTECTED_AGENT_IDS.has("viz-master"));
+  assert.equal(AGENT_WORKSPACE_OVERRIDES["viz-master"], "workspaces/viz-master");
 });
 
 test("operator planning focus prefers controller as the WebUI gateway id", () => {

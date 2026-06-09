@@ -282,8 +282,6 @@ async function completeLoopStageFromContract(agentId, inboxContract, {
       },
     },
     logger,
-    enqueueFn: () => {},
-    wakePlanner: async () => null,
     trackingState,
   });
 
@@ -346,7 +344,6 @@ testWithGlobalLoopRuntime("startLoopRound carries canonical task stage truth int
         taskStagePlan,
       },
       buildWakeAndClaim(),
-      null,
       null,
       logger,
     );
@@ -433,7 +430,6 @@ testWithGlobalLoopRuntime("startLoopRound does not inject implicit stage truth w
         requestedTask: "对比三个框架优缺点",
       },
       buildWakeAndClaim(),
-      null,
       null,
       logger,
     );
@@ -555,7 +551,6 @@ testWithGlobalLoopRuntime("graph-routed runtime_result carries runtime-observed 
       },
       buildWakeAndClaim(),
       null,
-      null,
       logger,
     );
 
@@ -663,7 +658,6 @@ testWithGlobalLoopRuntime("graph-routed concluded runtime_result preserves final
       },
       buildWakeAndClaim(),
       null,
-      null,
       logger,
     );
 
@@ -749,7 +743,6 @@ testWithGlobalLoopRuntime("graph-routed follow_graph runtime_result keeps routin
         taskStagePlan,
       },
       buildWakeAndClaim(),
-      null,
       null,
       logger,
     );
@@ -844,7 +837,6 @@ testWithGlobalLoopRuntime("resumeLoopRound re-dispatches the active stage as a s
       },
       buildWakeAndClaim(),
       null,
-      null,
       logger,
     );
 
@@ -934,7 +926,7 @@ testWithGlobalLoopRuntime("interruptLoopRound terminalizes the active loop contr
       loopId,
       startAgent: researcher,
       requestedTask: "验证 interrupt 后 loop 合同会被终态化并清掉 inbox",
-    }, buildWakeAndClaim(), null, null, logger);
+    }, buildWakeAndClaim(), null, logger);
 
     assert.equal(startResult?.action, "started");
     const contractPath = getContractPath(startResult.contractId);
@@ -1017,7 +1009,7 @@ testWithGlobalLoopRuntime("late completion after interrupt does not reroute loop
       startAgent: researcher,
       requestedTask: "验证 interrupt 之后，迟到完成不会继续沿 runtime graph 派发",
       taskStagePlan,
-    }, buildWakeAndClaim(), null, null, logger);
+    }, buildWakeAndClaim(), null, logger);
     assert.equal(startResult?.action, "started");
 
     await completeLoopStage(researcher, {

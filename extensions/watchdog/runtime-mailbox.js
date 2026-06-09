@@ -40,7 +40,7 @@ export async function routeInbox(agentId, logger, options = {}) {
   try {
     const contractId = await resolveStagedContractId(inboxDir, options);
     if (contractId) {
-      const { copied, packages } = await copyUpstreamArtifactsToInbox({ contractId, agentId });
+      const { copied, packages } = await copyUpstreamArtifactsToInbox({ contractId, agentId, logger });
       if (copied.length > 0) {
         logger?.info?.(`[mailbox] routeInbox(${agentId}): upstream packages → inbox/upstream/ [${copied.join(", ")}]`);
         // 在 contract.json 写 upstreamPackages 指针：agent 读 contract 即知道读哪些包

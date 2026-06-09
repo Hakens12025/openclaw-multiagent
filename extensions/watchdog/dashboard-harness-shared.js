@@ -10,6 +10,35 @@ export const VIEW_MODES = Object.freeze({
 
 const UI_COPY = {
   "zh-CN": {
+    ws_harness_list: "Harness 列表",
+    ws_pick_harness: "选择一个 harness 开始调试",
+    ws_action_trigger: "触发调试",
+    ws_action_verify: "校验",
+    ws_action_edit: "改",
+    ws_no_run: "暂无运行记录 — 触发一次调试即可看到模块流水线",
+    ws_pick_module: "点上方流水线里的模块查看明细",
+    ws_no_evidence: "本模块无证据字段",
+    ws_history: "运行历史",
+    ws_no_history: "暂无历史运行",
+    ws_confirm_trigger: "确定触发一次 {id} 的调试运行?",
+    ws_triggering: "触发中…",
+    ws_triggered: "已触发,等待运行结果刷新…",
+    ws_trigger_failed: "触发失败",
+    ws_edit_unavailable: "仅已配置的 automation 可编辑(loop 运行不可改)",
+    ws_edit_title: "编辑 harness 模块",
+    ws_cancel: "取消",
+    ws_save: "保存",
+    ws_saving: "保存中…",
+    ws_saved: "已保存",
+    ws_save_failed: "保存失败",
+    ws_comp_structural: "结构",
+    ws_comp_ok: "组装连贯,无问题",
+    ws_comp_no_gate: "无 gate:会采集/守卫但从不判定 pass/fail(失去质量门控)",
+    ws_comp_no_guard: "无 guard:无预算/工具/作用域约束",
+    ws_comp_gate_no_collector: "有 gate 但无 collector:加 collector.artifact/trace 证据更全",
+    ws_comp_eval_no_artifact: "normalizer.eval_input 读 artifact 证据,但未含 collector.artifact",
+    ws_comp_warn_count: "{n} 项组装警告",
+    label_no_profile: "(无 profile)",
     view_atlas: "塑形图谱",
     view_placement: "执行落点",
     view_runs: "运行轨迹",
@@ -537,52 +566,8 @@ export function renderLaneMeter(countsSource, { subtitle = "" } = {}) {
   `;
 }
 
-export function renderSummaryCards(counts = {}) {
-  return `
-    <div class="harness-summary-grid">
-      <div class="harness-summary-card">
-        <span class="harness-summary-label">${esc(tx("label_modules"))}</span>
-        <strong>${esc(formatCount(counts.modules))}</strong>
-        <small>${esc(tx("summary_modules"))}</small>
-      </div>
-      <div class="harness-summary-card">
-        <span class="harness-summary-label">${esc(tx("label_profiles"))}</span>
-        <strong>${esc(formatCount(counts.profiles))}</strong>
-        <small>${esc(tx("summary_profiles"))}</small>
-      </div>
-      <div class="harness-summary-card">
-        <span class="harness-summary-label">${esc(tx("label_families"))}</span>
-        <strong>${esc(formatCount(counts.families))}</strong>
-        <small>${esc(tx("summary_families"))}</small>
-      </div>
-      <div class="harness-summary-card">
-        <span class="harness-summary-label">${esc(tx("label_automations"))}</span>
-        <strong>${esc(formatCount(counts.automations))}</strong>
-        <small>${esc(tx("summary_automations"))}</small>
-      </div>
-      <div class="harness-summary-card">
-        <span class="harness-summary-label">${esc(tx("label_pending"))}</span>
-        <strong>${esc(formatCount(counts.pendingHarnessAutomations))}</strong>
-        <small>${esc(tx("summary_pending"))}</small>
-      </div>
-      <div class="harness-summary-card">
-        <span class="harness-summary-label">${esc(tx("label_failing"))}</span>
-        <strong>${esc(formatCount(counts.failingHarnessAutomations))}</strong>
-        <small>${esc(tx("summary_failing"))}</small>
-      </div>
-    </div>
-  `;
-}
-
-export function renderPlaceholder(titleKey, copyKey, counts = {}) {
-  return `
-    ${renderSummaryCards(counts)}
-    <div class="harness-placeholder">
-      <div class="harness-placeholder-title">${esc(tx(titleKey))}</div>
-      <div class="harness-placeholder-copy">${esc(tx(copyKey))}</div>
-    </div>
-  `;
-}
+// renderSummaryCards / renderPlaceholder 已随塑形套件「调试工作台」重设计删除
+// （旧 4 视图被替代）。renderLaneMeter/renderViewTabs 仍被 devtools 使用，保留。
 
 export function renderViewTabs(activeView) {
   const tabs = [

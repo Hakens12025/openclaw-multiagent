@@ -3,7 +3,7 @@
 // to clobber an existing skill (protects platform builtins). The framework loads the skill by name
 // when an agent references it (agents.skills surface); authoring does NOT auto-inject it anywhere.
 
-import { mkdir, access } from "node:fs/promises";
+import { mkdir, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -26,14 +26,23 @@ export async function createSkillDefinition({ skillId, description, body } = {})
   const content = typeof body === "string" ? body : "";
   const dir = join(SKILLS_DIR, id);
   const file = join(dir, "SKILL.md");
+  const md = `---\nname: ${id}\ndescription: ${desc}\n---\n\n${content.trim()}\n`;
 
   let exists = false;
   try { await access(file); exists = true; } catch {}
   if (exists) {
+    // Idempotent-on-identical-content: a plan rollback can orphan a SKILL.md on disk,
+    // so a retry of the SAME plan must not be permanently blocked. If the existing file is
+    // byte-identical to what we would write, treat create as a no-op success. Different
+    // content still refuses (preserves the builtin-clobber protection).
+    let current = null;
+    try { current = await readFile(file, "utf8"); } catch {}
+    if (current === md) {
+      return { ok: true, skillId: id, path: file, bytes: Buffer.byteLength(md, "utf8"), idempotent: true };
+    }
     return { ok: false, error: `skill already exists: ${id} (create is new-only; protects builtins)`, skillId: id };
   }
 
-  const md = `---\nname: ${id}\ndescription: ${desc}\n---\n\n${content.trim()}\n`;
   await mkdir(dir, { recursive: true });
   await atomicWriteFile(file, md);
   return { ok: true, skillId: id, path: file, bytes: Buffer.byteLength(md, "utf8") };

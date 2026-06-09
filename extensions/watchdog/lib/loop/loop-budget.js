@@ -39,3 +39,16 @@ export function resolveLoopStartBudget(config, { currentRound = 1, loopSpec = nu
     currentRound,
   });
 }
+
+// 回显「解析后的有效预算 + 来源」:让 compose 调用方/operator 看见真实上限(而非依赖看不见的多层兜底)。
+// normMaxRounds/normMaxExperiments 是入口已归一的值(null=未声明)。source=declared|default。
+// 不把默认值存进 spec —— resolvedBudget 仅供展示,保 single-source fall-through。
+export function buildLoopBudgetEcho(loopSpec, { normMaxRounds = null, normMaxExperiments = null } = {}) {
+  return {
+    resolvedBudget: resolveLoopStartBudget({}, { loopSpec }),
+    budgetSource: {
+      maxRounds: normMaxRounds != null ? "declared" : "default",
+      maxExperiments: normMaxExperiments != null ? "declared" : "default",
+    },
+  };
+}

@@ -41,7 +41,13 @@ export function revealFileInFinder(inputPath, { exec = execFile } = {}) {
   if (!raw) {
     return Promise.reject(new Error("path required"));
   }
-  const resolvedPath = resolve(raw);
+  // Expand a leading ~ (or ~/) to the home dir BEFORE resolve — node's resolve() does not expand ~,
+  // and UI callers (agents page) hand us compactHomePath() forms like "~/.openclaw/workspaces/<id>/SOUL.md".
+  // The ALLOWED_ROOTS whitelist below still gates the expanded path, so this widens input forms, not access.
+  const expanded = raw === "~" || raw.startsWith(`~${sep}`) || raw.startsWith("~/")
+    ? join(homedir(), raw.slice(1))
+    : raw;
+  const resolvedPath = resolve(expanded);
   if (!isPathWithinAllowedRoots(resolvedPath)) {
     return Promise.reject(new Error("path not allowed"));
   }

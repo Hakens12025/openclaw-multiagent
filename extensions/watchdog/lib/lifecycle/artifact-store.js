@@ -152,7 +152,7 @@ function resolveUpstreamAgents(graph, agentId) {
  *   copied   = 实际复制的上游 producer 列表
  *   packages = 相对 inbox 的包路径(给 contract.json 的 upstreamPackages 指针)
  */
-export async function copyUpstreamArtifactsToInbox({ contractId, agentId } = {}) {
+export async function copyUpstreamArtifactsToInbox({ contractId, agentId, logger = null } = {}) {
   const EMPTY = { copied: [], packages: [] };
   try {
     const cid = typeof contractId === "string" ? contractId.trim() : "";
@@ -175,13 +175,16 @@ export async function copyUpstreamArtifactsToInbox({ contractId, agentId } = {})
         await copyDirRecursive(srcPkg, join(ws, "inbox", "upstream", up));
         copied.push(up);
         packages.push(`upstream/${up}/`);
-      } catch {
-        // 单个上游复制失败不影响其它上游与主流程
+      } catch (copyError) {
+        // 单个上游复制失败不影响其它上游与主流程 —— 但绝不静默:这意味着 ${up} 的产物未进入 ${aid} 的
+        // inbox(跨 agent 上下文丢失),必须可观测(否则下游静默缺料还以为正常)。
+        logger?.warn?.(`[mailbox] upstream copy FAILED for ${up} → ${aid} (cid ${cid}): ${copyError?.message || copyError} — that upstream's context is MISSING from this inbox`);
       }
     }
     return { copied, packages };
-  } catch {
-    // 整体失败静默:绝不破坏 before_agent_start / inbox 投递
+  } catch (error) {
+    // 整体失败兜底:绝不破坏 before_agent_start / inbox 投递,但记录(非静默)。
+    logger?.warn?.(`[mailbox] copyUpstreamArtifactsToInbox failed (cid ${contractId}, agent ${agentId}): ${error?.message || error}`);
     return EMPTY;
   }
 }

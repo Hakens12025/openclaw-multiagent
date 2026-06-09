@@ -66,8 +66,6 @@ export function register(api, logger, deps = {}) {
           logger,
           runtimeContext: {
             api,
-            enqueue: deps.enqueueFn,
-            wakePlanner: deps.wakePlanner,
             originDraftId: payload.originDraftId || null,
             originExecutionId: payload.originExecutionId || null,
             originSurfaceId: payload.originSurfaceId || null,

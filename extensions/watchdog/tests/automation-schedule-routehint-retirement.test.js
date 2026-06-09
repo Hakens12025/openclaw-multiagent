@@ -90,8 +90,6 @@ test("schedule trigger sends canonical ingress without route hint directive", as
 
     const result = await executeScheduleTrigger(scheduleId, {
       api: {},
-      enqueue: () => {},
-      wakePlanner: async () => null,
       logger: { info() {}, warn() {}, error() {} },
     });
 
