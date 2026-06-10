@@ -42,8 +42,8 @@ lib/                  业务逻辑(域模块)
 hooks/                before/after-tool-call, before-agent-start, agent-end
 routes/               HTTP 路由(api / operator-catalog / a2a / dashboard)
 dashboard-*.js/css    NASA-Punk 前端投影(只投影,不持有真值)
-tests/                211 个 node:test 单测
-test-runner.js        集成测试入口(preset)
+tests/                297 个 node:test 单测文件
+test-runner.js        集成测试入口(8 preset, 默认 health)
 ```
 
 ## 安装
@@ -54,11 +54,14 @@ test-runner.js        集成测试入口(preset)
 ```bash
 # 单元(必须串行 + flag,确定性)
 node --test --experimental-test-module-mocks --test-concurrency=1 --test-timeout=30000 tests/*.test.js
-# 集成(网关需在跑)
-node test-runner.js --preset qq-single   # QQ 单点
-node test-runner.js --preset concurrent  # 并发
-node test-runner.js --preset loop-platform
+# 集成(网关需在跑): 8 个预设 health/dispatch/pipeline/loop/system-action/operator/knowledge/full
+node test-runner.js                     # 默认 health(零 LLM 系统体检)
+node test-runner.js --preset dispatch   # 最小 live 派工
+node test-runner.js --preset full       # 7 个 suite 全量串行
+node test-runner.js --list              # 打印 live 预设表
 ```
+检查产出 CheckResult；fail/blocked/skip 必带 `E-*` 错误码(注册表 `lib/formal-runtime/error-codes.js`)。
+报告 `~/.openclaw/test-reports/devtool-<presetId>-<ts>.txt`(failures-first) + `.json`(机器镜像)。
 
 ## 文档
 - `wiki/concepts/` — 编译知识(WHY),四关节见 harness/cli-system/operator/automation-of-automation + evaluation-result-chain

@@ -61,7 +61,7 @@
 | 页面 | 摘要 | 状态 |
 |------|------|------|
 | [Dashboard](concepts/dashboard.md) | NASA-Punk 前端，SVG 交互拓扑，纯 vanilla JS；含「工作流」页（连通分量+session 回放） | 功能可用 |
-| [测试系统](concepts/test-system.md) | test-runner.js 唯一入口，五层测试模型 | 功能可用 |
+| [测试系统](concepts/test-system.md) | test-runner.js 唯一入口；8 预设(默认 health 零 LLM 体检)，CheckResult+E-* 错误码注册表，failures-first 报告 | 功能可用 |
 
 ## 知识库与检索 (RAG)
 
@@ -96,6 +96,7 @@
 | [真值层协调缝](decisions/truth-seam-coordination.md) | 真值枚举+actor 门抽成声明式注册表(一条路径)；operator-hub 星型 meta 旁路可行 | 06-05 |
 | [oh-my-pi 借鉴](decisions/oh-my-pi-borrow-2026-06.md) | Pi 反向分叉；TIER-1 provider 兜底链已落地；把 Harness Problem 对准自己 | 06-09 |
 | [role/SOUL/wake 解耦+英文化](decisions/role-soul-wake-decoupling.md) | SOUL=纯用户；role→IDENTITY(④托管)；wake 叠加仅派工；三层提示词改英文 | 06-10 |
+| [test-runner 大修](decisions/test-runner-overhaul-2026-06.md) | CheckResult+E-码注册表+failures-first 报告;19→8 预设(默认 health);verify 门→dispatch | 06-10 |
 
 ## 状态与元信息
 

@@ -16,7 +16,7 @@ Own repeatable test entrypoints, presets, reports, wiki, and implementation plan
 ## Interfaces
 
 - test-runner CLI
-- formal test catalog
+- formal check report
 - wiki schema
 
 ## Normal Files
@@ -31,7 +31,7 @@ The canonical file ownership rules live in `extensions/watchdog/lib/dev/system-b
 ## Minimal Tests
 
 - `extensions/watchdog/tests/test-runner-cli-client.test.js`
-- `extensions/watchdog/tests/formal-test-case-catalog.test.js`
+- `extensions/watchdog/tests/formal-check-runner.test.js`
 
 ## Agent Assignment
 

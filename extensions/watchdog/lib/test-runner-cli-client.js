@@ -1,19 +1,51 @@
+// lib/test-runner-cli-client.js — test-runner CLI 纯逻辑（参数解析/超时预算/轮询/展示）
+// 预设真值在 live surface（GET /watchdog/test-runs），CLI 不写死 preset id。
+
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed"]);
 const CLI_MIN_TIMEOUT_MS = 300000;
-const CLI_SINGLE_CASE_BUDGET_MS = 360000;
-const CLI_CONCURRENT_CASE_BUDGET_MS = 420000;
-const CLI_RUNTIME_CASE_BUDGET_MS = 360000;
 const CLI_RESET_ALLOWANCE_MS = 45000;
 const CLI_FINALIZATION_ALLOWANCE_MS = 120000;
 const RETIRED_CLI_FLAGS = new Set(["--suite", "--filter", "--clean"]);
-const SUPPORTED_CLI_FLAGS = new Set(["--preset", "--case"]);
+const SUPPORTED_CLI_FLAGS = new Set(["--preset", "--case", "--list", "--help"]);
+const DEFAULT_CLI_PRESET_ID = "health";
+
+// 每 suite 的单 case 时间预算：health/knowledge/operator 零或少 LLM（快），
+// dispatch/pipeline/loop/system-action 走 live LLM 链路（慢），full 按段计费。
+const SUITE_CASE_BUDGET_MS = Object.freeze({
+  health: 120000,
+  knowledge: 180000,
+  operator: 300000,
+  dispatch: 360000,
+  pipeline: 480000,
+  loop: 600000,
+  "system-action": 360000,
+  full: 600000,
+});
+const DEFAULT_CASE_BUDGET_MS = 360000;
+
+export const CLI_USAGE = `OpenClaw Test Runner — /watchdog/test-runs/* 薄客户端
+
+用法:
+  node test-runner.js [--preset <id>] [--case <id>] [--list] [--help]
+
+  (无参数)        运行默认预设 "${DEFAULT_CLI_PRESET_ID}"（零 LLM 系统体检）
+  --preset <id>   运行指定预设（用 --list 查看 8 个预设）
+  --case <id>     单用例 ad-hoc 运行（仅支持 dispatch/pipeline 的 case id）
+  --list          打印 live 预设表后退出
+  --help          打印本说明后退出
+
+退出码: 0 = 全部通过 | 1 = 有 fail | 2 = 有 blocked
+报告: ~/.openclaw/test-reports/devtool-<presetId>-<ts>.txt (+.json 机器可读镜像)
+已退役的旗标 --suite/--filter/--clean 会硬报错。`;
 
 function normalizePresetList(payload) {
   if (Array.isArray(payload)) return payload;
   return Array.isArray(payload?.presets) ? payload.presets : [];
 }
 
-export function normalizeCliRunTarget({ presetId = "", caseId = "" } = {}) {
+export function normalizeCliRunTarget({ presetId = "", caseId = "", list = false, help = false } = {}) {
+  if (help) return { mode: "help" };
+  if (list) return { mode: "list" };
   const normalizedPresetId = String(presetId || "").trim();
   const normalizedCaseId = String(caseId || "").trim();
   if (normalizedPresetId && normalizedCaseId) {
@@ -22,7 +54,7 @@ export function normalizeCliRunTarget({ presetId = "", caseId = "" } = {}) {
   if (normalizedCaseId) {
     return { mode: "case", caseId: normalizedCaseId };
   }
-  return { mode: "preset", presetId: normalizedPresetId || "single" };
+  return { mode: "preset", presetId: normalizedPresetId || DEFAULT_CLI_PRESET_ID };
 }
 
 export function parseCliRunArgs(argv = []) {
@@ -30,6 +62,8 @@ export function parseCliRunArgs(argv = []) {
   const parsed = {
     presetId: "",
     caseId: "",
+    list: false,
+    help: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -42,6 +76,14 @@ export function parseCliRunArgs(argv = []) {
     }
     if (!SUPPORTED_CLI_FLAGS.has(arg)) {
       throw new Error(`unknown CLI flag: ${arg}`);
+    }
+    if (arg === "--list") {
+      parsed.list = true;
+      continue;
+    }
+    if (arg === "--help") {
+      parsed.help = true;
+      continue;
     }
     const value = args[index + 1];
     if (!value || String(value).startsWith("--")) {
@@ -62,6 +104,34 @@ export function findCliPreset(payload, presetId) {
     .find((preset) => String(preset?.id || "").trim() === normalizedPresetId) || null;
 }
 
+// --list 的纯渲染（live surface payload → 对齐文本表）。
+export function formatCliPresetTable(payload) {
+  const presets = normalizePresetList(payload);
+  if (presets.length === 0) return "(no presets exposed by gateway)";
+  const rows = presets.map((preset) => ({
+    id: String(preset?.id || "--"),
+    suite: String(preset?.suite || "--"),
+    cleanMode: String(preset?.cleanMode || "--"),
+    cases: Array.isArray(preset?.caseIds) && preset.caseIds.length ? preset.caseIds.join(",") : "--",
+    label: String(preset?.label || ""),
+    description: String(preset?.description || ""),
+  }));
+  const idWidth = Math.max(6, ...rows.map((row) => row.id.length));
+  const suiteWidth = Math.max(5, ...rows.map((row) => row.suite.length));
+  const cleanWidth = Math.max(9, ...rows.map((row) => row.cleanMode.length));
+  const lines = [
+    `${"PRESET".padEnd(idWidth)}  ${"SUITE".padEnd(suiteWidth)}  ${"CLEANMODE".padEnd(cleanWidth)}  DESCRIPTION`,
+  ];
+  for (const row of rows) {
+    const summary = row.label ? `${row.label} — ${row.description}` : row.description;
+    lines.push(`${row.id.padEnd(idWidth)}  ${row.suite.padEnd(suiteWidth)}  ${row.cleanMode.padEnd(cleanWidth)}  ${summary}`);
+    if (row.cases !== "--") {
+      lines.push(`${"".padEnd(idWidth)}  ${"".padEnd(suiteWidth)}  ${"".padEnd(cleanWidth)}  cases: ${row.cases}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export function resolveCliRunExitCode(detail) {
   const failedCases = Number(detail?.failedCases || 0);
   const blockedCases = Number(detail?.blockedCases || 0);
@@ -74,11 +144,7 @@ export function estimateCliRunTimeoutMs(preset) {
   const caseCount = Array.isArray(preset?.caseIds) && preset.caseIds.length > 0
     ? preset.caseIds.length
     : 1;
-  const perCaseBudgetMs = preset?.suite === "concurrent"
-    ? CLI_CONCURRENT_CASE_BUDGET_MS
-    : preset?.suite === "direct-service"
-      ? CLI_RUNTIME_CASE_BUDGET_MS
-      : CLI_SINGLE_CASE_BUDGET_MS;
+  const perCaseBudgetMs = SUITE_CASE_BUDGET_MS[preset?.suite] ?? DEFAULT_CASE_BUDGET_MS;
   const resetAllowanceMs = preset?.resetBetweenCases === true
     ? Math.max(0, caseCount - 1) * CLI_RESET_ALLOWANCE_MS
     : 0;

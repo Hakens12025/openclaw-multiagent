@@ -17,8 +17,8 @@ test("dispatch graph policy no longer carries promoteFromDraft compatibility log
   assert.doesNotMatch(source, /ingress creates PENDING directly/);
 });
 
-test("direct service suite no longer expects draft_promoted runtime events", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/formal-runtime/suite-direct-service.js", "utf8");
+test("system action suite no longer expects draft_promoted runtime events", async () => {
+  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/formal-runtime/suite-system-action.js", "utf8");
 
   assert.doesNotMatch(source, /\bdraft_promoted\b/);
 });

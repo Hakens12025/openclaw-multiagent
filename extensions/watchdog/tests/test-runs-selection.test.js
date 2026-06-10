@@ -3,56 +3,58 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
-  collectSingleCases,
-  resolvePresetCases,
+  collectDispatchCases,
+  collectPipelineCases,
   normalizeTestRunCleanMode,
   resolveRequestedFormalPreset,
 } from "../lib/test-run-presets.js";
 
-test("resolveRequestedFormalPreset builds an ad hoc single-case preset for simple-02", () => {
-  const preset = resolveRequestedFormalPreset({ caseId: "simple-02" });
+test("resolveRequestedFormalPreset builds an ad hoc dispatch-case preset for answer-direct", () => {
+  const preset = resolveRequestedFormalPreset({ caseId: "answer-direct" });
 
-  assert.equal(preset.id, "case-simple-02");
-  assert.equal(preset.suite, "single");
+  assert.equal(preset.id, "case-answer-direct");
+  assert.equal(preset.suite, "dispatch");
   assert.equal(preset.transport, "isolated");
-  assert.deepEqual(preset.caseIds, ["simple-02"]);
+  assert.deepEqual(preset.caseIds, ["answer-direct"]);
+});
+
+test("resolveRequestedFormalPreset builds an ad hoc pipeline-case preset for brief-to-deliverable", () => {
+  const preset = resolveRequestedFormalPreset({ caseId: "brief-to-deliverable" });
+
+  assert.equal(preset.id, "case-brief-to-deliverable");
+  assert.equal(preset.suite, "pipeline");
+  assert.deepEqual(preset.caseIds, ["brief-to-deliverable"]);
 });
 
 test("resolveRequestedFormalPreset rejects mixed preset and case inputs", () => {
   assert.throws(
-    () => resolveRequestedFormalPreset({ presetId: "single", caseId: "simple-02" }),
+    () => resolveRequestedFormalPreset({ presetId: "dispatch", caseId: "answer-direct" }),
     /either presetId or caseId/i,
   );
 });
 
-test("resolveRequestedFormalPreset does not expose legacy synthetic loop cases as ad hoc runs", () => {
+test("resolveRequestedFormalPreset does not expose retired single-suite cases as ad hoc runs", () => {
   assert.throws(
-    () => resolveRequestedFormalPreset({ caseId: "pipeline-basic" }),
-    /unknown case: pipeline-basic/i,
+    () => resolveRequestedFormalPreset({ caseId: "simple-03" }),
+    /unknown case: simple-03/i,
   );
 });
 
 test("formal case collectors reject missing case ids instead of silently dropping them", () => {
   assert.throws(
-    () => collectSingleCases(["simple-01", "missing-case"]),
-    /unknown single case: missing-case/i,
+    () => collectDispatchCases(["answer-direct", "missing-case"]),
+    /unknown dispatch case: missing-case/i,
   );
-});
-
-test("formal preset case resolution fails closed when preset ids drift from registered cases", () => {
   assert.throws(
-    () => resolvePresetCases({
-      id: "bad-preset",
-      suite: "single",
-      caseIds: ["simple-01", "missing-case"],
-    }),
-    /unknown single case: missing-case/i,
+    () => collectPipelineCases(["missing-case"]),
+    /unknown pipeline case: missing-case/i,
   );
 });
 
-test("normalizeTestRunCleanMode only accepts the canonical session clean mode", () => {
+test("normalizeTestRunCleanMode accepts session-clean and none, rejects everything else", () => {
   assert.equal(normalizeTestRunCleanMode(null), "session-clean");
   assert.equal(normalizeTestRunCleanMode(" session-clean "), "session-clean");
+  assert.equal(normalizeTestRunCleanMode("none"), "none");
   assert.throws(
     () => normalizeTestRunCleanMode("full-clean"),
     /unsupported test run cleanMode/i,

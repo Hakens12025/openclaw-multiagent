@@ -274,21 +274,6 @@ test("tracker timeout late-completion recovery uses loop runtime naming", () => 
   assert.deepEqual(violations, []);
 });
 
-test("formal loop runtime cases avoid retired pipeline labels", () => {
-  const sources = {
-    loopDirect: readFileSync(new URL("../lib/formal-runtime/suite-loop-direct.js", import.meta.url), "utf8"),
-  };
-
-  const violations = [];
-  for (const [label, source] of Object.entries(sources)) {
-    if (/Pipeline truth matches loop start/u.test(source)) {
-      violations.push(`${label} still uses retired pipeline truth label`);
-    }
-  }
-
-  assert.deepEqual(violations, []);
-});
-
 test("active harness and lifecycle comments avoid retired pipeline wording", () => {
   const sources = {
     evidence: readFileSync(new URL("../lib/harness/harness-module-evidence.js", import.meta.url), "utf8"),
@@ -296,7 +281,6 @@ test("active harness and lifecycle comments avoid retired pipeline wording", () 
     agentEndTerminal: readFileSync(new URL("../lib/lifecycle/agent-end-terminal.js", import.meta.url), "utf8"),
     loopSessionStore: readFileSync(new URL("../lib/loop/loop-session-store.js", import.meta.url), "utf8"),
     stageProjection: readFileSync(new URL("../lib/stage-projection.js", import.meta.url), "utf8"),
-    suiteLoopLive: readFileSync(new URL("./suite-loop-live.js", import.meta.url), "utf8"),
   };
 
   const retiredPatterns = [

@@ -144,7 +144,8 @@ HarnessRun → EvaluationResult → AutomationDecision → ProfileLifecycle
 4. 测试门命令：
    ```bash
    node --test --experimental-test-module-mocks --test-concurrency=1 --test-timeout=30000 tests/*.test.js
-   node ~/.openclaw/extensions/watchdog/test-runner.js --preset single
+   node ~/.openclaw/extensions/watchdog/test-runner.js            # 默认 health（零 LLM 体检）
+   node ~/.openclaw/extensions/watchdog/test-runner.js --list     # 8 预设: health/dispatch/pipeline/loop/system-action/operator/knowledge/full
    ```
 
 ---

@@ -75,7 +75,7 @@ const STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "extensions/watchdog/test-runner.js",
     priority: 6,
     tags: ["test", "harness", "preset", "suite", "报告", "test-runner"],
-    summary: "测试系统统一入口为 watchdog formal test surface；test-runner.js 是 /watchdog/test-runs/* 的薄客户端。formal case 真值收口到 formal-test-case-catalog，formal preset 真值收口到 formal-test-presets，报告输出到 ~/.openclaw/test-reports/。",
+    summary: "测试系统统一入口为 watchdog formal test surface；test-runner.js 是 /watchdog/test-runs/* 的薄客户端。8 个 preset（health/dispatch/pipeline/loop/system-action/operator/knowledge/full）真值收口到 formal-test-presets，case 真值内联在各 lib/formal-runtime/suite-*.js；每个检查产出 CheckResult（fail/blocked/skip 必带 E-* 错误码，注册表在 lib/formal-runtime/error-codes.js），failures-first 报告输出到 ~/.openclaw/test-reports/。",
   },
   {
     id: "agent-bootstrap-system",

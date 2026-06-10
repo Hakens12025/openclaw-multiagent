@@ -12,8 +12,10 @@ import { homedir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { pathToFileURL } from "node:url";
 import {
+  CLI_USAGE,
   estimateCliRunTimeoutMs,
   findCliPreset,
+  formatCliPresetTable,
   parseCliRunArgs,
   normalizeCliRunTarget,
   resolveCliRunExitCode,
@@ -101,6 +103,11 @@ function printProgress(detail) {
 export async function main(argv = process.argv) {
   const runTarget = normalizeCliRunTarget(parseCliRunArgs(argv));
 
+  if (runTarget.mode === "help") {
+    console.log(CLI_USAGE);
+    return 0;
+  }
+
   await loadConfig();
 
   try {
@@ -110,6 +117,11 @@ export async function main(argv = process.argv) {
   } catch (error) {
     console.error(`FATAL: Gateway not reachable at localhost:${PORT}: ${error.message}`);
     return 1;
+  }
+
+  if (runTarget.mode === "list") {
+    console.log(formatCliPresetTable(await fetchPresetSurface()));
+    return 0;
   }
 
   let timeoutPreset = null;
@@ -146,7 +158,7 @@ export async function main(argv = process.argv) {
 
   if (!timeoutPreset) {
     timeoutPreset = {
-      suite: startResult.run?.suite || "single",
+      suite: startResult.run?.suite || "dispatch",
       caseIds: [runTarget.caseId],
       resetBetweenCases: false,
     };

@@ -1532,10 +1532,9 @@ test("system_action runtime delivery imports without duplicate route exports", a
 test("canonical runtime and active test prompts no longer mention outbox/system_action.json", async () => {
   const files = [
     join(WATCHDOG_ROOT, "lib", "store", "execution-trace-store.js"),
-    join(WATCHDOG_ROOT, "lib", "formal-runtime", "suite-direct-service.js"),
+    join(WATCHDOG_ROOT, "lib", "formal-runtime", "checks", "system-action-chain.js"),
     join(WATCHDOG_ROOT, "tests", "delegation-early-check-paths.test.js"),
     join(WATCHDOG_ROOT, "tests", "contractor-loop-permission.test.js"),
-    join(WATCHDOG_ROOT, "tests", "suite-agent-model.js"),
   ];
 
   for (const filePath of files) {

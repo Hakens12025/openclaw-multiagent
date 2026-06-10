@@ -13,13 +13,16 @@
 ```
 
 启动命令：`bash ~/.openclaw/start.sh`（SSH 隧道 + Gateway 一键启动）
-手动运行：`openclaw gateway run`
+手动前台：`openclaw gateway run`
 
 Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>`
 
 ---
 
 ## 2. 运行时分层
+
+项目维护板块入口：`wiki/concepts/system-blocks.md`。
+系统架构看运行时分层；代码更新和 agent 分工先声明 System Block。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -36,7 +39,7 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 │  │ tool-call│ │ dashboard│ │ protocol-prims    │ │
 │  │ agent-end│ │ operator │ │ router-handler    │ │
 │  │          │ │ a2a      │ │ worker-pool       │ │
-│  │          │ │ test-runs│ │ pipeline / loops  │ │
+│  │          │ │ test-runs│ │ graph / loops     │ │
 │  └──────────┘ └──────────┘ └──────────────────┘ │
 └────────────────────┬────────────────────────────┘
                      │ inbox/outbox + system_action
@@ -77,7 +80,7 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 
 ### 4.2 意图类型（Intent）
 
-`start_loop`, `advance_loop`, `wake_agent`, `create_task`, `assign_task`, `request_review` 等。
+`start_loop`, `advance_loop`, `wake_agent`, `create_task` 等。
 定义在 `lib/protocol-primitives.js`。
 
 ### 4.3 主路径流转
@@ -85,11 +88,7 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 ```
 用户消息
   → ingress hook
-  → bridge → execution contract
-  → graph policy selects next hop
-  → dispatch transport stages inbox/contract.json
-  → agent executes contract
-  → delivery returns result
+  → bridge → contract → runtime graph → worker-pool → delivery
   → graph-backed loop:
       start_loop(startAgent)
       → graph edge validation
@@ -101,9 +100,8 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 
 Agent 写 `outbox/` 目录，runtime-mailbox-handler-registry 按 `outboxCommitKinds` 分发：
 - `execution_result` — 执行层 agent（planner / worker / researcher / reviewer）统一产出执行结果
-- `stage_result` — runtime 可识别的阶段完成/失败信号
-- `contract_result` — contract 级补充状态或失败说明
-- `_manifest` — 多产物交付清单
+- `research_search_space` — researcher 产出研究方向
+- `evaluation_verdict` / `evaluation_decision` — evaluator 产出评估结论
 
 ---
 
@@ -126,7 +124,7 @@ Operator 是 **watchdog 内部的运行时快照与控制接口**：
 **Operator 仍触及的 legacy/临时层：**
 - ingress-classification.js — 启发式分类，非最终协议（见§6）
 - agent-metadata.js 的静态 ID 常量 — 仅作 fallback
-- dashboard 前端部分 phaseFlows 映射 — 仍有残留硬编码
+- dashboard 前端仍有 runtime graph 投影命名残留，真值来自 graph / queue / work item surface
 
 ---
 
@@ -151,23 +149,31 @@ Operator 是 **watchdog 内部的运行时快照与控制接口**：
 ```bash
 cd ~/.openclaw/extensions/watchdog
 
-# 基础链路
-node test-runner.js --preset single
+# 默认 health（零 LLM 系统体检：进程内 + live gateway 检查）
+node test-runner.js
 
-# 并发
-node test-runner.js --preset concurrent
+# live 链路（按需）
+node test-runner.js --preset dispatch       # 最小 live 派工
+node test-runner.js --preset pipeline       # 多跳简报→交付物 + 产物包流转
+node test-runner.js --preset loop           # 回路 compose→run→预算收敛
+node test-runner.js --preset system-action  # [ACTION] 探针三件套
+node test-runner.js --preset operator       # operator plan→apply→verify→rollback
+node test-runner.js --preset knowledge      # EMBED 门控召回地板
+node test-runner.js --preset full           # 7 个 suite 全量串行
 
-# graph / pipeline / loop
-node test-runner.js --preset loop-basic
-node test-runner.js --preset loop-control
+# 发现与帮助
+node test-runner.js --list
+node test-runner.js --help
 
-# 精细控制
-node test-runner.js --suite single --filter "你好"
-node test-runner.js --suite benchmark
-node test-runner.js --suite model
+# 单用例 ad-hoc（仅 dispatch/pipeline 的 case id）
+node test-runner.js --case answer-direct
 ```
 
-报告输出：`~/.openclaw/test-reports/`
+旧旗标 `--suite/--filter/--clean` 已退役，会硬报错。
+每个检查产出 CheckResult，fail/blocked/skip 必带 `E-*` 错误码（注册表
+`extensions/watchdog/lib/formal-runtime/error-codes.js`，hint 指向具体真值文件/路由）。
+
+报告输出：`~/.openclaw/test-reports/devtool-<presetId>-<ts>.txt`（failures-first）+ `.json`（机器可读镜像）
 
 ---
 

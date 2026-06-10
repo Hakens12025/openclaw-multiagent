@@ -230,8 +230,8 @@ export const SYSTEM_BLOCKS = Object.freeze([
     title: "Verification Docs",
     purpose: "Own repeatable test entrypoints, presets, reports, wiki, and implementation plans.",
     ownedTruth: ["test preset", "test report contract", "wiki concept", "implementation plan"],
-    interfaces: ["test-runner CLI", "formal test catalog", "wiki schema"],
-    minimalTests: ["extensions/watchdog/tests/test-runner-cli-client.test.js", "extensions/watchdog/tests/formal-test-case-catalog.test.js"],
+    interfaces: ["test-runner CLI", "formal check report", "wiki schema"],
+    minimalTests: ["extensions/watchdog/tests/test-runner-cli-client.test.js", "extensions/watchdog/tests/formal-check-runner.test.js"],
     agentUse: "Assign this block when changing verification surfaces or project knowledge, and allow it as support for other blocks.",
     support: true,
     patterns: [

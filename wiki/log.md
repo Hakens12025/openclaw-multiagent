@@ -1,5 +1,10 @@
 # Wiki Operation Log
 
+## [2026-06-10] ingest | test-runner 大修决策页
+
+- 新决策页 `decisions/test-runner-overhaul-2026-06.md` — CheckResult 四态/E-码单源注册表/failures-first 报告/19→8 预设/verify 门 single→dispatch;含否决方案(保留 single id/CLI 本地降级/精确计数 pin/独立 mutation 预设)与落地当天三个实战检出(E-GRAPH-003 真图缺边/E-SCHEDULE-001 真 cron edit --json bug 当场修/E-CONTRACT-003 provider 故障归因)。
+- index.md 决策表 +1。(概念页 test-system.md/index/log 的同步由实施 workflow 的 docs agent 先行完成。)
+
 ## [2026-06-10] ingest | 提示词六层装配 + role/SOUL/wake 解耦 + 英文化
 
 编译本次重构（role/SOUL/wake 解耦 + 提示词英文化，原子核未提交）的 WHY 进 wiki。
@@ -271,3 +276,9 @@ catalog 实测 inspect.* = 16 个。
 - 更新 `index.md`（+1 概念 +2 决策）
 
 注：log 在 2026-04-09 与本次之间未被同步（rag-land 等只更 index 未更 log）= 既有 lint gap，非本次引入。
+
+## 2026-06-10 Ingest — 测试系统 CheckResult 重写（19 预设 → 8）
+
+- 重写 `concepts/test-system.md`：8 预设（health 默认零 LLM 体检 / dispatch / pipeline / loop / system-action / operator / knowledge / full）、CheckResult 四态（pass/fail/skip/blocked）、E-* 错误码单一注册表 `lib/formal-runtime/error-codes.js`、failures-first `.txt` + `.json` 镜像报告、verify 门预设 single→dispatch
+- 更新 `index.md` 测试系统摘要行
+- 源：本次重写无备忘录（代码先行），代码真值见 `extensions/watchdog/lib/formal-test-presets.js`

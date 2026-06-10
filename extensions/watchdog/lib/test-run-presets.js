@@ -1,12 +1,18 @@
+// lib/test-run-presets.js — preset 解析与 case 收集（CheckResult 体系）
+//
+// case 真值内联在各 suite 模块里（不再有独立 case catalog）：
+//   dispatch/pipeline → lib/formal-runtime/suite-link.js（DISPATCH/PIPELINE_LINK_CASES）
+//   system-action     → lib/formal-runtime/checks/system-action-chain.js（SYSTEM_ACTION_CASES，
+//                       suite 驱动整组执行，不支持 per-case 子集）
+//   health/loop/operator/knowledge → 自寻靶，无 case 概念
+// 因此 --case 只对 dispatch/pipeline 的 case id 生效。
+
 import { listFormalTestPresets } from "./formal-test-presets.js";
-import {
-  SINGLE_CASES,
-  CONCURRENT_CASES,
-} from "./formal-runtime/suite-single.js";
-import { DIRECT_SERVICE_CASES } from "./formal-runtime/suite-direct-service.js";
+import { DISPATCH_LINK_CASES, PIPELINE_LINK_CASES } from "./formal-runtime/suite-link.js";
 
 export const DEV_TEST_PRESETS = listFormalTestPresets();
 export const TEST_RUN_CLEAN_MODE = "session-clean";
+const TEST_RUN_CLEAN_MODES = new Set([TEST_RUN_CLEAN_MODE, "none"]);
 
 const PRESET_MAP = new Map(DEV_TEST_PRESETS.map((preset) => [preset.id, preset]));
 
@@ -21,38 +27,27 @@ function collectCases(caseIds, cases, suite) {
   });
 }
 
-export function collectSingleCases(caseIds) {
-  return collectCases(caseIds, SINGLE_CASES, "single");
+export function collectDispatchCases(caseIds) {
+  return collectCases(caseIds, DISPATCH_LINK_CASES, "dispatch");
 }
 
-export function collectConcurrentCases(caseIds) {
-  return collectCases(caseIds, CONCURRENT_CASES, "concurrent");
-}
-
-export function collectDirectServiceCases(caseIds) {
-  return collectCases(caseIds, DIRECT_SERVICE_CASES, "direct-service");
-}
-
-export function resolvePresetCases(preset) {
-  const caseIds = Array.isArray(preset?.caseIds) ? preset.caseIds : [];
-  switch (preset?.suite) {
-    case "single":
-      return collectSingleCases(caseIds);
-    case "concurrent":
-      return collectConcurrentCases(caseIds);
-    case "direct-service":
-      return collectDirectServiceCases(caseIds);
-    default:
-      throw new Error(`unknown preset suite: ${preset?.suite || "unknown"}`);
-  }
+export function collectPipelineCases(caseIds) {
+  return collectCases(caseIds, PIPELINE_LINK_CASES, "pipeline");
 }
 
 export function normalizeTestRunCleanMode(value) {
   const normalized = String(value || "").trim() || TEST_RUN_CLEAN_MODE;
-  if (normalized !== TEST_RUN_CLEAN_MODE) {
+  if (!TEST_RUN_CLEAN_MODES.has(normalized)) {
     throw new Error(`unsupported test run cleanMode: ${normalized}`);
   }
-  return TEST_RUN_CLEAN_MODE;
+  return normalized;
+}
+
+// cleanMode 单一真值 = preset 声明；请求值只做合法性校验（dashboard 历史上恒发
+// session-clean，不能让它把只读 suite——health/operator/knowledge——推进 fullReset）。
+export function resolveRunCleanMode(preset, requested) {
+  normalizeTestRunCleanMode(requested);
+  return normalizeTestRunCleanMode(preset?.cleanMode);
 }
 
 function buildAdHocCasePreset({
@@ -84,9 +79,8 @@ function resolveAdHocCasePreset(caseId) {
   if (!normalizedCaseId) return null;
 
   const candidates = [
-    { suite: "single", transport: "isolated", collect: collectSingleCases },
-    { suite: "concurrent", transport: "isolated", collect: collectConcurrentCases },
-    { suite: "direct-service", transport: "runtime", collect: collectDirectServiceCases },
+    { suite: "dispatch", transport: "isolated", collect: collectDispatchCases },
+    { suite: "pipeline", transport: "isolated", collect: collectPipelineCases },
   ];
   for (const candidate of candidates) {
     try {
@@ -131,7 +125,7 @@ export function resolveRequestedFormalPreset({
   if (normalizedCaseId) {
     const preset = resolveAdHocCasePreset(normalizedCaseId);
     if (!preset) {
-      throw new Error(`unknown case: ${normalizedCaseId}`);
+      throw new Error(`unknown case: ${normalizedCaseId} (per-case runs support dispatch/pipeline case ids only)`);
     }
     return preset;
   }

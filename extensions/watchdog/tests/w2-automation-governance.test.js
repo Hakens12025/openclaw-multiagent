@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 // ============================================================
 import { syncScheduleMaterialization } from "../lib/schedule/schedule-materializer.js";
 
-test("buildEditArgs (edit branch) includes --json flag", async () => {
+test("buildEditArgs (edit branch) omits --json (cron edit does not support it)", async () => {
   const scheduleId = `test-edit-json-${Date.now()}`;
 
   const spec = {
@@ -60,7 +60,7 @@ test("buildEditArgs (edit branch) includes --json flag", async () => {
   await syncScheduleMaterialization(spec, { api: editApi });
 
   assert.ok(capturedArgv.includes("edit"), "second call must use edit branch");
-  assert.ok(capturedArgv.includes("--json"), "edit branch argv must include --json flag");
+  assert.ok(!capturedArgv.includes("--json"), "cron edit rejects --json (unknown option); edit branch must omit it and reuse the known jobId");
 });
 
 // ============================================================

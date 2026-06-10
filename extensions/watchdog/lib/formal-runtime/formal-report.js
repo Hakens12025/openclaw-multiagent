@@ -1,213 +1,168 @@
-// lib/formal-runtime/formal-report.js — Timeline-based formal test report generator
+// lib/formal-runtime/formal-report.js — CheckResult 报告渲染器（.txt + .json 镜像）
+//
+// 契约（下游 agent 据此消费）：
+//   generateFormalReport({ run, checks }) → string（.txt 全文）
+//   buildFormalReportJson({ run, checks }) → { schema, presetId, startedAt, finishedAt, verdict, totals, checks }
+//   run = { presetId, label?, startedAt?, finishedAt?, gatewayPort? }
+//         startedAt/finishedAt 接受 epoch ms 或 ISO 字符串；checks = CheckResult[]（见 checks/check-runner.js）。
+// 布局：header → VERDICT 行 → "## FAILURES FIRST"（每个 fail/blocked 展开 evidence+hint）
+//       → 按 subsystem 分节（pass 一行一条；skip 一行带码和原因）→ totals/durations 页脚。
+// hint 解析优先级：check.hint（覆盖） > error-codes.js 注册表默认 > "--"。
+// 文件命名与输出目录由 lib/test-run-artifacts.js 负责，本模块只渲染。
 
-// ── Diagnosis ─────────────────────────────────────────────────────────────────
+import { getErrorCode } from "./error-codes.js";
+import { summarizeChecks } from "./checks/check-runner.js";
 
-const ISSUE_CATALOG = {
-  E_SEND_FAIL:          { subsystem: "bridge-entry",   conclusion: "消息发送失败",           suggestedFix: "检查 bridge agent 配置和 gateway 状态。" },
-  E_CONTRACT_MISSING:   { subsystem: "ingress",         conclusion: "消息已发送但合约未创建", suggestedFix: "检查 ingress 分流和合约创建逻辑。" },
-  E_TIMEOUT:            { subsystem: "end-to-end",      conclusion: "合约未在超时内到达终态", suggestedFix: "检查事件时间线，定位阻塞阶段。" },
-  E_CONTRACT_FAILED:    { subsystem: "execution",       conclusion: "合约执行后状态为 failed", suggestedFix: "检查最后活跃的 agent session 和错误日志。" },
-  E_OUTPUT_MISSING:     { subsystem: "output",          conclusion: "合约完成但输出文件不存在", suggestedFix: "检查 output 目录写入和 artifact 提交。" },
-  E_OUTPUT_TOO_SMALL:   { subsystem: "output-quality",  conclusion: "输出文件内容过短",       suggestedFix: "检查 worker 产出和最小字数要求。" },
-  E_OUTPUT_KEYWORD_MISS:{ subsystem: "output-quality",  conclusion: "输出文件缺少关键内容",   suggestedFix: "检查提示约束和验证关键字。" },
-  E_RANDOM_PATH_BLOCKED:{ subsystem: "random-ingress",  conclusion: "随机入口落入 topology-free direct intake 旁路", suggestedFix: "检查 chosen agent 的正式 shared-contract 外部入口能力。" },
-  E_RANDOM_CAPABILITY_BLOCKED:{ subsystem: "random-runtime", conclusion: "该 random family 当前尚未具备正式运行时能力", suggestedFix: "补齐 family 对应的 runtime 对象和控制面，再解除 blocked。" },
-};
+export const FORMAL_REPORT_SCHEMA = "formal-check-report/v1";
 
-function buildDiagnosis(result) {
-  if (!result || result.pass) return null;
-  const errorCode = result.errorCode || "UNKNOWN";
-  const meta = ISSUE_CATALOG[errorCode] || {
-    subsystem: "unknown",
-    conclusion: "测试失败",
-    suggestedFix: "检查事件时间线和合约状态。",
-  };
+const BAR = "══════════════════════════════════════════════════";
+
+function toIso(value) {
+  if (Number.isFinite(value)) return new Date(value).toISOString();
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+}
+
+function toEpochMs(value) {
+  if (Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return null;
+}
+
+function formatMs(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "--";
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+}
+
+// 解析最终生效的 hint（覆盖 > 注册表默认）。
+function resolveHint(check) {
+  if (check.hint) return check.hint;
+  return getErrorCode(check.code)?.hint || null;
+}
+
+function normalizeChecksInput(checks) {
+  return Array.isArray(checks) ? checks.filter((c) => c && typeof c === "object") : [];
+}
+
+function wallDurationMs(run) {
+  const start = toEpochMs(run.startedAt);
+  const end = toEpochMs(run.finishedAt);
+  if (start == null || end == null || end < start) return null;
+  return end - start;
+}
+
+// ── JSON 镜像 ──────────────────────────────────────────────────────────────────
+
+export function buildFormalReportJson({ run = {}, checks = [] } = {}) {
+  const list = normalizeChecksInput(checks);
+  const { verdict, ...totals } = summarizeChecks(list);
   return {
-    errorCode,
-    subsystem: meta.subsystem,
-    conclusion: meta.conclusion,
-    suggestedFix: meta.suggestedFix || null,
+    schema: FORMAL_REPORT_SCHEMA,
+    presetId: run.presetId || "unknown",
+    startedAt: toIso(run.startedAt),
+    finishedAt: toIso(run.finishedAt),
+    verdict,
+    totals,
+    checks: list.map((check) => {
+      const mirrored = { ...check };
+      const hint = check.status === "pass" ? null : resolveHint(check);
+      if (hint) mirrored.hint = hint;
+      return mirrored;
+    }),
   };
 }
 
-export function summarizeFormalCheckpointDiagnosis(result, diagnose = null) {
-  if (typeof diagnose === "function") {
-    const custom = diagnose(result);
-    if (custom) return custom;
-  }
-  return buildDiagnosis(result);
+// ── .txt 渲染 ──────────────────────────────────────────────────────────────────
+
+function renderHeader(run, summary) {
+  const presetLine = run.label ? `${run.presetId || "unknown"} — ${run.label}` : (run.presetId || "unknown");
+  const startedAt = toIso(run.startedAt) || "--";
+  const finishedAt = toIso(run.finishedAt) || "--";
+  const wall = wallDurationMs(run);
+  const duration = wall != null ? formatMs(wall) : formatMs(summary.durationMs);
+  const gateway = run.gatewayPort ? `localhost:${run.gatewayPort}` : "--";
+  return [
+    BAR,
+    " OPENCLAW FORMAL CHECK REPORT",
+    ` Preset: ${presetLine}`,
+    ` Run: ${startedAt} → ${finishedAt}  Duration: ${duration}`,
+    ` Gateway: ${gateway}`,
+    BAR,
+  ];
 }
 
-// ── Timeline formatting ───────────────────────────────────────────────────────
-
-function formatTimelineDetail(entry) {
-  const parts = [];
-  switch (entry.event) {
-    case "contract dispatched":
-    case "contract found via poll":
-      if (entry.contractId) parts.push(entry.contractId);
-      break;
-    case "agent session start":
-    case "agent session end":
-      if (entry.agentId) parts.push(entry.agentId);
-      break;
-    case "agent tool call":
-      if (entry.agentId) parts.push(entry.agentId);
-      if (entry.toolCallCount != null) parts.push(`tools=${entry.toolCallCount}`);
-      break;
-    case "delivery created":
-      if (entry.contractId) parts.push(entry.contractId);
-      break;
-    case "delivery notified":
-      if (entry.agentId) parts.push(entry.agentId);
-      break;
-    default:
-      if (entry.agentId) parts.push(entry.agentId);
-      if (entry.contractId) parts.push(entry.contractId);
-  }
-  return parts.join(" ");
-}
-
-function renderTimeline(timeline) {
-  if (!Array.isArray(timeline) || timeline.length === 0) {
-    return ["    (no events recorded)"];
-  }
-
-  const baseAt = timeline[0].at;
-  const lines = [];
-
-  for (const entry of timeline) {
-    const relSec = ((entry.at - baseAt) / 1000).toFixed(1);
-    const timeStr = `${relSec}s`.padStart(6);
-    const eventStr = String(entry.event || "").padEnd(26);
-    const detail = formatTimelineDetail(entry);
-    lines.push(`    ${timeStr}  ${eventStr}${detail}`);
-  }
-
+// fail/blocked 展开块：[码] 标题 / check 行 / evidence / hint。
+function renderFailureEntry(check) {
+  const lines = [`[${check.code}] ${check.title}`];
+  lines.push(`  check: ${check.id} (${check.status}, ${check.durationMs}ms)`);
+  const evidence = check.evidence || "(no evidence captured)";
+  const [first, ...rest] = evidence.split("\n");
+  lines.push(`  evidence: ${first}`);
+  for (const line of rest) lines.push(`            ${line}`);
+  lines.push(`  hint: ${resolveHint(check) || "--"}`);
   return lines;
 }
 
-// ── Result label ──────────────────────────────────────────────────────────────
+const STATUS_TAG = { pass: "PASS   ", fail: "FAIL   ", skip: "SKIP   ", blocked: "BLOCKED" };
 
-function resultLabel(result) {
-  if (result?.pass) return "PASS";
-  if (result?.blocked) return "BLOCKED";
-  return "FAIL";
+// 分节内单行：pass 一行；fail/blocked 一行带码（详情在 FAILURES FIRST）；skip 一行带码+原因。
+function renderSubsystemRow(check) {
+  const tag = STATUS_TAG[check.status];
+  const code = check.code ? ` [${check.code}]` : "";
+  let row = `  ${tag} ${check.id}${code} — ${check.title} (${check.durationMs}ms)`;
+  if (check.status === "skip" && check.evidence) {
+    row += ` — ${check.evidence.split("\n")[0]}`;
+  }
+  return row.replace(/\r?\n/g, " ");
 }
 
-function resolveResultIncident(result) {
-  if (result?.incident && typeof result.incident === "object") {
-    return result.incident;
-  }
-  if (result?.executionIncident && typeof result.executionIncident === "object") {
-    return result.executionIncident;
-  }
-  return result?.contractRuntime?.runtimeDiagnostics?.executionIncident || null;
-}
+export function generateFormalReport({ run = {}, checks = [] } = {}) {
+  const list = normalizeChecksInput(checks);
+  const summary = summarizeChecks(list);
+  const lines = [...renderHeader(run, summary), ""];
 
-// ── Main report generator ─────────────────────────────────────────────────────
-
-export function generateFormalReport({
-  suiteType = "single",
-  totalDuration,
-  gatewayPort = null,
-  testResults = [],
-} = {}) {
-  const lines = [];
-  const now = new Date().toISOString().replace("T", " ").slice(0, 16);
-  const passed = testResults.filter((r) => r.pass).length;
-  const blocked = testResults.filter((r) => r.blocked).length;
-  const failed = testResults.filter((r) => !r.pass && !r.blocked).length;
-
-  const durationStr = totalDuration != null ? `${totalDuration}s` : "--";
-  const gatewayStr = gatewayPort ? `localhost:${gatewayPort}` : "--";
-
-  lines.push("══════════════════════════════════════════════════");
-  lines.push(" OPENCLAW TEST REPORT");
-  lines.push(` Run: ${now}  Duration: ${durationStr}`);
-  lines.push(` Gateway: ${gatewayStr}`);
-  lines.push(` Suite: ${suiteType} | Cases: ${testResults.length}`);
-  lines.push("══════════════════════════════════════════════════");
+  lines.push(`VERDICT: ${summary.verdict} (${summary.fail}/${summary.total} failed, ${summary.skip} skipped, ${summary.blocked} blocked)`);
   lines.push("");
 
-  for (const result of testResults) {
-    const testCase = result.testCase || {};
-    const label = resultLabel(result);
-    const duration = result.duration != null ? `${result.duration}s` : "--";
-    const msg = testCase.message || testCase.description || testCase.id || "unknown";
-
-    lines.push(`── TEST: "${msg}"  ${label}  ${duration} ──`);
-
-    if (result.contractId) {
-      lines.push(`  Contract: ${result.contractId}`);
-    }
-
-    lines.push("");
-    lines.push("  EVENT TIMELINE:");
-    for (const tl of renderTimeline(result.results)) {
-      lines.push(tl);
-    }
-    lines.push("");
-
-    lines.push("  RESULT:");
-    const incident = resolveResultIncident(result);
-
-    if (result.pass) {
-      lines.push("    status: completed");
-      if (result.outputInfo) {
-        const validate = testCase.validate || testCase.validateOutput || null;
-        const minBytes = validate?.minBytes;
-        const checkMark = minBytes != null ? ` ✓ (min ${minBytes})` : " ✓";
-        lines.push(`    output: ${result.outputInfo}${checkMark}`);
-      }
-    } else {
-      const errorCode = result.errorCode || "UNKNOWN";
-      const diagnosis = buildDiagnosis(result);
-      lines.push(`    status: ${errorCode}`);
-      if (result.errorDetail) {
-        lines.push(`    detail: ${result.errorDetail}`);
-      }
-      if (diagnosis) {
-        lines.push(`    diagnosis: [${diagnosis.subsystem}] ${diagnosis.conclusion}`);
-        lines.push(`    fix: ${diagnosis.suggestedFix}`);
-      }
-    }
-    if (incident?.rootFault) {
-      lines.push(`    rootFault: ${incident.rootFault}`);
-      lines.push(`    firstFault: ${incident.firstFaultCode || "--"}`);
-      if (Array.isArray(incident.amplifiers) && incident.amplifiers.length > 0) {
-        lines.push(`    amplifiers: ${incident.amplifiers.join(", ")}`);
-      }
-    }
-
-    if (result.randomRuntime) {
+  // 失败优先区：每个 fail/blocked 完整展开，读报告的 agent 先看这里。
+  lines.push("## FAILURES FIRST");
+  const failures = list.filter((c) => c.status === "fail" || c.status === "blocked");
+  if (failures.length === 0) {
+    lines.push("  (none)");
+  } else {
+    for (const check of failures) {
       lines.push("");
-      lines.push("  RANDOM:");
-      lines.push(`    family: ${result.randomRuntime.family || "--"}`);
-      lines.push(`    seed: ${result.randomRuntime.seed || "--"}`);
-      lines.push(`    chosenAgent: ${result.randomRuntime.chosenAgent || "--"}`);
-      lines.push(`    actualPath: ${result.randomRuntime.actualPath || "--"}`);
-      if (result.randomRuntime.pathVerdictReason) {
-        lines.push(`    reason: ${result.randomRuntime.pathVerdictReason}`);
-      }
+      lines.push(...renderFailureEntry(check));
     }
+  }
+  lines.push("");
 
+  // 按 subsystem 分节（按首次出现顺序），通过的检查一行一条。
+  const bySubsystem = new Map();
+  for (const check of list) {
+    const key = check.subsystem || "unknown";
+    if (!bySubsystem.has(key)) bySubsystem.set(key, []);
+    bySubsystem.get(key).push(check);
+  }
+  for (const [subsystem, members] of bySubsystem) {
+    const counts = summarizeChecks(members);
+    lines.push(`## SUBSYSTEM: ${subsystem} — ${counts.pass} pass, ${counts.fail} fail, ${counts.skip} skip, ${counts.blocked} blocked`);
+    for (const check of members) lines.push(renderSubsystemRow(check));
+    lines.push("");
+  }
+  if (list.length === 0) {
+    lines.push("(no checks recorded)");
     lines.push("");
   }
 
-  // ── Summary ──────────────────────────────────────────────────────────────
-
-  const durations = testResults
-    .map((r) => parseFloat(r.duration))
-    .filter((n) => !isNaN(n));
-  const avg = durations.length > 0
-    ? (durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1)
-    : "--";
-
-  lines.push("══════════════════════════════════════════════════");
-  lines.push(` SUMMARY: ${passed}/${testResults.length} PASSED  ${failed} FAILED  ${blocked} BLOCKED`);
-  lines.push(` avg: ${avg}s`);
-  lines.push("══════════════════════════════════════════════════");
+  lines.push(BAR);
+  lines.push(` TOTALS: ${summary.total} checks | ${summary.pass} pass | ${summary.fail} fail | ${summary.skip} skip | ${summary.blocked} blocked`);
+  const wall = wallDurationMs(run);
+  lines.push(` DURATION: wall ${wall != null ? formatMs(wall) : "--"} | checks-sum ${formatMs(summary.durationMs)}`);
+  lines.push(BAR);
 
   return lines.join("\n");
 }

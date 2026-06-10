@@ -91,7 +91,7 @@ test("runtime diagnostics uses terminalDelivery instead of retired completionEgr
   const files = {
     dashboard: await readWatchdogFile("dashboard.js"),
     agentEndTerminal: await readWatchdogFile("lib", "lifecycle", "agent-end-terminal.js"),
-    suiteSingle: await readWatchdogFile("lib", "formal-runtime", "suite-single.js"),
+    suiteLink: await readWatchdogFile("lib", "formal-runtime", "suite-link.js"),
     runtimeDiagnosis: await readWatchdogFile("tests", "runtime-diagnosis.js"),
   };
 

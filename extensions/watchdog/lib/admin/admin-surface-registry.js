@@ -212,7 +212,7 @@ function buildVerificationCapability(surface, { executable = hasAdminSurfaceOper
   return {
     supported,
     defaultEnabled: supported,
-    presetId: supported ? "single" : null,
+    presetId: supported ? "dispatch" : null,
     cleanMode: supported ? "session-clean" : null,
   };
 }

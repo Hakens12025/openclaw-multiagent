@@ -1,7 +1,21 @@
+// lib/test-run-artifacts.js — 报告落盘（文件命名/目录不变：devtool-<presetId>-<ts>.txt/.json）
+// .txt = generateFormalReport（failures-first 布局）；.json = buildFormalReportJson（机器可读镜像）。
+
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { generateReport } from "./formal-runtime/suite-single.js";
+import { buildFormalReportJson, generateFormalReport } from "./formal-runtime/formal-report.js";
+import { PORT } from "./formal-runtime/infra-tokens.js";
+
+function buildReportRunMeta({ run, preset }) {
+  return {
+    presetId: preset.id,
+    label: run.label || preset.label || null,
+    startedAt: run.startedAt || null,
+    finishedAt: run.finishedAt || null,
+    gatewayPort: PORT,
+  };
+}
 
 export function buildTestRunReportText({ run, preset } = {}) {
   if (!run || typeof run !== "object") {
@@ -10,8 +24,10 @@ export function buildTestRunReportText({ run, preset } = {}) {
   if (!preset || typeof preset !== "object") {
     throw new TypeError("buildTestRunReportText requires preset");
   }
-  const durationSec = ((run.finishedAt - run.startedAt) / 1000).toFixed(1);
-  return generateReport(run.caseResults, `devtool:${preset.id}`, durationSec);
+  return generateFormalReport({
+    run: buildReportRunMeta({ run, preset }),
+    checks: run.checks || [],
+  });
 }
 
 export async function writeTestRunArtifacts({
@@ -19,7 +35,6 @@ export async function writeTestRunArtifacts({
   preset,
   reportsDir,
   nowTs,
-  snapshotRun,
 } = {}) {
   if (!reportsDir) {
     throw new TypeError("writeTestRunArtifacts requires reportsDir");
@@ -27,13 +42,14 @@ export async function writeTestRunArtifacts({
   if (typeof nowTs !== "function") {
     throw new TypeError("writeTestRunArtifacts requires nowTs");
   }
-  if (typeof snapshotRun !== "function") {
-    throw new TypeError("writeTestRunArtifacts requires snapshotRun");
-  }
 
   await mkdir(reportsDir, { recursive: true });
   const prefix = `devtool-${preset.id}`;
   const reportText = buildTestRunReportText({ run, preset });
+  const reportJson = buildFormalReportJson({
+    run: buildReportRunMeta({ run, preset }),
+    checks: run.checks || [],
+  });
   const ts = nowTs();
   const reportFile = run.reportFile || join(reportsDir, `${prefix}-${ts}.txt`);
   const rawReportFile = run.rawReportFile || join(reportsDir, `${prefix}-${ts}.json`);
@@ -43,7 +59,7 @@ export async function writeTestRunArtifacts({
   run.reportText = reportText;
 
   await writeFile(reportFile, reportText, "utf8");
-  await writeFile(rawReportFile, JSON.stringify(snapshotRun(run, true), null, 2), "utf8");
+  await writeFile(rawReportFile, JSON.stringify(reportJson, null, 2), "utf8");
 
   return {
     reportFile,

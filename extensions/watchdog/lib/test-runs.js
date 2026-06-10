@@ -8,46 +8,24 @@ import {
   REPORTS_DIR,
   loadConfig,
   fetchJSON,
-  SSEClient,
   restorePreservedWorkspaceState,
-  sleep,
   waitForIdle,
 } from "./formal-runtime/infra.js";
-import { runSingleTest, summarizeTestDiagnosis } from "./formal-runtime/suite-single.js";
-import { summarizeFormalCheckpointDiagnosis } from "./formal-runtime/formal-report.js";
+import { createCheckContext } from "./formal-runtime/checks/check-runner.js";
 import { runGlobalTestEnvironmentSerial } from "./formal-runtime/test-locks.js";
 import { writeTestRunArtifacts } from "./test-run-artifacts.js";
 import {
-  buildLoopRandomRunSingleOptions,
-  buildRandomPresetRuntime,
-  buildSystemRandomRunSingleOptions,
-  buildUnsupportedRandomPresetResult,
-  resolveLoopRandomSelection,
-  resolveRandomPresetCandidateSet,
-} from "./test-run-random-runtime.js";
-import {
   DEV_TEST_PRESETS,
   TEST_RUN_CLEAN_MODE,
-  normalizeTestRunCleanMode,
+  resolveRunCleanMode,
   resolveRequestedFormalPreset,
 } from "./test-run-presets.js";
 import {
   applyRunStats,
   emitRunEvent,
   performCleanReset,
-  runSingleSuite,
-  runConcurrentSuite,
-  runDirectServiceSuite,
+  runFormalSuite,
 } from "./test-run-suites.js";
-
-export {
-  buildLoopRandomRunSingleOptions,
-  buildRandomPresetRuntime,
-  buildSystemRandomRunSingleOptions,
-  buildUnsupportedRandomPresetResult,
-  resolveLoopRandomSelection,
-  resolveRandomPresetCandidateSet,
-} from "./test-run-random-runtime.js";
 
 export { resolveRequestedFormalPreset } from "./test-run-presets.js";
 
@@ -123,27 +101,20 @@ export async function withPreservedRuntimeGraph(callback) {
   }
 }
 
-function summarizeRunDiagnosis(suite, result) {
-  if (suite === "direct-service") {
-    return summarizeFormalCheckpointDiagnosis(result);
-  }
-  return summarizeTestDiagnosis(result);
-}
-
-function summarizeCaseResult(result, suite) {
+// CheckResult → 详情 payload 的 caseResults 行（消费者契约：id/pass/blocked/message/duration）。
+// skip 不是失败 → pass:true（与 applyRunStats 的计数语义一致）；status/code/evidence 带真相。
+function summarizeCheckResult(check) {
   return {
-    id: result.testCase?.id || "unknown",
-    message: result.testCase?.message || result.testCase?.description || "",
-    pass: result.pass === true,
-    blocked: result.blocked === true,
-    duration: result.duration,
-    contractId: result.contractId || null,
-    finalStats: result.finalStats || null,
-    diagnosis: summarizeRunDiagnosis(suite, result),
-    checkpoints: Array.isArray(result.results) ? result.results : [],
-    contractRuntime: result.contractRuntime || null,
-    incident: result.incident || result.executionIncident || result.contractRuntime?.runtimeDiagnostics?.executionIncident || null,
-    randomRuntime: result.randomRuntime || null,
+    id: check.id,
+    message: check.title,
+    pass: check.status === "pass" || check.status === "skip",
+    blocked: check.status === "blocked",
+    status: check.status,
+    subsystem: check.subsystem,
+    code: check.code || null,
+    evidence: check.evidence || "",
+    hint: check.hint || null,
+    duration: check.durationMs,
   };
 }
 
@@ -179,7 +150,7 @@ function snapshotRun(run, includeDetails = false) {
   if (!includeDetails) return base;
   return {
     ...base,
-    caseResults: run.caseResults.map((result) => summarizeCaseResult(result, run.suite)),
+    caseResults: (run.checks || []).map(summarizeCheckResult),
     reportText: run.reportText,
   };
 }
@@ -195,12 +166,10 @@ async function writeRunArtifacts(run, preset) {
     preset,
     reportsDir: REPORTS_DIR,
     nowTs,
-    snapshotRun,
   });
 }
 
 async function executeRun(run, preset, logger) {
-  let sse = null;
   try {
     await runGlobalTestEnvironmentSerial(async () => {
       await withPreservedRuntimeGraph(async () => {
@@ -209,21 +178,19 @@ async function executeRun(run, preset, logger) {
         emitRunEvent(EVENT_TYPE.TEST_RUN_STARTED, run);
 
         await ensureGatewayOnline();
-        await performCleanReset(run, logger, { includeResearchState: false });
-
-        sse = new SSEClient();
-        await sse.connect();
-        await waitForIdle();
-
-        if (preset.suite === "single") {
-          await runSingleSuite(run, preset, sse, logger);
-        } else if (preset.suite === "concurrent") {
-          await runConcurrentSuite(run, preset, sse);
-        } else if (preset.suite === "direct-service") {
-          await runDirectServiceSuite(run, preset, sse);
-        } else {
-          throw new Error(`unsupported preset suite: ${preset.suite}`);
+        // cleanMode:"none" = 只读/自恢复 suite（health/operator/knowledge）：
+        // 不 fullReset —— reset 本身会制造体检要捕捉的残留。
+        const liveClean = run.cleanMode !== "none";
+        if (liveClean) {
+          await performCleanReset(run, logger, { includeResearchState: false });
+          await waitForIdle();
         }
+
+        const context = createCheckContext({ presetId: preset.id });
+        run.checks = context.checks;
+
+        await runFormalSuite(run, preset, context);
+        applyRunStats(run);
 
         run.status = "finalizing";
         run.currentCaseId = null;
@@ -231,7 +198,9 @@ async function executeRun(run, preset, logger) {
         run.finishedAt = Date.now();
         await writeRunArtifacts(run, preset);
 
-        await performCleanReset(run, logger);
+        if (liveClean) {
+          await performCleanReset(run, logger);
+        }
         run.finishedAt = Date.now();
         run.status = run.failedCases > 0 ? "failed" : "completed";
         await writeRunArtifacts(run, preset);
@@ -244,7 +213,7 @@ async function executeRun(run, preset, logger) {
     run.error = e.message;
     run.currentCaseId = null;
     run.currentCaseMessage = null;
-    if (run.startedAt && run.caseResults.length > 0) {
+    if (run.startedAt && (run.checks || []).length > 0) {
       await writeRunArtifacts(run, preset).catch((artifactError) => {
         logger?.warn?.(`[watchdog:test-runs] failed to write failure artifacts for ${run.id}: ${artifactError.message}`);
       });
@@ -252,7 +221,6 @@ async function executeRun(run, preset, logger) {
     emitRunEvent(EVENT_TYPE.TEST_RUN_FAILED, run, { error: e.message });
     logger?.error?.(`[watchdog:test-runs] ${run.id} failed: ${e.stack || e.message}`);
   } finally {
-    if (sse) sse.close();
     await restorePreservedWorkspaceState().catch((error) => {
       logger?.warn?.(`[watchdog:test-runs] failed to restore preserved workspace state: ${error.message}`);
     });
@@ -294,7 +262,7 @@ export function startTestRun({
   runtimeContext = null,
 }, logger) {
   const preset = resolveRequestedFormalPreset({ presetId, caseId });
-  const resolvedCleanMode = normalizeTestRunCleanMode(cleanMode);
+  const resolvedCleanMode = resolveRunCleanMode(preset, cleanMode);
   if (activeRunId) {
     throw new Error("another test run is already active");
   }
@@ -306,7 +274,6 @@ export function startTestRun({
     label: preset.label,
     description: preset.description,
     suite: preset.suite,
-    randomFamily: preset.family || null,
     cleanMode: resolvedCleanMode,
     transport: preset.transport || "isolated",
     status: "queued",
@@ -319,7 +286,7 @@ export function startTestRun({
     blockedCases: 0,
     currentCaseId: null,
     currentCaseMessage: null,
-    caseResults: [],
+    checks: [],
     reportFile: null,
     rawReportFile: null,
     reportText: "",

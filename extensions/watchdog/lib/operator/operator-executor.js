@@ -185,7 +185,7 @@ export async function executeOperatorExecutablePlan({
   // apply (not per-step). A verify run is a full system suite that validates the resulting state, and
   // startTestRun rejects a concurrent launch — per-step would make every step after the first report
   // failed_to_start. runPlanVerificationsAfterApply dedupes; today all apply surfaces share preset
-  // "single" → exactly one verify per plan. Reads/launches verify only; never touches the gate itself.
+  // "dispatch" → exactly one verify per plan. Reads/launches verify only; never touches the gate itself.
   const verifications = await runPlanVerificationsAfterApply({
     surfaceIds: normalizedPlan.steps.map((step) => step.surfaceId),
     logger,

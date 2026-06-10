@@ -137,8 +137,7 @@ test("runtime and harness prompt surfaces avoid negative tutorial prompt copy", 
   const sourcePaths = [
     join("hooks", "before-tool-call.js"),
     join("lib", "security.js"),
-    join("lib", "formal-runtime", "suite-direct-service.js"),
-    join("lib", "formal-runtime", "suite-loop-direct.js"),
+    join("lib", "formal-runtime", "checks", "system-action-chain.js"),
   ];
 
   for (const sourcePath of sourcePaths) {

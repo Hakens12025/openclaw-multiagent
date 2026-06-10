@@ -174,7 +174,7 @@ function buildEditArgs(scheduleSpec, jobId) {
     "edit",
     normalizedJobId,
     ...buildGatewayCliArgs(),
-    "--json",
+    // `cron edit` 不支持 --json(add/remove 支持);带它 CLI 报 unknown option 直接失败。
     "--name",
     buildScheduleCronJobName(scheduleSpec),
     "--cron",
@@ -243,7 +243,7 @@ function isMissingCronJobError(message) {
     || normalized.includes("not found");
 }
 
-async function runCronCli(api, argv) {
+async function runCronCli(api, argv, { parseJson = true } = {}) {
   if (!api?.runtime?.system?.runCommandWithTimeout) {
     throw new Error("runtime.system.runCommandWithTimeout unavailable");
   }
@@ -254,7 +254,8 @@ async function runCronCli(api, argv) {
   if (result.code !== 0) {
     throw new Error((result.stderr || result.stdout || `cron command failed: ${result.code}`).trim());
   }
-  return parseCronCliJson(result.stdout);
+  // edit 无 --json(人类可读 stdout),调用方传 parseJson:false 并自带 jobId。
+  return parseJson ? parseCronCliJson(result.stdout) : null;
 }
 
 export async function syncScheduleMaterialization(scheduleSpec, {
@@ -275,7 +276,7 @@ export async function syncScheduleMaterialization(scheduleSpec, {
 
     if (action === "edit") {
       try {
-        payload = await runCronCli(api, buildEditArgs(scheduleSpec, existing.jobId));
+        payload = await runCronCli(api, buildEditArgs(scheduleSpec, existing.jobId), { parseJson: false });
       } catch (error) {
         if (!isMissingCronJobError(error.message)) {
           throw error;
@@ -287,7 +288,8 @@ export async function syncScheduleMaterialization(scheduleSpec, {
       payload = await runCronCli(api, buildAddArgs(scheduleSpec));
     }
 
-    const jobId = extractCronJobId(payload);
+    // edit 按 jobId 原位编辑,成功后 id 不变;add 从 JSON 响应提取。
+    const jobId = action === "edit" ? existing.jobId : extractCronJobId(payload);
     if (!jobId) {
       throw new Error("cron job id missing from gateway response");
     }
