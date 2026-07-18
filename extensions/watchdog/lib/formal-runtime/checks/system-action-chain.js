@@ -48,7 +48,8 @@ export function buildCreateTaskProbePrompt() {
     });
   return [
     ...PROBE_AUTHORIZATION_PREAMBLE,
-    "将结果文件写成下面这一行 [ACTION] marker：",
+    "用文件写入工具把下面这一行【原样】写入你的结果文件(当前任务指定的 output 文件路径)。",
+    "平台只解析结果文件——[ACTION] 行只出现在回复文本里不会被执行：",
     actionMarker,
     "写完上面这一行后立即结束本次回复,停止等待——平台会解析并执行该动作。",
     "动作完成后平台会在同一会话再次唤醒你,届时把结果文件更新为 PARENT_RECEIVED。",
@@ -67,7 +68,8 @@ export function buildAssignTaskProbePrompt({ delegateAgentId }) {
     });
   return [
     ...PROBE_AUTHORIZATION_PREAMBLE,
-    "将结果文件写成下面这一行 [ACTION] marker：",
+    "用文件写入工具把下面这一行【原样】写入你的结果文件(当前任务指定的 output 文件路径)。",
+    "平台只解析结果文件——[ACTION] 行只出现在回复文本里不会被执行：",
     actionMarker,
     "写完上面这一行后立即结束本次回复,停止等待——平台会解析并执行该动作。",
     "动作完成后平台会在同一会话再次唤醒你,届时把结果文件更新为 ASSIGN_PARENT_RECEIVED。",
@@ -87,7 +89,8 @@ export function buildReviewProbePrompt({ artifactPath }) {
     });
   return [
     ...PROBE_AUTHORIZATION_PREAMBLE,
-    "将结果文件写成下面这一行 [ACTION] marker：",
+    "用文件写入工具把下面这一行【原样】写入你的结果文件(当前任务指定的 output 文件路径)。",
+    "平台只解析结果文件——[ACTION] 行只出现在回复文本里不会被执行：",
     actionMarker,
     "写完上面这一行后立即结束本次回复,停止等待——平台会解析并执行该动作。",
     "动作完成后平台会在同一会话再次唤醒你,届时把结果文件更新为 REVIEW_PARENT_RECEIVED。",
