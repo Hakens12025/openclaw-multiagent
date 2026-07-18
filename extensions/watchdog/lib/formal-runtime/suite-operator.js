@@ -247,6 +247,11 @@ export async function runOperatorSuite(run, context) {
     }
 
     // ── ⑥ 可选 LLM plan（provider 不可达 → skip）────────────────────────────
+    // 先删掉 ② 留下的探针边:llm-plan 的目标复用同一对缺边,若边还活着,operator brain 会
+    // 正确地判"边已存在无需执行"→ 0 步,误判 fail(finally 的兜底删除幂等,不受影响)。
+    if (state.pair) {
+      try { await gatewayPostJson("/watchdog/graph/edge/delete", { from: state.pair.from, to: state.pair.to }); } catch {}
+    }
     await runCheck(context, {
       id: "operator.llm-plan", subsystem: "operator", title: "Operator plans from a one-line goal (LLM)", code: "E-OPERATOR-001",
     }, async () => {

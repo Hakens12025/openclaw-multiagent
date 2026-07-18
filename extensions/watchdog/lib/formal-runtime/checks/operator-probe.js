@@ -8,6 +8,8 @@
 //   "operator_brain_unavailable"（→ skip）与 "operator_plan_validation_failed"（→ fail）。
 
 // 探针 plan：一条低风险 graph 边（用后即删）+ 一条 disabled schedule（触发 verify 门，用后即删）。
+// schedule spec 与 health-gateway 探针同形：schedule-registry 要求 trigger.type==='cron'+expr、
+// entry.targetAgent+message 非空;enabled:false = 永不触发。
 export function buildOperatorApplyProbePlan({ edgeFrom, edgeTo, scheduleId }) {
   return {
     intent: "platform_mutation",
@@ -25,7 +27,8 @@ export function buildOperatorApplyProbePlan({ edgeFrom, edgeTo, scheduleId }) {
           scheduleId,
           label: "formal operator probe (disabled, auto-removed)",
           enabled: false,
-          trigger: { kind: "cron", cron: "0 5 * * *" },
+          entry: { targetAgent: edgeFrom, message: "[operator-probe] inert: created disabled and deleted by the operator suite" },
+          trigger: { type: "cron", expr: "0 0 1 1 *" },
         },
       },
     ],

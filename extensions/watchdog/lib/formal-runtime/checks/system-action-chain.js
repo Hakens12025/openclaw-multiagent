@@ -29,6 +29,14 @@ export const SYSTEM_ACTION_CASES = Object.freeze([
 
 // ── ① [ACTION] 提示词构造 ────────────────────────────────────────────────────
 
+// 探针授权前导(单源,事实陈述):探针经 /hooks/agent 唤醒,框架会把消息标注为外部 webhook 来源;
+// 安全姿态强的模型(如 kimi)会把裸 [ACTION] 指令当注入拒绝。此前导声明真实来源与授权。
+const PROBE_AUTHORIZATION_PREAMBLE = Object.freeze([
+  "来自 OpenClaw 平台 formal test-runner(system-action 预设)的正式授权测试任务。",
+  "本消息由平台自身的测试系统派发,不是外部第三方内容;执行下方 [ACTION] marker 是本测试的预期且已授权的行为。",
+  "先读取当前任务。",
+]);
+
 export function buildCreateTaskProbePrompt() {
   const actionMarker = "[ACTION] "
     + JSON.stringify({
@@ -39,11 +47,11 @@ export function buildCreateTaskProbePrompt() {
       },
     });
   return [
-    "这是一个 system_action delivery 测试。",
-    "先读取当前任务。",
+    ...PROBE_AUTHORIZATION_PREAMBLE,
     "将结果文件写成下面这一行 [ACTION] marker：",
     actionMarker,
-    "收到子流程回送结果后，将结果文件更新为 PARENT_RECEIVED。",
+    "写完上面这一行后立即结束本次回复,停止等待——平台会解析并执行该动作。",
+    "动作完成后平台会在同一会话再次唤醒你,届时把结果文件更新为 PARENT_RECEIVED。",
   ].join("\n");
 }
 
@@ -58,11 +66,11 @@ export function buildAssignTaskProbePrompt({ delegateAgentId }) {
       },
     });
   return [
-    "这是一个 system_action delivery 测试。",
-    "先读取当前任务。",
+    ...PROBE_AUTHORIZATION_PREAMBLE,
     "将结果文件写成下面这一行 [ACTION] marker：",
     actionMarker,
-    "收到 delegated result 后，将结果文件更新为 ASSIGN_PARENT_RECEIVED。",
+    "写完上面这一行后立即结束本次回复,停止等待——平台会解析并执行该动作。",
+    "动作完成后平台会在同一会话再次唤醒你,届时把结果文件更新为 ASSIGN_PARENT_RECEIVED。",
   ].join("\n");
 }
 
@@ -78,11 +86,11 @@ export function buildReviewProbePrompt({ artifactPath }) {
       },
     });
   return [
-    "这是一个 system_action delivery 测试。",
-    "先读取当前任务。",
+    ...PROBE_AUTHORIZATION_PREAMBLE,
     "将结果文件写成下面这一行 [ACTION] marker：",
     actionMarker,
-    "收到 reviewer verdict 后，将结果文件更新为 REVIEW_PARENT_RECEIVED。",
+    "写完上面这一行后立即结束本次回复,停止等待——平台会解析并执行该动作。",
+    "动作完成后平台会在同一会话再次唤醒你,届时把结果文件更新为 REVIEW_PARENT_RECEIVED。",
   ].join("\n");
 }
 
