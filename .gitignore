@@ -71,6 +71,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+.serena/
 
 # === Disabled plugin dirs ===
 plugins/

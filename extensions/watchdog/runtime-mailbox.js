@@ -40,9 +40,11 @@ export async function routeInbox(agentId, logger, options = {}) {
   try {
     const contractId = await resolveStagedContractId(inboxDir, options);
     if (contractId) {
-      const { copied, packages } = await copyUpstreamArtifactsToInbox({ contractId, agentId, logger });
-      if (copied.length > 0) {
-        logger?.info?.(`[mailbox] routeInbox(${agentId}): upstream packages → inbox/upstream/ [${copied.join(", ")}]`);
+      const { packages } = await copyUpstreamArtifactsToInbox({ contractId, agentId, logger });
+      // FIX(B8-context-compression): gate on packages (not copied) so a compressed-only upstream
+      // (all files overflowed → COMPRESSED_MANIFEST.md, zero copied) still gets its pointer.
+      if (packages.length > 0) {
+        logger?.info?.(`[mailbox] routeInbox(${agentId}): upstream packages → inbox/upstream/ [${packages.join(", ")}]`);
         // 在 contract.json 写 upstreamPackages 指针：agent 读 contract 即知道读哪些包
         // （相对自己 inbox，不跨路径）。写失败不影响已落盘的包。
         await writeUpstreamPackagesPointer(inboxDir, packages, logger);

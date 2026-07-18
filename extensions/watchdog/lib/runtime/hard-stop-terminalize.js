@@ -19,6 +19,8 @@ function buildHardStopTerminalOutcome(reason, outputPath) {
   const summaryByReason = {
     [HARD_STOP_REASON.REPEAT_THRESHOLD]: "session terminated due to repeated identical tool calls before final output was committed",
     [HARD_STOP_REASON.MAX_TOOL_CALLS]: "session terminated because executionPolicy.maxToolCalls budget was exhausted",
+    // FIX(A4-output-length-stop): give the new budget a specific FAILED summary (else falls through to the generic hard-stop line).
+    [HARD_STOP_REASON.OUTPUT_BUDGET_EXHAUSTED]: "session terminated because the cumulative tool-output byte budget was exhausted",
     [HARD_STOP_REASON.MANUAL]: "session terminated by explicit operator intervention",
   };
   return normalizeTerminalOutcome({

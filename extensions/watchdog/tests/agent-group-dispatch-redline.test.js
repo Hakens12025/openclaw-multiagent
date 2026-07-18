@@ -108,6 +108,7 @@ mock.module("../lib/contracts.js", {
   namedExports: {
     mutateContractSnapshot: async (_p, _l, fn) => { const dummy = { assignee: null, status: "draft" }; fn(dummy); return { contract: dummy }; },
     getContractPath: (id) => `/tmp/fake/${id}/contract.json`,
+    readContractSnapshotById: async (id) => ({ id }), // FIX(A2-fanout-depth): dispatch path now reads the contract's hop counter
   },
 });
 

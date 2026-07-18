@@ -2,6 +2,13 @@
 /**
  * OpenClaw V2 模型基准测试框架
  *
+ * DEPRECATED / LEGACY (2026-07, C9-doc-drift)
+ * FIX(C9-doc-drift): 与 test-runner.js 目的重复(第二条测试真值) -> 标注弃用，收敛到唯一入口。
+ * 本脚本是早期独立自评工具，已被正式测试面 `extensions/watchdog/test-runner.js`
+ * （唯一入口，见 CLAUDE.md §5.2 与 SYSTEM_MAP.md §7）取代。它仍驱动已退役的
+ * agent 花名册（contractor / worker），与 openclaw.example.json 不符，保留仅供历史参考。
+ * 新增系统级校验一律走 test-runner.js 的 formal surface，勿在此文件继续扩展（一条路径原则）。
+ *
  * 独立运行，不依赖 LLM 监控。通过 SSE 事件流 + 文件系统检查自动评估。
  *
  * 用法：node benchmark.js [--model ark-openai/minimax-m2.5] [--test all|chain|contractor|worker|security]

@@ -10,7 +10,7 @@
 import { loadGraph, getEdgesFrom } from "../agent/agent-graph.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { mutateContractSnapshot, getContractPath } from "../contracts.js";
+import { mutateContractSnapshot, getContractPath, readContractSnapshotById } from "../contracts.js"; // FIX(A2-fanout-depth): read runtime hop counter off the contract at the choke point
 import { CONTRACT_STATUS, isActiveContractStatus } from "../core/runtime-status.js";
 import {
   claimDispatchTargetContract,
@@ -29,6 +29,12 @@ import {
   ensureDispatchTargetAvailable,
 } from "./dispatch-runtime-state.js";
 import { dispatchSendExecutionContract } from "./dispatch-transport.js";
+// FIX(A2-fanout-depth): pure runtime hop-counter guard (no topology knowledge, no agentId branches)
+import {
+  evaluateDispatchGuard,
+  readDispatchGuardState,
+  nextDispatchGuardState,
+} from "./dispatch-depth-guard.js";
 import { buildAgentContractSessionKey } from "../session-keys.js";
 import {
   deleteUnclaimedTrackingSessionForContract,
@@ -184,6 +190,49 @@ async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, lo
     };
   }
 
+  // FIX(A2-fanout-depth): unbounded hop depth + A->B->A ping-pong (each hop is a
+  // separate session, so per-session loop-detection can't see it) -> read the runtime
+  // hop counter carried on the contract and hard-stop before committing another hop.
+  // Graph authorization already passed above ("edge = authorization" is untouched);
+  // this is a pure safety counter layered on top, not a topology decision.
+  const guardSnapshot = await readContractSnapshotById(contractId);
+  const guardState = readDispatchGuardState(guardSnapshot);
+  const guardVerdict = evaluateDispatchGuard({
+    dispatchDepth: guardState.dispatchDepth,
+    originChain: guardState.originChain,
+    targetAgent,
+    // FIX(A2-fanout-depth/review): declared-loop contracts (carry a loopId) are bounded by
+    // loop-budget, not this guard — defer them so a legit long loop is never false-blocked.
+    isLoopContract: Boolean(guardSnapshot?.pipelineStage?.loopId),
+  });
+  if (!guardVerdict.allowed) {
+    logger?.warn?.(
+      `[dispatch-graph-policy] dispatch guard blocked ${contractId}: ${fromAgent} -> ${targetAgent} `
+      + `(${guardVerdict.reason}, depth=${guardState.dispatchDepth})`,
+    );
+    broadcast("alert", {
+      type: "dispatch_guard_blocked",
+      contractId,
+      from: fromAgent,
+      to: targetAgent,
+      reason: guardVerdict.reason,
+      dispatchDepth: guardState.dispatchDepth,
+      ts: Date.now(),
+    });
+    // Hard stop: a blocked contract has exhausted its hop budget, so requeuing would
+    // only re-trigger the runaway. Queued entries never reach here — depth is stamped
+    // at dispatch (below), not at enqueue, so a queued entry carries the same depth it
+    // already passed the guard with. Callers observe `failed` and stop routing.
+    return {
+      dispatched: false,
+      queued: false,
+      failed: true,
+      action: "dispatch_guard_blocked",
+      reason: guardVerdict.reason,
+      target: targetAgent,
+    };
+  }
+
   enqueueOutgoingDispatchContract(fromAgent, contractId, {
     targetAgent,
     status: "dispatching",
@@ -261,7 +310,18 @@ async function dispatchSharedToAgent(contractId, fromAgent, targetAgent, api, lo
       dispatchAlert,
       runtimeAuthority,
       updateContract(contract) {
-        return applySharedContractDispatchMutation(contract, targetAgent, updateContract);
+        // FIX(A2-fanout-depth): stamp the hop counter + origin chain exactly once per
+        // real hop (dispatch branch only, never on enqueue), so dispatchDepth equals
+        // the number of hops actually taken.
+        const nextGuard = nextDispatchGuardState({
+          dispatchDepth: contract?.dispatchDepth,
+          originChain: contract?.originChain,
+          targetAgent,
+        });
+        contract.dispatchDepth = nextGuard.dispatchDepth;
+        contract.originChain = nextGuard.originChain;
+        applySharedContractDispatchMutation(contract, targetAgent, updateContract);
+        return true;
       },
     });
     if (dispatchResult?.ok === false) {

@@ -1,4 +1,17 @@
 #!/bin/bash
+#
+# ssh-tunnel.sh — LEGACY 独立 SSH 隧道脚本（-R 反向 + -L 正向），自带无限重连循环。
+#
+# FIX(C9-doc-drift): 两套隧道策略并存无交叉引用 -> 说明分工与真值。
+# 与 start.sh 的关系（隧道真值以 start.sh 为准）：
+#   - start.sh（当前主路径）：LLM 出站走 Clash Verge TUN(7897)，SSH 仅做 QQ 入站的
+#     -R 反向隧道，且把 ssh -R 内联，不再需要 -L（见 start.sh 顶部注释）。
+#   - 本脚本（legacy）：QQ IP 白名单时代的老策略——额外用 -L 8080 把出站代理经
+#     云服务器转发；当 Clash TUN 可用时 -L 分支已冗余。
+# 现状：start.sh 声明了 SSH_TUNNEL_SCRIPT 变量却未调用本脚本；实际拉起隧道的是
+#   scripts/ssh-tunnel-service.sh 与 start.sh 内联的 ssh -R。本脚本仅供
+#   skills/qqbot-repair 手动排障直接运行（见该 SKILL.md）。
+# 后续（非本次改动）：下一个稳定 tag 前应收敛为一条隧道路径，删除冗余 -L 分支。
 
 OPENCLAW_DIR="$HOME/.openclaw"
 

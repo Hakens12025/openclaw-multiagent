@@ -6,10 +6,10 @@
 
 ## 1. 系统入口
 
+<!-- FIX(C9-doc-drift): `test` bridge 不在 openclaw.example.json/AGENT_IDS 中(已退役) -> 移除保持花名册一致 -->
 ```
 用户 ──→ WebUI (localhost:18789)  ──→ controller (bridge)
 用户 ──→ QQ Bot (云服务器:18791) ──→ agent-for-kksl (bridge)
-用户 ──→ test endpoint            ──→ test (bridge)
 ```
 
 启动命令：`bash ~/.openclaw/start.sh`（SSH 隧道 + Gateway 一键启动）
@@ -54,14 +54,24 @@ Dashboard：`http://localhost:18789/watchdog/progress?token=<gateway.auth.token>
 
 ## 3. Agent 角色
 
-| 角色 | Agent ID | 职责 | 特征 |
+<!-- FIX(C9-doc-drift): 表列 evaluator/contractor 等幽灵角色与陈旧 id -> 对齐 AGENT_ROLE(6 个) + openclaw.example.json -->
+真实角色恰好 6 个，定义在 `extensions/watchdog/lib/agent/agent-metadata.js` 的
+`AGENT_ROLE` / `SUPPORTED_AGENT_ROLES`。下表 Agent ID 以 `openclaw.example.json`
+的 `agents.list` 为准。
+
+| 角色 (role) | 示例 Agent ID | 职责 | 特征 |
 |------|----------|------|------|
-| **bridge** | controller, agent-for-kksl, test | 网关桥接，接收用户消息转发给内部 | gateway=true |
-| **planner** | contractor | 复杂任务规划，拆分为 Contract | 读写能力 |
-| **executor** | worker-a, worker-b, worker-c | 通用执行池，并发处理 Contract | 可替换 |
-| **executor** (specialized) | worker-d | 因子编码专用执行 | specialized=true |
-| **researcher** | researcher | 研究检索（web_search/web_fetch） | graph 中的研究节点 |
-| **evaluator** | evaluator | 评估决策与质量闸 | 无 web_search |
+| **bridge** | controller, agent-for-kksl | 网关桥接，接收用户消息转发给内部 | gateway=true, protected=true |
+| **planner** | planner | 复杂任务规划，拆分为 Contract | 读写能力 |
+| **executor** | worker, worker2, worker-3, worker-4 | 通用执行池，并发处理 Contract | 可替换，默认 6 路并发 |
+| **researcher** | researcher | 研究检索（web_search/web_fetch） | graph 研究节点；example 未内置，按 `ROLE_FALLBACK_IDS` 回退 |
+| **reviewer** | reviewer | 审查与质量结论（EvaluationResult 能力） | example 未内置，按 `ROLE_FALLBACK_IDS` 回退 |
+| **agent** | （通用直连角色） | 直接对话 / 通用工作单元，无特化职责 | 默认角色 |
+
+> **不是角色的东西**：`operator`、`viz-master` 是 **meta-agent**，按 **agent-id** 挂载
+> （`META_AGENT_IDS`），不是 `role` 枚举值；`evaluator` **不是角色**——已去特化为 `reviewer`
+> 角色 + 评估能力（见 `wiki/concepts/evaluator.md`），`AGENT_ROLE` 中不存在；`contractor`
+> 是 planner 角色的 **legacy agent-id**，非角色。
 
 角色由 `openclaw.json → agents.list[].role` 定义，运行时通过 `agent-identity.js` 解析。
 `agent-metadata.js` 提供 legacy fallback 常量（仅当 `runtimeAgentConfigs` 为空时生效）。

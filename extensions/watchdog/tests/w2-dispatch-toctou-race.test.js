@@ -200,6 +200,7 @@ mock.module("../lib/contracts.js", {
       return { contract: dummy };
     },
     getContractPath: (id) => `/tmp/fake-contracts/${id}/contract.json`,
+    readContractSnapshotById: async (id) => ({ id }), // FIX(A2-fanout-depth): dispatch path now reads the contract's hop counter
   },
 });
 

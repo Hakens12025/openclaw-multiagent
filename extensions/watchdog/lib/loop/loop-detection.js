@@ -9,6 +9,8 @@ import { createHash } from "node:crypto";
 export const HARD_STOP_REASON = Object.freeze({
   REPEAT_THRESHOLD: "repeat_threshold",
   MAX_TOOL_CALLS: "max_tool_calls",
+  // FIX(A4-output-length-stop): unbounded cumulative tool-output volume had no hard-stop reason -> add one so it terminalizes FAILED like the other budgets.
+  OUTPUT_BUDGET_EXHAUSTED: "output_budget_exhausted",
   MANUAL: "manual",
   LOOP_DETECTED: "loop_detected",
 });
