@@ -279,7 +279,14 @@ export const AGENT_END_MAIN_STAGES = Object.freeze([
     async run(context) {
       if (!context.event.success || !context._outputContent) return;
 
-      const markerActions = extractActionMarkers(context._outputContent);
+      // FIX(B7-structured-dispatch): pass the per-session provenance nonce so
+      // echoed/quoted user content cannot forge a privileged [ACTION]. The nonce
+      // stays null until SOUL injection populates contract.provenanceNonce
+      // (integration-only), so today's behavior is preserved verbatim.
+      const sessionNonce = context.trackingState?.contract?.provenanceNonce
+        || context.effectiveContractData?.provenanceNonce
+        || null;
+      const markerActions = extractActionMarkers(context._outputContent, { sessionNonce });
       const firstAction = markerActions[0] || null;
       if (!firstAction) return;
 

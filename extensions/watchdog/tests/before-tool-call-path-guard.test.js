@@ -1189,3 +1189,66 @@ test("contract session fallback blocks tool-error payload writes into contract.o
     await rm(agentWorkspace(agentId), { recursive: true, force: true });
   }
 });
+
+// FIX(A1-path-unify): regression for the harness scope-guard startsWith bypass.
+// Old code did allowedRoots.some(root => targetPath.startsWith(normalizePath(root)))
+// so "<root>-evil/…" (shares the allow-root text prefix but is OUTSIDE it) slipped
+// through. The canonical relative()-based isPathInsideRoot rejects it.
+test("harness scope guard blocks sibling-prefix paths that bypass a naive startsWith allow-root", async () => {
+  const agentId = `worker-scope-prefix-bypass-${Date.now()}`;
+  const sessionKey = `agent:${agentId}:contract:test`;
+  const allowedRoot = join(agentWorkspace(agentId), "sandbox");
+  const insidePath = join(allowedRoot, "sub", "artifact.txt");
+  const siblingBypassPath = `${allowedRoot}-evil/secret.txt`; // shares the allow-root text prefix, but is OUTSIDE it
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: agentId,
+          role: "executor",
+          workspace: `~/.openclaw/workspaces/${agentId}`,
+          model: { primary: "demo/worker" },
+        },
+      ],
+    },
+  });
+
+  const trackingState = createTrackingState({ sessionKey, agentId, parentSession: null });
+  trackingState.contract = {
+    id: "TC-scope-prefix-bypass",
+    assignee: agentId,
+    output: join(agentWorkspace(agentId), "output", "TC-scope-prefix-bypass.md"),
+    status: "running",
+    automationContext: {
+      harness: {
+        moduleConfig: {
+          "harness:guard.scope": { allowedWorkspaceRoots: [allowedRoot] },
+        },
+      },
+    },
+  };
+  trackingState.toolCallTotal = 1;
+  trackingState.ownInboxContractReadAt = Date.now();
+  trackingState.toolCalls.push({ tool: "read", label: "阅读: contract.json", ts: Date.now() });
+  rememberTrackingState(sessionKey, trackingState);
+
+  const { api, getHandler } = createHookApi();
+  beforeToolCallHook.register(api, logger);
+  const handler = getHandler("before_tool_call");
+
+  // sibling-prefix path must NOT bypass the sandbox boundary (old startsWith code returned block:undefined here)
+  const bypass = await handler(
+    { toolName: "write", params: { file_path: siblingBypassPath, content: "exfil" } },
+    { agentId, sessionKey },
+  );
+  assert.equal(bypass?.block, true, "sibling-prefix path must not bypass the sandbox boundary");
+  assert.match(bypass?.blockReason || "", /沙箱边界/u);
+  assertPositiveAgentVisibleBlockReason(bypass?.blockReason || "");
+
+  // a genuine path inside the allow-root stays allowed by the scope guard
+  const allowed = await handler(
+    { toolName: "write", params: { file_path: insidePath, content: "artifact" } },
+    { agentId, sessionKey },
+  );
+  assert.equal(allowed?.block, undefined, "writes inside the allow-root remain allowed");
+});

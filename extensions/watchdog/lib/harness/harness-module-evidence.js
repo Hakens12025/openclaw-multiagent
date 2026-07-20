@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 
 import { listAgentRegistry } from "../capability/capability-registry.js";
 import { getHarnessModule, resolveModuleId } from "./harness-registry.js";
@@ -69,7 +69,11 @@ export function isPathInsideRoot(targetPath, rootPath) {
   const normalizedRoot = expandConfiguredPath(rootPath);
   if (!normalizedTarget || !normalizedRoot) return false;
   const relation = relative(normalizedRoot, normalizedTarget);
-  return relation === "" || (!relation.startsWith("..") && !relation.startsWith("/"));
+  // FIX(A1-path-unify/review): on win32, relative() across drive letters returns an absolute
+  // "D:\\..." that starts with neither ".." nor "/", which would slip the containment check and
+  // wrongly allow a cross-drive target. Reject any absolute relation (POSIX: no behavior change —
+  // a same-root containment relation is never absolute there).
+  return relation === "" || (!isAbsolute(relation) && !relation.startsWith("..") && !relation.startsWith("/"));
 }
 
 export function normalizeModuleResult({

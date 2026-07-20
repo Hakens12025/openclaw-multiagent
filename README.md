@@ -37,7 +37,8 @@ bash start.sh
 ## 它能做什么
 
 - **多渠道接入** —— WebUI / QQ / 飞书 / A2A 的消息进来，自动分流给合适的 agent
-- **并发执行** —— worker 池默认 6 路并行，planner 拆解、worker 干活、evaluator 评估
+<!-- FIX(C9-doc-drift): evaluator 非真实角色 -> 改为真实角色 reviewer -->
+- **并发执行** —— worker 池默认 6 路并行，planner 拆解、worker 干活、reviewer 评审
 - **研究回路** —— 一个话题自动检索、整理、评估，不达标就再来一轮，直到收敛
 - **实时 Dashboard** —— SVG 拓扑看消息怎么流，session 回放看每个 agent 的输入输出，系统提示词逐层展开
 - **多模型** —— ARK（豆包 / MiniMax / GLM / DeepSeek / Kimi）、OpenAI 兼容、Anthropic、本地 Ollama，配置里切
@@ -61,7 +62,8 @@ bash start.sh
 
 - **传送带** —— graph 的边是「谁能投给谁」的授权，不是时序。agent 之间从不直接通信，全靠平台按 graph 搬运 inbox/outbox。回路里绝不硬编码 agent 名字。
 - **Contract** —— 每个任务是一份合约，带着 assignee 和 replyTo，落进 agent 的 `inbox/contract.json`。
-- **SOUL 通用机** —— agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程），agent有不同的Role，比如researcher、excutor、reviewer、planner、bridge。不同的Role才是各个agent的特有知识，同时可可自定义skill 注入。换个领域就是换套 Role，SOUL 一字不改。
+<!-- FIX(C9-doc-drift): 角色清单缺 agent 且 executor 曾被拼错 -> 列全 6 个真实角色 -->
+- **SOUL 通用机** —— agent 的 `SOUL.md` 只写通用行为（状态机、inbox/outbox 流程），agent 有不同的 Role——共 6 种：bridge、planner、executor、researcher、reviewer、agent。不同的Role才是各个agent的特有知识，同时可可自定义skill 注入。换个领域就是换套 Role，SOUL 一字不改。
 
 ## Operator 控制面
 
@@ -151,6 +153,9 @@ node test-runner.js --preset research-flow   # 研究回路
 ```
 
 报告写到 `~/.openclaw/test-reports/`。
+
+<!-- FIX(C9-doc-drift): benchmark.js 是重复的第二条测试路径 -> 明确其弃用地位 -->
+> 根目录的 `benchmark.js` 是早期独立自评脚本，已被 `test-runner.js`（唯一入口）取代，仅作历史参考，勿再扩展。
 
 ---
 

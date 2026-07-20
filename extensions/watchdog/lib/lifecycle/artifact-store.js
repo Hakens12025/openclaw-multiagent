@@ -15,12 +15,23 @@
 //
 // 红线:整段 try/catch 吞错,绝不破坏 agent_end / inbox 投递。
 
-import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+// FIX(B8-context-compression): drop dead `readFile` import; add open/stat + dirname/relative for size-aware selective copy.
+import { copyFile, mkdir, open, readdir, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 import { loadGraph, getEdgesTo } from "../agent/agent-graph.js";
 import { agentWorkspace } from "../state-agent-helpers.js";
+// FIX(B8-context-compression): pull in the single budget/manifest truth source.
+import {
+  MAX_UPSTREAM_INBOX_BYTES,
+  COMPRESSED_MANIFEST_FILE,
+  MISSING_MARKER_FILE,
+  MANIFEST_HEAD_READ_BYTES,
+  computeContextBudgetPlan,
+  buildCompressedManifest,
+  buildMissingMarker,
+} from "../context-compression.js";
 
 const ARTIFACTS_ROOT = join(CONTROL_PLANE_PATHS.root, "artifacts");
 export const ARTIFACT_MANIFEST_FILE = "manifest.json";
@@ -38,19 +49,77 @@ export function artifactManifestPath(contractId, agentId) {
   return join(artifactPackageDir(contractId, agentId), ARTIFACT_MANIFEST_FILE);
 }
 
-// 递归复制目录(文件 + 子目录结构);忽略不可读项,不抛。
-async function copyDirRecursive(srcDir, destDir) {
-  const entries = await readdir(srcDir, { withFileTypes: true });
-  await mkdir(destDir, { recursive: true });
+// 递归枚举包内文件（相对包根路径 + 绝对路径 + 字节大小）。
+// FIX(B8-context-compression): 盲目整包复制 -> 先枚举带大小，交预算函数取舍。
+// FIX(B8-context-compression/review): 不再静默吞 readdir 失败——把不可读目录记入 errors，
+// 让调用方能落 _MISSING.md（否则一个 existsSync 通过但 readdir 抛错的包会整个消失、零可观测，
+// 比 B8 之前的 logger.warn 更糟）。
+async function listPackageFiles(srcDir, baseDir = srcDir, errors = null) {
+  const out = [];
+  let entries;
+  try {
+    entries = await readdir(srcDir, { withFileTypes: true });
+  } catch (readError) {
+    if (Array.isArray(errors)) errors.push({ dir: srcDir, reason: readError?.message || String(readError) });
+    return out;
+  }
   for (const entry of entries) {
-    const src = join(srcDir, entry.name);
-    const dest = join(destDir, entry.name);
+    const abs = join(srcDir, entry.name);
     if (entry.isDirectory()) {
-      await copyDirRecursive(src, dest);
+      out.push(...(await listPackageFiles(abs, baseDir, errors)));
     } else if (entry.isFile()) {
-      await copyFile(src, dest);
+      let size = 0;
+      try {
+        size = (await stat(abs)).size;
+      } catch {
+        size = 0;
+      }
+      out.push({ absPath: abs, relPath: relative(baseDir, abs), size });
     }
   }
+  return out;
+}
+
+// FIX(B8-context-compression/review): single writer for the visible _MISSING.md marker,
+// reused by both the "nothing enumerated" early return and the normal path (one-path).
+async function writeMissingMarkerFile(upstreamRoot, agentId, contractId, failures, logger) {
+  if (!Array.isArray(failures) || failures.length === 0) return;
+  try {
+    await mkdir(upstreamRoot, { recursive: true });
+    await writeFile(
+      join(upstreamRoot, MISSING_MARKER_FILE),
+      buildMissingMarker({ agentId, contractId, failures }),
+      "utf8",
+    );
+  } catch (markerError) {
+    logger?.warn?.(`[mailbox] _MISSING.md write failed for ${agentId} (cid ${contractId}): ${markerError?.message || markerError}`);
+  }
+  logger?.warn?.(`[mailbox] upstream copy had ${failures.length} failure(s) for ${agentId} (cid ${contractId}); see inbox/upstream/${MISSING_MARKER_FILE}`);
+}
+
+// 只读文件前 N 字节作 head（避免为取 head 读入整个大文件）；不可读 → 空串。
+// FIX(B8-context-compression): 溢出文件常达数 MB -> 只 open+read 头 N 字节，不整读。
+async function readHead(absPath, maxBytes = MANIFEST_HEAD_READ_BYTES) {
+  let handle;
+  try {
+    handle = await open(absPath, "r");
+    const buf = Buffer.alloc(maxBytes);
+    const { bytesRead } = await handle.read(buf, 0, maxBytes, 0);
+    return buf.subarray(0, bytesRead).toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    await handle?.close?.();
+  }
+}
+
+function groupByProducer(items) {
+  const map = new Map();
+  for (const item of items) {
+    if (!map.has(item.producer)) map.set(item.producer, []);
+    map.get(item.producer).push(item);
+  }
+  return map;
 }
 
 /**
@@ -165,22 +234,84 @@ export async function copyUpstreamArtifactsToInbox({ contractId, agentId, logger
 
     const ws = agentWorkspace(aid);
     if (!ws) return EMPTY;
+    const upstreamRoot = join(ws, "inbox", "upstream");
 
-    const copied = [];
-    const packages = [];
+    // 1) 枚举每个上游包的文件（带大小），按上游顺序 + 文件名排序 → 预算决策确定。
+    // FIX(B8-context-compression): 无界整包复制 -> 先枚举再按字节预算取舍。
+    const failures = [];
+    const perProducer = new Map();
     for (const up of upstreamAgents) {
       const srcPkg = artifactPackageDir(cid, up);
       if (!existsSync(srcPkg)) continue; // 该上游本环未产出 → 跳过
-      try {
-        await copyDirRecursive(srcPkg, join(ws, "inbox", "upstream", up));
-        copied.push(up);
-        packages.push(`upstream/${up}/`);
-      } catch (copyError) {
-        // 单个上游复制失败不影响其它上游与主流程 —— 但绝不静默:这意味着 ${up} 的产物未进入 ${aid} 的
-        // inbox(跨 agent 上下文丢失),必须可观测(否则下游静默缺料还以为正常)。
-        logger?.warn?.(`[mailbox] upstream copy FAILED for ${up} → ${aid} (cid ${cid}): ${copyError?.message || copyError} — that upstream's context is MISSING from this inbox`);
+      const enumErrors = [];
+      const files = (await listPackageFiles(srcPkg, srcPkg, enumErrors))
+        .map((f) => ({ ...f, producer: up }))
+        .sort((a, b) => a.relPath.localeCompare(b.relPath));
+      // FIX(B8-context-compression/review): 存在但（部分）不可读的包不再静默丢——记入 failures，
+      // 后续落 _MISSING.md，下游读 inbox 即知该上游上下文缺失。
+      for (const e of enumErrors) failures.push({ producer: up, reason: `enumerate ${e.dir}: ${e.reason}` });
+      if (files.length > 0) perProducer.set(up, files);
+    }
+    if (perProducer.size === 0) {
+      // FIX(B8-context-compression/review): 即使没东西可拷，也要把枚举失败落成可见 _MISSING.md，
+      // 否则「整个上游不可读」会零可观测地消失（正是 B8 想消灭的静默缺料）。
+      await writeMissingMarkerFile(upstreamRoot, aid, cid, failures, logger);
+      return EMPTY;
+    }
+
+    // 2) 唯一预算真值：跨所有上游共享一个字节池，决定整包流入 vs 溢出压清单。
+    // FIX(B8-context-compression): 用 computeContextBudgetPlan 作单一预算真值，禁止分散判断。
+    const allFiles = [...perProducer.values()].flat();
+    const { included, overflow, needsCompression } = computeContextBudgetPlan({
+      files: allFiles,
+      maxBytes: MAX_UPSTREAM_INBOX_BYTES,
+    });
+
+    // 3) 复制装得下的文件（保子目录结构）；失败入 failures（可观测，不静默）。
+    // FIX(B8-context-compression): 单文件复制失败此前只 warn -> 记入 failures，后落 _MISSING.md。
+    const copiedProducers = new Set();
+    for (const [up, files] of groupByProducer(included)) {
+      for (const f of files) {
+        const dest = join(upstreamRoot, up, f.relPath);
+        try {
+          await mkdir(dirname(dest), { recursive: true });
+          await copyFile(f.absPath, dest);
+          copiedProducers.add(up);
+        } catch (copyError) {
+          failures.push({ producer: up, reason: `copy ${f.relPath}: ${copyError?.message || copyError}` });
+        }
       }
     }
+
+    // 4) 溢出文件不复制正本，改按 producer 汇成 COMPRESSED_MANIFEST.md（path+size+截断 head）。
+    // FIX(B8-context-compression): 溢出正文丢失=静默缺料 -> 落可见压缩清单，LLM 侧按需取正本。
+    const compressedProducers = new Set();
+    for (const [up, files] of groupByProducer(overflow)) {
+      const entries = [];
+      for (const f of files) entries.push({ path: f.relPath, size: f.size, head: await readHead(f.absPath) });
+      try {
+        await mkdir(join(upstreamRoot, up), { recursive: true });
+        await writeFile(
+          join(upstreamRoot, up, COMPRESSED_MANIFEST_FILE),
+          buildCompressedManifest({ producer: up, entries, maxBytes: MAX_UPSTREAM_INBOX_BYTES }),
+          "utf8",
+        );
+        compressedProducers.add(up);
+      } catch (manifestError) {
+        failures.push({ producer: up, reason: `compressed manifest: ${manifestError?.message || manifestError}` });
+      }
+    }
+
+    // 5) 复制/枚举失败可见化：落 inbox/upstream/_MISSING.md（下游读 inbox 即知道缺了谁）。
+    // FIX(B8-context-compression): 此前失败只 logger.warn（下游看不到）-> 落可见 _MISSING.md 标记。
+    await writeMissingMarkerFile(upstreamRoot, aid, cid, failures, logger);
+    if (needsCompression) {
+      logger?.info?.(`[mailbox] upstream context over ${MAX_UPSTREAM_INBOX_BYTES}B for ${aid} (cid ${cid}); ${overflow.length} file(s) → ${COMPRESSED_MANIFEST_FILE}`);
+    }
+
+    // copied = 有正本文件流入的 producer；packages = 有任何内容（正本或压缩清单）的包路径。
+    const copied = [...copiedProducers];
+    const packages = [...new Set([...copiedProducers, ...compressedProducers])].map((up) => `upstream/${up}/`);
     return { copied, packages };
   } catch (error) {
     // 整体失败兜底:绝不破坏 before_agent_start / inbox 投递,但记录(非静默)。

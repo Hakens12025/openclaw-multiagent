@@ -3,12 +3,15 @@
 import { access } from "node:fs/promises";
 import { basename, resolve, sep } from "node:path";
 
-import { checkToolCall } from "../lib/security.js";
+import { checkToolCall, checkWriteSize } from "../lib/security.js"; // FIX(A3-write-size-cap): pull in size guard
+import { resolveMaxWriteBytesFromPolicy } from "../lib/execution-policy-defaults.js"; // FIX(A3-write-size-cap): resolve byte cap
 import { getContractPath } from "../lib/contracts.js";
 import { isSessionHardStopped } from "../lib/loop/loop-detection.js";
 import { resolveLoopEpochKey } from "../lib/loop/loop-epoch-key.js";
 import { getTrackingState } from "../lib/store/tracker-store.js";
-import { resolveHarnessModuleConfig } from "../lib/harness/harness-module-evidence.js";
+// FIX(A1-path-unify): three path-containment impls existed (local isInsidePath, naive startsWith, canonical isPathInsideRoot)
+//                     -> consume the single canonical relative()-based isPathInsideRoot everywhere in this hook
+import { resolveHarnessModuleConfig, isPathInsideRoot } from "../lib/harness/harness-module-evidence.js";
 import { getAgentRole } from "../lib/agent/agent-identity.js";
 import { getToolRestrictions } from "../lib/capability/capability-preset-registry.js";
 import { agentWorkspace } from "../lib/state.js";
@@ -41,14 +44,6 @@ function resolveWorkspacePath(rawPath, workspaceDir) {
     return resolve(normalized);
   }
   return workspaceDir ? resolve(workspaceDir, normalized) : normalized;
-}
-
-function isInsidePath(targetPath, allowedPath) {
-  if (!targetPath || !allowedPath) return false;
-  const resolvedTargetPath = resolve(targetPath);
-  const resolvedAllowedPath = resolve(allowedPath);
-  return resolvedTargetPath === resolvedAllowedPath
-    || resolvedTargetPath.startsWith(`${resolvedAllowedPath}${sep}`);
 }
 
 async function pathExists(filePath) {
@@ -253,13 +248,23 @@ export function register(api, logger) {
       && (WRITE_TOOL_PATTERN.test(toolName) || EDIT_TOOL_PATTERN.test(toolName))
     ) {
       const target = canonicalToolPath || resolvedInputPath;
-      if (target && ws && !isInsidePath(target, ws)) {
+      if (target && ws && !isPathInsideRoot(target, ws)) {
         return {
           block: true,
           blockReason: "运维原则：operator 是 meta-agent，工作区外的代码与平台配置请经 CLI-system admin surface（plan→execute→change-set）修改；raw write/edit 仅限 operator 自己的工作区内。",
         };
       }
     }
+
+    // 1e. WRITE SIZE CAP — FIX(A3-write-size-cap): before_tool_call never bounded write/edit byte
+    // size, so an agent could write an arbitrarily huge file to disk (disk_full was only recorded
+    // post-hoc in error-ledger) -> reject oversized content up front, before it reaches the tool.
+    const writeSizeBlock = checkWriteSize(
+      toolName,
+      params,
+      resolveMaxWriteBytesFromPolicy(trackingState?.executionPolicy),
+    );
+    if (writeSizeBlock) return writeSizeBlock;
 
     // 2. Role-level tool + path restrictions (Rule 12 enforcement)
     const role = getAgentRole(agentId);
@@ -278,7 +283,7 @@ export function register(api, logger) {
 
           if (restrictions.readPathScope === "inbox") {
             // Planner: only read from own inbox/
-            if (inboxDir && !isInsidePath(targetPath, inboxDir)) {
+            if (inboxDir && !isPathInsideRoot(targetPath, inboxDir)) {
               return { block: true, blockReason: `路径限制：${role} 的读取范围是 inbox/ 目录` };
             }
           } else if (restrictions.readPathScope === "contract") {
@@ -293,7 +298,7 @@ export function register(api, logger) {
             const workingDir = resolveWorkspacePath(trackingState?.contract?.workingDir ?? "", ws);
             const allowedPaths = [inboxDir, contractOutput, previousArtifact, workingDir].filter(Boolean);
 
-            const allowed = allowedPaths.some((p) => isInsidePath(targetPath, p));
+            const allowed = allowedPaths.some((p) => isPathInsideRoot(targetPath, p));
             if (!allowed) {
               return { block: true, blockReason: `路径限制：${role} 的读取范围是 inbox/ 和合约声明的产物路径` };
             }
@@ -313,7 +318,7 @@ export function register(api, logger) {
         && targetPath
         && ownInboxDir
         && isInboxProbe
-        && !isInsidePath(targetPath, ownInboxDir)
+        && !isPathInsideRoot(targetPath, ownInboxDir)
       ) {
         return {
           block: true,
@@ -356,7 +361,8 @@ export function register(api, logger) {
         : null;
       if (allowedRoots && /^(write|Write|edit|Edit|exec|Bash)$/i.test(toolName)) {
         const targetPath = normalizePath(params.path ?? params.file_path ?? params.filePath ?? params.command ?? "");
-        if (targetPath && !allowedRoots.some((root) => targetPath.startsWith(normalizePath(root)))) {
+        // FIX(A1-path-unify): naive startsWith let "<root>-evil/…" pass a "<root>" allow-root -> canonical relative()-based containment
+        if (targetPath && !allowedRoots.some((root) => isPathInsideRoot(targetPath, root))) {
           return { block: true, blockReason: `沙箱边界：使用工作空间范围 [${allowedRoots.join(", ")}] 处理当前任务；本次路径为 ${targetPath}` };
         }
       }

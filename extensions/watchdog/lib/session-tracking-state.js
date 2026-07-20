@@ -85,6 +85,7 @@ export function createTrackingState({ sessionKey, agentId, parentSession, runId 
     toolCalls: [],
     recentToolEvents: [],
     toolCallTotal: 0,
+    outputBytesTotal: 0, // FIX(A4-output-length-stop): cumulative tool-output byte counter for the output-budget hard-stop
     lastLabel: "启动中",
     status: CONTRACT_STATUS.RUNNING,
     contract: null,

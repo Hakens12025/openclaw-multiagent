@@ -35,7 +35,10 @@ import {
   HARD_STOP_REASON,
 } from "../lib/loop/loop-detection.js";
 import { resolveLoopEpochKey } from "../lib/loop/loop-epoch-key.js";
-import { resolveMaxToolCallsFromPolicy } from "../lib/execution-policy-defaults.js";
+import {
+  resolveMaxToolCallsFromPolicy,
+  resolveMaxOutputBytesFromPolicy, // FIX(A4-output-length-stop): output-byte budget resolver
+} from "../lib/execution-policy-defaults.js";
 import { buildToolActivityCursor } from "../lib/runtime-activity.js";
 import { observeCanonicalRuntimeResultCommit } from "../lib/protocol-commit-observer.js";
 import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
@@ -44,7 +47,7 @@ import {
   buildToolTimelineEvent,
 } from "../lib/tool-timeline.js";
 import { canonicalizeContractOutputPath } from "../lib/runtime-contract-output-alias.js";
-import { isToolOutcomeError } from "../lib/runtime-user-facing-output.js";
+import { isToolOutcomeError, measureToolResultBytes } from "../lib/runtime-user-facing-output.js"; // FIX(A4-output-length-stop): measure tool result bytes
 import {
   getExecutionIncident,
   upsertExecutionIncident,
@@ -253,6 +256,13 @@ export function register(api, logger) {
     const maxToolCallsBudget = resolveMaxToolCallsFromPolicy(t?.executionPolicy);
     if (Number(t.toolCallTotal || 0) >= maxToolCallsBudget) {
       markSessionHardStopped(resolveLoopEpochKey(t) || sessionKey, HARD_STOP_REASON.MAX_TOOL_CALLS);
+    }
+    // FIX(A4-output-length-stop): after_tool_call bounded call COUNT but never total output VOLUME ->
+    // accumulate result bytes per session and hard-stop once the output-byte budget is crossed.
+    // Pure observation, identical shape to the maxToolCalls marking above (no contract mutation here).
+    t.outputBytesTotal = Number(t.outputBytesTotal || 0) + measureToolResultBytes(event);
+    if (t.outputBytesTotal >= resolveMaxOutputBytesFromPolicy(t?.executionPolicy)) {
+      markSessionHardStopped(resolveLoopEpochKey(t) || sessionKey, HARD_STOP_REASON.OUTPUT_BUDGET_EXHAUSTED);
     }
     if (t.toolCalls.length >= TOOL_CALLS_WINDOW_SIZE) t.toolCalls.shift();
     t.toolCalls.push({ tool: toolName, label: activityCursor.label, ts: observedAt });

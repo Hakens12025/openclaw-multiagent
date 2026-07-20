@@ -102,6 +102,49 @@ function containsSensitivePathReferenceInCommand(command) {
   ));
 }
 
+// FIX(A3-write-size-cap): single source of truth for which params carry write/edit content
+// (was inline in checkToolCall). Reused by the API-key scan AND the new size guard.
+// FIX(A3-write-size-cap/review): WRITE_TOOL_PATTERN also matches apply_patch and multi_edit
+// whose payload is NOT in the flat fields — apply_patch carries a patch envelope (patch/input),
+// multi_edit an edits[] array. Missing them let a huge apply_patch/multi_edit slip the size cap.
+export function collectWriteContent(params = {}) {
+  const parts = [
+    params.content,
+    params.text,
+    params.newText,
+    params.new_string,
+    params.body,
+    params.patch,   // apply_patch envelope
+    params.input,   // apply_patch (Codex-style) envelope
+  ];
+  if (Array.isArray(params.edits)) { // multi_edit: content lives per-edit
+    for (const edit of params.edits) {
+      if (edit && typeof edit === "object") {
+        parts.push(edit.new_string, edit.newText, edit.content);
+      }
+    }
+  }
+  return parts.filter((p) => typeof p === "string" && p).join("\n");
+}
+
+// FIX(A3-write-size-cap): pure guard — returns { block, blockReason } when a write/edit tool's
+// UTF-8 content byte length exceeds maxWriteBytes, else null (non-write tools / empty content /
+// non-positive cap all pass through). Uses Buffer.byteLength, not String.length, so multibyte
+// payloads are measured by real disk bytes.
+export function checkWriteSize(toolName, params, maxWriteBytes) {
+  if (!WRITE_TOOL_PATTERN.test(toolName)) return null;
+  const cap = Number(maxWriteBytes);
+  if (!Number.isFinite(cap) || cap <= 0) return null;
+  const content = collectWriteContent(params ?? {});
+  if (!content) return null;
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes <= cap) return null;
+  return {
+    block: true,
+    blockReason: `安全策略：单次写入内容 ${bytes} 字节超过上限 ${cap} 字节；请拆分为多次较小写入或精简内容后再提交。`,
+  };
+}
+
 // Returns { block, blockReason } or null if allowed
 export function checkToolCall(agentId, sessionKey, toolName, params, logger) {
   const filePaths = extractToolPaths(params);
@@ -128,13 +171,7 @@ export function checkToolCall(agentId, sessionKey, toolName, params, logger) {
       logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to write/edit sensitive path: ${blockedPath}`);
       return { block: true, blockReason: "安全策略：写入工作面限定为当前任务文件。" };
     }
-    const writeContent = [
-      params.content,
-      params.text,
-      params.newText,
-      params.new_string,
-      params.body,
-    ].filter(Boolean).join("\n");
+    const writeContent = collectWriteContent(params); // FIX(A3-write-size-cap): reuse single write-content source
     if (writeContent && containsApiKey(writeContent)) {
       logger.warn(`[watchdog] SECURITY BLOCK: ${agentId} tried to write API key via ${toolName}`);
       return { block: true, blockReason: "安全策略：消息面只发送任务内容和结果。" };

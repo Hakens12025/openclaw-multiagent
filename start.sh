@@ -45,6 +45,8 @@ detect_proxy_port() {
 SSH_REMOTE_HOST="${OPENCLAW_SSH_REMOTE_HOST:-YOUR_REMOTE_HOST}"
 SSH_REMOTE_USER="${OPENCLAW_SSH_REMOTE_USER:-root}"
 SSH_REMOTE_PORT="${OPENCLAW_SSH_REMOTE_PORT:-18791}"
+# FIX(C9-doc-drift): 澄清两套隧道策略 -> 本变量为 legacy 引用；start.sh 不再调用 ssh-tunnel.sh，
+# QQ 入站隧道由下方内联 ssh -R 负责，ssh-tunnel.sh 仅供 skills/qqbot-repair 手动排障。
 SSH_TUNNEL_SCRIPT="$OPENCLAW_DIR/ssh-tunnel.sh"
 SSH_SERVICE_SCRIPT="$OPENCLAW_DIR/scripts/ssh-tunnel-service.sh"
 SSH_LOG="$LOG_DIR/openclaw-ssh-tunnel.log"

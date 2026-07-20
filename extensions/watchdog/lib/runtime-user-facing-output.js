@@ -146,6 +146,24 @@ function extractTextParts(content) {
     .filter(Boolean);
 }
 
+// FIX(A4-output-length-stop): nothing sized a tool result (tool-timeline discards it) -> measure result output bytes from the one place that already knows result shape.
+export function measureToolResultBytes(event = null) {
+  const result = event?.result;
+  if (result == null) return 0;
+  if (typeof result === "string") {
+    return Buffer.byteLength(result, "utf8");
+  }
+  if (Array.isArray(result.content)) {
+    return extractTextParts(result.content)
+      .reduce((total, text) => total + Buffer.byteLength(text, "utf8"), 0);
+  }
+  try {
+    return Buffer.byteLength(JSON.stringify(result), "utf8");
+  } catch {
+    return 0;
+  }
+}
+
 export function isToolOutcomeError(event = null) {
   if (event?.error) {
     return true;

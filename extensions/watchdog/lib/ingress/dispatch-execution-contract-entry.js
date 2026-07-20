@@ -295,6 +295,8 @@ export async function dispatchCreateExecutionContractEntry({
     id: contractId,
     task: taskMessage,
     assignee: firstHopAgentId || null,
+    dispatchDepth: 0, // FIX(A2-fanout-depth): no hop counter at contract birth -> initialize the runtime hop counter
+    originChain: [], // FIX(A2-fanout-depth): no cross-session cycle trail -> initialize the origin chain
     dispatchOwnerAgentId: fromAgent,
     replyTo: effectiveReplyTo,
     ...(upstreamReplyTo ? { upstreamReplyTo } : {}),
