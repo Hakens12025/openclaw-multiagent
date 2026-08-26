@@ -110,6 +110,8 @@ export const enUS = {
   // 思考显示切换（默认显思考 → 按钮提供「隐藏」；隐藏态 → 「显示」）
   "inspect.thinking.show": "SHOW THINKING",
   "inspect.thinking.hide": "HIDE THINKING",
+  // 执行模型读数条（合约正本 executionModels：谁用哪个模型跑的这份合约）
+  "inspect.exec.title": "EXECUTION MODEL",
   // 展开详情字段标签（可读结构化视图，取代裸 JSON）
   "inspect.detail.actor": "EXECUTOR",
   "inspect.detail.time": "TIME",
@@ -279,6 +281,8 @@ export const zhCN = {
   // 思考显示切换（默认显思考 → 按钮提供「隐藏」；隐藏态 → 「显示」）
   "inspect.thinking.show": "显示思考",
   "inspect.thinking.hide": "隐藏思考",
+  // 执行模型读数条（合约正本 executionModels：谁用哪个模型跑的这份合约）
+  "inspect.exec.title": "执行模型",
   // 展开详情字段标签（可读结构化视图，取代裸 JSON）
   "inspect.detail.actor": "执行主体",
   "inspect.detail.time": "时间",

@@ -21,6 +21,15 @@ test("inspect-css ④: 结构层度量位 pl-bar-na 有 --muted 样式（替代�
   assert.match(css, /\.pl-bar-na\s*\{[^}]*color:\s*var\(--muted\)/, "结构标记走 --muted");
 });
 
+test("inspect-css: 执行模型读数条走读数带规格(面板底+细黑框),橙顶条仍归主面板", async () => {
+  const css = await readFile(new URL("../ui/pages/inspect/inspect.css", import.meta.url), "utf8");
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(noComments, /\.insp-exec\s*\{[^}]*border:\s*var\(--border\)/, "读数条=细黑框");
+  assert.match(noComments, /\.insp-exec\s*\{[^}]*background:\s*var\(--bg-2\)/, "面板底");
+  assert.doesNotMatch(noComments, /\.insp-exec\s*\{[^}]*border-top:\s*3px/, "元信息不抢橙顶条(那是主面板的强调)");
+  assert.match(noComments, /\.insp-exec-model\s*\{[^}]*color:\s*var\(--info\)/, "模型值走任务蓝");
+});
+
 test("inspect-css: 纪律不变——零圆角零阴影（网格底的 1px linear-gradient 是功能线非材质渐变,豁免）", async () => {
   const css = await readFile(new URL("../ui/pages/inspect/inspect.css", import.meta.url), "utf8");
   const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");

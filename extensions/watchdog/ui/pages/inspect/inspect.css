@@ -68,6 +68,51 @@
 }
 .insp-error { color: var(--alert); border-color: var(--alert); }
 
+/* ── 执行模型读数条：合约正本 executionModels 的投影（每合约一组，组内 agentId → provider/model）──
+   规格对齐 .pl-head 读数带：面板底 + 细黑框 + --muted 大写小标题；橙顶条留给下方主面板，
+   这里不抢强调（它是元信息不是主内容）。缺数据时整块不渲染（由 renderExecutionModels 返回空串）。 */
+.insp-exec {
+  border: var(--border);
+  background: var(--bg-2);
+  margin-bottom: var(--sp-3);
+}
+.insp-exec-head {
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  background: var(--bg-3);
+  border-bottom: 1px dashed var(--line-soft);
+  padding: var(--sp-1) var(--sp-3);
+}
+/* 每合约一组：左尾号 chip（同时间线 .tl-contract 规格）+ 右侧模型行列 */
+.insp-exec-group {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: 1px dashed var(--line-soft);
+}
+.insp-exec-group:last-child { border-bottom: none; }
+.insp-exec-cid {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.04em;
+  min-width: 52px;
+}
+.insp-exec-rows { min-width: 0; }
+.insp-exec-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+}
+/* 谁（agentId）=黑领读；箭头=faint 铜线；跑它的模型=蓝（同「运行」语义色），值本身是数据 */
+.insp-exec-agent { color: var(--ink); min-width: 72px; }
+.insp-exec-arrow { flex: none; color: var(--line-2); }
+.insp-exec-model { color: var(--info); word-break: break-all; }
+
 /* 详情面板通用外框：面板底 + 顶橙条（对齐 command 列） */
 /* 面板不再挂入场动画:详情面板每次交互(展开条目等)都全量重建 innerHTML,
    挂在容器上的 insp-panel-in 会随之重播 = 整块「像刷新」地闪一下(2026-08-26 治闪动根因)。

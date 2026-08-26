@@ -67,6 +67,45 @@ export function buildTreeModel({ threads = [], runDetails = {}, selected = null,
   };
 }
 
+// ── 执行模型（合约正本 executionModels 的透视投影）──
+// 数据：inspect.run 的 detail.contracts.executionModels = { contractId: { agentId: "provider/model" } }，
+// 稀疏——只有已执行过的合约才有键，旧数据/未执行合约缺席（缺席 → 空数组 → 整块不渲染）。
+// 同 run 门：树只挂各 thread 最新 run 的详情，深链却可能选中更早的 run —— runId 不一致就不显示，
+// 宁可缺块也不让别的 run 的模型串台（detail.runId 由 readRunDetail 恒返回）。
+// 组内/组间都保持后端给的顺序（executionModels 的键序=盖章先后=执行先后，比字母序更可读）。
+export function buildExecutionModelGroups(detail, runId = null) {
+  if (!runId || !detail || detail.runId !== runId) return [];
+  const models = detail.contracts?.executionModels;
+  if (!models || typeof models !== "object") return [];
+  return Object.keys(models)
+    .map((contractId) => {
+      const perAgent = models[contractId] || {};
+      const rows = Object.keys(perAgent)
+        .filter((agentId) => typeof perAgent[agentId] === "string" && perAgent[agentId].trim())
+        .map((agentId) => ({ agentId, model: perAgent[agentId].trim() }));
+      return { contractId, short: String(contractId).slice(-6), rows };
+    })
+    .filter((group) => group.rows.length > 0);
+}
+
+// 执行模型读数条：每合约一组（尾号 chip 呼应时间线 .tl-contract），组内每行 agentId → provider/model。
+// 空组 → 空串（不出空壳、不出占位文案）。模型值本身是数据，不入 i18n 键表。
+export function renderExecutionModels(groups = [], t) {
+  if (!Array.isArray(groups) || !groups.length) return "";
+  const body = groups.map((group) => {
+    const rows = group.rows.map((row) => `<div class="insp-exec-row">`
+      + `<span class="insp-exec-agent">${esc(row.agentId)}</span>`
+      + `<span class="insp-exec-arrow" aria-hidden="true">→</span>`
+      + `<span class="insp-exec-model">${esc(row.model)}</span>`
+      + `</div>`).join("");
+    return `<div class="insp-exec-group">`
+      + `<span class="insp-exec-cid" title="${esc(group.contractId)}">${esc(group.short)}</span>`
+      + `<div class="insp-exec-rows">${rows}</div></div>`;
+  }).join("");
+  return `<section class="insp-exec">`
+    + `<div class="insp-exec-head">${esc(t("inspect.exec.title"))}</div>${body}</section>`;
+}
+
 // 深链解析：#/inspect?run=<id>（脉搏卡/哨兵证据）与 ?wi=<id>（工作项，id=contractId）
 // 都是 inspect.run_join 的钥匙，统一成 run 选中意图，由 index.js 调 surface 定位。
 export function resolveDeepLinkSelection(params = {}) {

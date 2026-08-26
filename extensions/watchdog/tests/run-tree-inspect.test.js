@@ -67,7 +67,9 @@ async function seedTree() {
   // 合约正本 + 索引行
   const contractsDir = join(runDirFor(LINEAGE_A), "contracts");
   await mkdir(contractsDir, { recursive: true });
-  await writeFile(join(contractsDir, `${CID}.json`), `${JSON.stringify({ id: CID, status: "completed" })}\n`);
+  await writeFile(join(contractsDir, `${CID}.json`), `${JSON.stringify({ id: CID, status: "completed", executionModels: { planner: "glm-bigmodel/glm-5.1" } })}\n`);
+  // 无 executionModels 的第二正本:投影应稀疏(不为它落键)
+  await writeFile(join(contractsDir, `${CID}-bare.json`), `${JSON.stringify({ id: `${CID}-bare`, status: "completed" })}\n`);
   await recordContractHome(CID, LINEAGE_A);
 
   // participant 摘要素材:session 副本 + 封条 outbox
@@ -120,7 +122,10 @@ test("readRunDetail 返回 run.json 投影 + contracts 清单 + participants 摘
   assert.equal(detail.found, true);
   assert.ok(detail.run, "run_closed 已触发投影编译,run.json 应在");
   assert.equal(detail.run.closed, true);
-  assert.deepEqual(detail.contracts.ids, [CID]);
+  assert.deepEqual([...detail.contracts.ids].sort(), [CID, `${CID}-bare`].sort());
+  // 执行模型投影:有字段的合约带上,无字段的稀疏不落键
+  assert.deepEqual(detail.contracts.executionModels[CID], { planner: "glm-bigmodel/glm-5.1" });
+  assert.equal(`${CID}-bare` in detail.contracts.executionModels, false);
   const planner = detail.participants.find((p) => p.agentId === "planner");
   assert.ok(planner, "planner 参与者应在摘要");
   assert.equal(planner.turnFileCount >= 1, true, "turn-*.json 投影文件应计数");

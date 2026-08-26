@@ -129,6 +129,20 @@ export async function readRunDetail({ threadId, runId } = {}) {
     .filter((name) => name.endsWith(".json"))
     .map((name) => name.slice(0, -".json".length));
 
+  // 执行模型(2026-08-27):正本 executionModels[agentId]="provider/model" 的透视投影。
+  // 稀疏取值:有字段的合约才落键;单文件坏档吞错不拖垮整个详情。
+  const executionModels = {};
+  for (const contractId of contractIds) {
+    try {
+      const snapshot = JSON.parse(await readFile(join(runDir, RUN_CONTRACTS_DIRNAME, `${contractId}.json`), "utf8"));
+      if (snapshot?.executionModels && typeof snapshot.executionModels === "object" && Object.keys(snapshot.executionModels).length) {
+        executionModels[contractId] = snapshot.executionModels;
+      }
+    } catch {
+      // 坏档/半写跳过
+    }
+  }
+
   const participantsDir = join(runDir, RUN_PARTICIPANTS_DIRNAME);
   const participants = [];
   for (const agentId of await listDirectoryNames(participantsDir)) {
@@ -160,7 +174,7 @@ export async function readRunDetail({ threadId, runId } = {}) {
     threadId: lineage.threadId,
     runId: lineage.runId,
     run,
-    contracts: { count: contractIds.length, ids: contractIds },
+    contracts: { count: contractIds.length, ids: contractIds, executionModels },
     participants,
   };
 }

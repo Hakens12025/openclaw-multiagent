@@ -9,6 +9,8 @@ import {
   renderInspectLayout,
   renderTabBar,
   buildTreeModel,
+  buildExecutionModelGroups,
+  renderExecutionModels,
   sessionIdFromParticipantFiles,
   resolveDeepLinkSelection,
 } from "./inspect-page.js";
@@ -149,40 +151,46 @@ export function mountInspectPage(host, { store, api, i18n, routeParams = {} }) {
       detail += `<div class="insp-state insp-error">${esc(i18n.t("state.error", { msg: state.inspectError }))}</div>`;
     } else if (!selected) {
       detail += `<div class="insp-state">${esc(i18n.t("inspect.detail.empty"))}</div>`;
-    } else if (tab === "timeline") {
-      const join = state.inspectJoin;
-      const entries = join
-        ? buildTimelineEntries({
-            events: join.events || [],
-            traces: join.anchoredTraces || [],
-            transcriptMessages: state.inspectTranscript?.messages || [],
-            transcriptAgentId: state.inspectAgentId || null, // 思考归属=选中 agent
-          })
-        : [];
-      detail += renderRunTimeline(
-        {
-          entries,
-          mode: state.inspectMode || "snapshot",
-          expandedKey: state.inspectExpandedKey || null,
-          highlightAgentId: state.inspectFocusAgentId || null, // 只有显式选 agent 才聚焦;选 r- 退出
-        },
-        i18n.t,
-      );
-    } else if (tab === "prompt") {
-      detail += renderPromptLayers(
-        { report: state.inspectPrompt, openLayer: state.inspectOpenLayer || null, openFile: state.inspectOpenFile || null },
-        i18n.t,
-      );
     } else {
-      detail += renderOutputPanel(
-        {
-          producedFiles: state.inspectTranscript?.producedFiles || null,
-          delivery: state.inspectTranscript?.delivery || null,
-          seal: state.inspectSeal || null,
-          openFile: state.inspectOpenFile || null,
-        },
-        i18n.t,
-      );
+      // 执行模型读数条：run 级元信息（这份合约里谁用了哪个模型），三 Tab 之下常驻在内容之上——
+      // 时间线看执行、装配看喂给谁、输出看谁产的，三处都要「模型是哪个」这一句。数据缺席时为空串。
+      const runDetail = (state.inspectRunDetails || {})[selected.threadId] || null;
+      detail += renderExecutionModels(buildExecutionModelGroups(runDetail, selected.runId || null), i18n.t);
+      if (tab === "timeline") {
+        const join = state.inspectJoin;
+        const entries = join
+          ? buildTimelineEntries({
+              events: join.events || [],
+              traces: join.anchoredTraces || [],
+              transcriptMessages: state.inspectTranscript?.messages || [],
+              transcriptAgentId: state.inspectAgentId || null, // 思考归属=选中 agent
+            })
+          : [];
+        detail += renderRunTimeline(
+          {
+            entries,
+            mode: state.inspectMode || "snapshot",
+            expandedKey: state.inspectExpandedKey || null,
+            highlightAgentId: state.inspectFocusAgentId || null, // 只有显式选 agent 才聚焦;选 r- 退出
+          },
+          i18n.t,
+        );
+      } else if (tab === "prompt") {
+        detail += renderPromptLayers(
+          { report: state.inspectPrompt, openLayer: state.inspectOpenLayer || null, openFile: state.inspectOpenFile || null },
+          i18n.t,
+        );
+      } else {
+        detail += renderOutputPanel(
+          {
+            producedFiles: state.inspectTranscript?.producedFiles || null,
+            delivery: state.inspectTranscript?.delivery || null,
+            seal: state.inspectSeal || null,
+            openFile: state.inspectOpenFile || null,
+          },
+          i18n.t,
+        );
+      }
     }
     // 脏检查:内容未变则不重建 DOM——避免 live run 5s 轮询把整块 innerHTML 反复重建,
     // 既省重排又让入场动画只在真正变化时播(否则每次轮询都闪一下,正是要治的「生硬」)。
