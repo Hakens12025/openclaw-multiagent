@@ -22,19 +22,19 @@ import {
 } from "../archive/thread-tree-store.js";
 import { recordSessionHome } from "../archive/session-home-index.js";
 
-function liveSessionsFile(agentId) {
-  return join(OC, "agents", agentId, "sessions", "sessions.json");
+function liveSessionsFile(agentId, root = OC) {
+  return join(root, "agents", agentId, "sessions", "sessions.json");
 }
 
-function liveSessionJsonl(agentId, sessionId) {
-  return join(OC, "agents", agentId, "sessions", `${sessionId}.jsonl`);
+function liveSessionJsonl(agentId, sessionId, root = OC) {
+  return join(root, "agents", agentId, "sessions", `${sessionId}.jsonl`);
 }
 
 // 从 sessions.json 取指定 sessionKey 的 { sessionId, updatedAt, systemPromptReport }。
-async function resolveLiveSession(agentId, sessionKey) {
+async function resolveLiveSession(agentId, sessionKey, root = OC) {
   let parsed;
   try {
-    const raw = await readFile(liveSessionsFile(agentId), "utf8");
+    const raw = await readFile(liveSessionsFile(agentId, root), "utf8");
     parsed = JSON.parse(raw);
   } catch {
     return null;
@@ -51,6 +51,44 @@ async function resolveLiveSession(agentId, sessionKey) {
     };
   }
   return null;
+}
+
+/**
+ * 从 live 会话转录提取本轮实际执行模型(合约执行模型一等字段的观测源,2026-08-27)。
+ * 取最后一条 assistant 消息的 message.model/provider —— 配置只说"想用什么",
+ * 转录才说"实际用了什么"(failover 换挡后二者会分叉,以观测为准,§12 同族)。
+ * 行形状(宿主会话 jsonl):{ type:"message", message:{ role:"assistant", model, provider } }。
+ * 吞错返回 null:提取失败不影响 agent_end,账里缺列即"没测到"。
+ *
+ * @param {{ agentId?:string, sessionKey?:string, root?:string }} params
+ * @returns {Promise<{ model:string, provider:string|null }|null>}
+ */
+export async function resolveSessionExecutionModel({ agentId, sessionKey, root = OC } = {}) {
+  try {
+    const aid = normalizeString(agentId);
+    const key = normalizeString(sessionKey);
+    if (!aid || !key) return null;
+    const live = await resolveLiveSession(aid, key, root);
+    if (!live?.sessionId) return null;
+    const raw = await readFile(liveSessionJsonl(aid, live.sessionId, root), "utf8");
+    const lines = raw.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      const message = entry?.type === "message" ? entry.message : null;
+      if (message?.role === "assistant" && typeof message.model === "string" && message.model.trim()) {
+        return {
+          model: message.model.trim(),
+          provider: normalizeString(message.provider) || null,
+        };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**

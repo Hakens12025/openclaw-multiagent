@@ -13,6 +13,8 @@ import {
 } from "../../transport/runtime-wake-transport.js";
 import { wireCollected } from "../../archive/run-event-wiring.js";
 import { extractFinalAssistantText } from "../../delivery/runtime-user-facing-output.js";
+import { resolveSessionExecutionModel } from "../run-tree-archive.js";
+import { mutateContractById } from "../../contract/contracts.js";
 
 // 消息面交付的流程就绪门。合约轮里 agent 从未成功读到自己的 inbox/contract.json
 // (ownInboxContractReadAt = before-tool-call 1b 闸的同一真值)= 它根本不知道本轮任务
@@ -55,6 +57,14 @@ export async function handleAgentEndTransport({
     messageText: resolveMessageDeliverableText({ event, trackingState }),
   });
   const executionObservation = materializeExecutionObservation(collectedTransport);
+  // 执行模型一等字段(2026-08-27):从 live 转录取本轮实际模型(failover 后与配置分叉,
+  // 以观测为准)。双落:①COLLECTED 账(payload.model/provider,SQL 可查)②合约正本
+  // executionModels[agentId](锁内读改写,不会被收口 mergeContractFields 覆掉)。
+  // 提取/落正本失败都只降级为缺列+warn,不影响 agent_end 主流程。
+  const executionModel = await resolveSessionExecutionModel({
+    agentId,
+    sessionKey: trackingState?.sessionKey,
+  });
   // 事件接线(批② §八):agent_end 采集完成 = collected 时刻(成败都记账,payload 带判定)。
   void wireCollected({
     contract: trackingState?.contract,
@@ -62,8 +72,28 @@ export async function handleAgentEndTransport({
     sessionKey: trackingState?.sessionKey,
     collected: executionObservation.collected === true,
     deliverableKind: collectedTransport?.messageDeliverable === true ? "message" : null,
+    executionModel,
     logger,
   });
+  if (executionModel && trackingState?.contract?.id) {
+    const modelRef = executionModel.provider
+      ? `${executionModel.provider}/${executionModel.model}`
+      : executionModel.model;
+    try {
+      await mutateContractById(trackingState.contract.id, logger, (contract) => {
+        contract.executionModels = { ...(contract.executionModels || {}), [agentId]: modelRef };
+      }, { logMessage: (c) => `[watchdog] contract ${c.id} executionModels[${agentId}] = ${modelRef}` });
+      // 内存镜像同步:后续持有 trackingState.contract 整写的路径不丢该字段。
+      if (trackingState.contract && typeof trackingState.contract === "object") {
+        trackingState.contract.executionModels = {
+          ...(trackingState.contract.executionModels || {}),
+          [agentId]: modelRef,
+        };
+      }
+    } catch (stampError) {
+      logger?.warn?.(`[watchdog] executionModels stamp failed for ${trackingState.contract.id}: ${stampError?.message || stampError}`);
+    }
+  }
   if (executionObservation.collected) {
     logger.info(`[watchdog] collectOutbox(${agentId}): success`);
 

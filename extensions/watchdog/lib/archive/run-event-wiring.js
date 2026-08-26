@@ -212,12 +212,15 @@ export function wireDeclared({ contract, agentId = null, sessionKey = null, stat
 }
 
 // ── 采集(agent_end collectOutbox 后) ─────────────────────────────────────────
-export function wireCollected({ contract, agentId = null, sessionKey = null, collected = false, deliverableKind = null, logger = null } = {}) {
+export function wireCollected({ contract, agentId = null, sessionKey = null, collected = false, deliverableKind = null, executionModel = null, logger = null } = {}) {
   const lineage = resolveWireLineage(contract);
   const contractId = normalizeString(contract?.id);
   if (!lineage || !contractId) return Promise.resolve();
 
   const normalizedKind = normalizeString(deliverableKind);
+  // 执行模型(2026-08-27):本轮实际模型的观测值(转录提取),缺测不落键——事件形状按需增列。
+  const normalizedModel = normalizeString(executionModel?.model);
+  const normalizedProvider = normalizeString(executionModel?.provider);
   return enqueueRunEvent(lineage, logger, async () => {
     const refs = getContractRefs(contractId);
     const event = await appendRunEvent({
@@ -227,7 +230,12 @@ export function wireCollected({ contract, agentId = null, sessionKey = null, col
       agentId: normalizeString(agentId),
       sessionKey: normalizeString(sessionKey),
       // kind 只在非缺省路(消息面物化)时落键——文件路事件形状不变。
-      payload: { collected: collected === true, ...(normalizedKind ? { kind: normalizedKind } : {}) },
+      payload: {
+        collected: collected === true,
+        ...(normalizedKind ? { kind: normalizedKind } : {}),
+        ...(normalizedModel ? { model: normalizedModel } : {}),
+        ...(normalizedModel && normalizedProvider ? { provider: normalizedProvider } : {}),
+      },
       causeRefs: firstRef(refs.declared, refs.turnStarted, refs.claimed),
     });
     refs.collected = event.ref;

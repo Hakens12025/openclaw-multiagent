@@ -1,0 +1,9 @@
+# public-sync 审计门B baseline — 人工核验过的假值命中(file:pattern)。新增命中会 exit 3。
+# 核验记录 2026-08-27:sk-* 全为教科书夹具值;hex48 为 sha256 测试向量与造号夹具;122.0.0.0 是 Chrome UA 版本号。
+./extensions/watchdog/tests/security-write-apikey-scan.test.js:sk-key
+./extensions/watchdog/tests/structure-share-code.test.js:sk-key
+./extensions/watchdog/tests/security-block-reason.test.js:sk-key
+./extensions/watchdog/tests/secret-redactor.test.js:sk-key
+./extensions/watchdog/tests/mint-id.test.js:hex48-token
+./extensions/watchdog/tests/secret-redactor.test.js:hex48-token
+./skills/ddg-web-search/scripts/search.py:public-ipv4(122.0.0.0)
