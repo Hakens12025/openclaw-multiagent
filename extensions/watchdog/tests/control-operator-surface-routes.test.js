@@ -1,7 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
+
+// 批② 迁树:本文件含全店枚举断言(work-items 目录),树店按文件级沙箱隔离,
+// 免跨测试文件残留污染(惰性种子每次 IO 时生效,见 lib/archive/thread-tree-store.js;
+// 先例:delivery-pump.test.js 的票据店沙箱)。
+const THREADS_SANDBOX = mkdtempSync(join(tmpdir(), "openclaw-control-operator-threads-"));
+process.env.OPENCLAW_THREADS_DIR = THREADS_SANDBOX;
+process.env.OPENCLAW_CONTRACT_INDEX_FILE = join(THREADS_SANDBOX, "contract-index.jsonl");
 
 import { register as registerApiRoutes } from "../routes/api.js";
 import { cfg, CONTRACTS_DIR, runtimeAgentConfigs } from "../lib/state.js";
@@ -104,6 +114,9 @@ test("operator catalog work-items route hides control-plane actors", async () =>
   clearContractStore();
   await rm(CONTRACTS_DIR, { recursive: true, force: true });
   await mkdir(CONTRACTS_DIR, { recursive: true });
+  // 批② 迁树:树店(文件级沙箱)一并清空,枚举断言不受残留干扰
+  await rm(THREADS_SANDBOX, { recursive: true, force: true });
+  await mkdir(THREADS_SANDBOX, { recursive: true });
 
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
   const now = Date.now();

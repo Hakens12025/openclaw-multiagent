@@ -1,5 +1,5 @@
-import { getTestRunDetails } from "../lib/test-runs.js";
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
+import { getTestRunDetails } from "../lib/formal-runtime/test-runs.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
 import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 export function register(api, logger, deps = {}) {

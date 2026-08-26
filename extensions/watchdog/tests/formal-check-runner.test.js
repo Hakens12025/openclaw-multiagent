@@ -82,16 +82,16 @@ test("runCheck：fn 抛错 → fail，用 descriptor 码，错误消息进 evide
 
 test("runCheck：fn 返回对象可声明 skip/fail，未带码时回落 descriptor 码", async () => {
   const ctx = createCheckContext({});
-  const skipped = await runCheck(ctx, { id: "loop.cycle-present", subsystem: "loop", title: "registered cycle", code: "E-LOOP-001" }, async () => ({
-    status: "skip", code: "E-LOOP-SKIP", evidence: "no registered loop in graph",
+  const skipped = await runCheck(ctx, { id: "knowledge.embed-present", subsystem: "knowledge", title: "embed backend reachable", code: "E-KNOWLEDGE-001" }, async () => ({
+    status: "skip", code: "E-KNOWLEDGE-SKIP", evidence: "no embed backend online",
   }));
   assert.equal(skipped.status, "skip");
-  assert.equal(skipped.code, "E-LOOP-SKIP");
+  assert.equal(skipped.code, "E-KNOWLEDGE-SKIP");
 
-  const failed = await runCheck(ctx, { id: "loop.budget-echo", subsystem: "loop", title: "budget echo", code: "E-LOOP-002" }, async () => ({
-    status: "fail", evidence: "budgetSource.maxRounds=declared, expected default",
+  const failed = await runCheck(ctx, { id: "knowledge.recall", subsystem: "knowledge", title: "recall floor", code: "E-KNOWLEDGE-001" }, async () => ({
+    status: "fail", evidence: "recall@10 below floor",
   }));
-  assert.equal(failed.code, "E-LOOP-002", "fail without explicit code falls back to descriptor code");
+  assert.equal(failed.code, "E-KNOWLEDGE-001", "fail without explicit code falls back to descriptor code");
 });
 
 test("runCheck：descriptor 码未注册 → 立刻抛（typo 不许潜伏到失败时）", async () => {

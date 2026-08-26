@@ -22,7 +22,7 @@ import {
   getAgentIdentitySnapshot,
   resolveAgentIngressSource,
 } from "../agent/agent-identity.js";
-import { buildAgentMainSessionKey } from "../session-keys.js";
+import { buildAgentMainSessionKey } from "../session/session-keys.js";
 
 function isCoreWrappedHookPrompt(promptText) {
   const text = String(promptText || "");

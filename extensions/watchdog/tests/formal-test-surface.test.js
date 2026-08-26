@@ -3,24 +3,28 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { FORMAL_TEST_PRESETS, getFormalPresetById } from "../lib/formal-test-presets.js";
-import { resolveRunCleanMode } from "../lib/test-run-presets.js";
-import { resolveSuiteSegments, FULL_SUITE_SEGMENTS } from "../lib/test-run-suites.js";
-import { listTestRuns } from "../lib/test-runs.js";
+import { FORMAL_TEST_PRESETS, getFormalPresetById } from "../lib/formal-runtime/formal-test-presets.js";
+import { resolveRunCleanMode } from "../lib/formal-runtime/test-run-presets.js";
+import { resolveSuiteSegments, FULL_SUITE_SEGMENTS } from "../lib/formal-runtime/test-run-suites.js";
+import { listTestRuns } from "../lib/formal-runtime/test-runs.js";
 import { OC } from "../lib/state.js";
 
 const EXPECTED_PRESET_IDS = [
   "health",
-  "dispatch",
+  "model",
+  "single",
+  "concurrent",
   "pipeline",
-  "loop",
-  "system-action",
+  "collab",
   "operator",
   "knowledge",
+  "viz",
+  "group",
+  "unit",
   "full",
 ];
 
-test("formal preset catalog exposes exactly the 8 approved presets in stable order", () => {
+test("formal preset catalog exposes exactly the 12 approved presets in stable order", () => {
   assert.deepEqual(
     FORMAL_TEST_PRESETS.map((preset) => preset.id),
     EXPECTED_PRESET_IDS,
@@ -37,12 +41,33 @@ test("health preset is read-only: zero-LLM static suite without clean reset", ()
   assert.deepEqual(preset.caseIds, ["health-node", "health-gateway"]);
 });
 
-test("dispatch preset targets the two minimal live-link cases", () => {
-  const preset = getFormalPresetById("dispatch");
+test("model preset is a self-targeting live probe over the credentialed provider list", () => {
+  const preset = getFormalPresetById("model");
   assert.ok(preset);
-  assert.equal(preset.suite, "dispatch");
+  assert.equal(preset.suite, "model");
+  assert.equal(preset.runtimeMode, "live");
+  assert.equal(preset.transport, "runtime");
+  assert.equal(preset.cleanMode, "session-clean");
+  assert.deepEqual(preset.caseIds, []);
+});
+
+test("single preset targets the two minimal live-link cases", () => {
+  const preset = getFormalPresetById("single");
+  assert.ok(preset);
+  assert.equal(preset.suite, "single");
   assert.equal(preset.cleanMode, "session-clean");
   assert.deepEqual(preset.caseIds, ["answer-direct", "small-file-task"]);
+});
+
+test("concurrent preset runs the two race-probe cases with reset between cases", () => {
+  const preset = getFormalPresetById("concurrent");
+  assert.ok(preset);
+  assert.equal(preset.suite, "concurrent");
+  assert.equal(preset.runtimeMode, "live");
+  assert.equal(preset.transport, "runtime");
+  assert.equal(preset.cleanMode, "session-clean");
+  assert.equal(preset.resetBetweenCases, true);
+  assert.deepEqual(preset.caseIds, ["conc-same-3", "conc-burst-5"]);
 });
 
 test("pipeline preset targets the two multi-hop cases", () => {
@@ -52,20 +77,23 @@ test("pipeline preset targets the two multi-hop cases", () => {
   assert.deepEqual(preset.caseIds, ["brief-to-deliverable", "research-summary"]);
 });
 
-test("loop preset is self-targeting via graph truth (no static caseIds)", () => {
-  const preset = getFormalPresetById("loop");
-  assert.ok(preset);
-  assert.equal(preset.suite, "loop");
-  assert.deepEqual(preset.caseIds, []);
+test("retired loop preset is no longer resolvable", () => {
+  assert.equal(getFormalPresetById("loop"), null);
+  assert.equal(FULL_SUITE_SEGMENTS.includes("loop"), false);
 });
 
-test("system-action preset runs the three [ACTION] probes with reset between cases", () => {
-  const preset = getFormalPresetById("system-action");
+test("collab preset runs the layered probes with reset between cases (P5)", () => {
+  const preset = getFormalPresetById("collab");
   assert.ok(preset);
-  assert.equal(preset.suite, "system-action");
+  assert.equal(preset.suite, "collab");
   assert.equal(preset.transport, "runtime");
   assert.equal(preset.resetBetweenCases, true);
-  assert.deepEqual(preset.caseIds, ["create-task", "assign-task", "request-review"]);
+  assert.deepEqual(preset.caseIds, ["l1-assign-toolface", "l1-assign-expectations", "l1-review-toolface", "l3-marker-review", "create-task-denied"]);
+});
+
+test("retired automation-eval preset is no longer resolvable (harness 全退役 v226)", () => {
+  assert.equal(getFormalPresetById("automation-eval"), null);
+  assert.equal(FULL_SUITE_SEGMENTS.includes("automation-eval"), false);
 });
 
 test("operator and knowledge presets are deterministic read-side suites without clean reset", () => {
@@ -79,7 +107,35 @@ test("operator and knowledge presets are deterministic read-side suites without 
   }
 });
 
-test("full preset expands to all 7 suites serially", () => {
+test("viz preset is a deterministic read-side chart suite without clean reset", () => {
+  const preset = getFormalPresetById("viz");
+  assert.ok(preset);
+  assert.equal(preset.suite, "viz");
+  assert.equal(preset.runtimeMode, "deterministic");
+  assert.equal(preset.cleanMode, "none");
+  assert.deepEqual(preset.caseIds, []);
+});
+
+test("group preset is a deterministic graph-primitive suite without clean reset", () => {
+  const preset = getFormalPresetById("group");
+  assert.ok(preset);
+  assert.equal(preset.suite, "group");
+  assert.equal(preset.runtimeMode, "deterministic");
+  assert.equal(preset.cleanMode, "none");
+  assert.deepEqual(preset.caseIds, []);
+});
+
+test("unit preset is a static npm-test wrapper without clean reset", () => {
+  const preset = getFormalPresetById("unit");
+  assert.ok(preset);
+  assert.equal(preset.suite, "unit");
+  assert.equal(preset.runtimeMode, "static");
+  assert.equal(preset.transport, "none");
+  assert.equal(preset.cleanMode, "none");
+  assert.deepEqual(preset.caseIds, []);
+});
+
+test("full preset expands to all 11 suites serially", () => {
   const preset = getFormalPresetById("full");
   assert.ok(preset);
   assert.equal(preset.suite, "full");
@@ -99,8 +155,8 @@ test("every preset suite key resolves to dispatchable segments", () => {
 
 test("preset cleanMode is the single truth: requested session-clean cannot force-reset a none preset", () => {
   assert.equal(resolveRunCleanMode(getFormalPresetById("health"), "session-clean"), "none");
-  assert.equal(resolveRunCleanMode(getFormalPresetById("dispatch"), ""), "session-clean");
-  assert.throws(() => resolveRunCleanMode(getFormalPresetById("dispatch"), "bogus"), /unsupported test run cleanMode/);
+  assert.equal(resolveRunCleanMode(getFormalPresetById("single"), ""), "session-clean");
+  assert.throws(() => resolveRunCleanMode(getFormalPresetById("single"), "bogus"), /unsupported test run cleanMode/);
 });
 
 test("devtools preset listing mirrors the formal preset catalog", () => {
@@ -129,7 +185,7 @@ test("devtools preset listing keeps the payload field-name contract", () => {
 });
 
 test("formal runtime runner does not import suite implementations from tests", async () => {
-  const source = await readFile(join(OC, "extensions", "watchdog", "lib", "test-runs.js"), "utf8");
+  const source = await readFile(join(OC, "extensions", "watchdog", "lib", "formal-runtime", "test-runs.js"), "utf8");
 
   assert.doesNotMatch(source, /\.\.\/tests\/suite-/);
 });
@@ -172,6 +228,11 @@ test("retired old-system modules stay deleted", async () => {
     join("lib", "formal-runtime", "suite-single.js"),
     join("lib", "formal-runtime", "suite-direct-service.js"),
     join("lib", "formal-runtime", "suite-loop-direct.js"),
+    join("lib", "formal-runtime", "suite-loop.js"),
+    join("lib", "formal-runtime", "suite-automation-eval.js"),
+    join("lib", "formal-runtime", "checks", "harness-probe.js"),
+    join("lib", "loop"),
+    join("lib", "harness"),
     join("lib", "formal-runtime", "tsp"),
   ];
 

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import {
   buildTestRunReportText,
   writeTestRunArtifacts,
-} from "../lib/test-run-artifacts.js";
+} from "../lib/formal-runtime/test-run-artifacts.js";
 import { FORMAL_REPORT_SCHEMA } from "../lib/formal-runtime/formal-report.js";
 
 function buildRun(overrides = {}) {

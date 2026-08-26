@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { resolveDefaultHeartbeatEvery } from "./agent/agent-admin-defaults.js";
+import { resolveDefaultHeartbeatEvery } from "./agent/admin/agent-admin-defaults.js";
 import { composeDefaultSkillRefs } from "./agent/agent-binding-policy.js";
 import { resolveActorPlanePolicy } from "./agent/agent-plane-policy.js";
 import {
@@ -13,11 +13,11 @@ import { normalizeAgentRole } from "./agent/agent-identity.js";
 import {
   getDefaultExecutionPolicy,
   mergeExecutionPolicy,
-} from "./execution-policy-defaults.js";
+} from "./security/execution-policy-defaults.js";
 import { normalizeRecord, normalizeString, uniqueStrings, uniqueTools } from "./core/normalize.js";
-import { readJsonFile } from "./state-file-utils.js";
-import { defaultAgentWorkspace } from "./state-agent-helpers.js";
-import { HOME, OC } from "./state-paths.js";
+import { readJsonFile } from "./state/state-file-utils.js";
+import { defaultAgentWorkspace } from "./state/state-agent-helpers.js";
+import { HOME, OC } from "./state/state-paths.js";
 
 function normalizeAgentModel(model) {
   return normalizeStoredAgentModelRef(model) || "unknown";

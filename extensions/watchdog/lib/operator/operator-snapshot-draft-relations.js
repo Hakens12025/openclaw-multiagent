@@ -27,7 +27,7 @@ export function buildDraftRelations(drafts, workItems, systemActionDeliveryTicke
     const originDraftId = normalizeString(workItem?.operatorContext?.originDraftId);
     if (!originDraftId || !byDraftId.has(originDraftId)) continue;
     const bucket = byDraftId.get(originDraftId);
-    if ([CONTRACT_STATUS.PENDING, CONTRACT_STATUS.RUNNING, CONTRACT_STATUS.AWAITING_INPUT].includes(workItem?.status)) {
+    if ([CONTRACT_STATUS.PENDING, CONTRACT_STATUS.RUNNING].includes(workItem?.status)) {
       bucket.activeWorkItems.push(workItem);
     } else if (workItem?.status === CONTRACT_STATUS.FAILED) {
       bucket.failedWorkItems.push(workItem);

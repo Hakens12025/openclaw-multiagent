@@ -1,7 +1,7 @@
 // agent-workflow-grouping.js — workflow = agent-graph 的无向连通分量（纯函数）
 //
 // 「工作流」前端页的拓扑真值：从 graph.edges（{from,to}）求无向连通分量，
-// 覆盖 planner→worker→worker2 这类线性链；注册 loop 是其子集。
+// 覆盖 planner→worker→worker2 这类线性链；成环子图（detectCycles 认得的那种）也是其子集。
 //
 // 纯函数、无副作用、无 IO。surface（inspect.agent_workflows）在 inspector
 // 里组合 loadGraph() 后调用本函数，不在此读 store（不造第二真值）。

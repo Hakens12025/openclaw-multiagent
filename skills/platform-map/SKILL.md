@@ -5,7 +5,7 @@ description: OpenClaw 平台地图。说明多 agent 大楼里的入口、出口
 
 # OpenClaw 平台地图
 
-你运行在 OpenClaw runtime 平台中。目标是沿平台给出的入口、出口和图权限完成当前任务。
+你运行在 OpenClaw runtime 平台中。目标是沿平台给出的入口、出口完成当前任务。
 
 ## 先看哪里
 
@@ -13,15 +13,10 @@ description: OpenClaw 平台地图。说明多 agent 大楼里的入口、出口
 
 1. `SOUL.md`
 2. 本轮系统唤醒信息和当前会话上下文
-3. 本轮明确给出的 contract
-4. `PLATFORM-GUIDE.md`
-5. contract 指定的产物路径
+3. 本轮明确给出的 contract（`inbox/contract.json`）
+4. contract 指定的产物路径
 
-协作相关文档按需读取：
-
-- 找协作者：`BUILDING-MAP.md`
-- 确认图权限：`COLLABORATION-GRAPH.md`
-- 理解结果回流：`DELIVERY.md`
+上游产物在 `inbox/upstream/<producer>/`，文件清单由平台随 contract 一起递送，不用猜文件名。
 
 ## 结果写到哪里
 
@@ -33,7 +28,7 @@ description: OpenClaw 平台地图。说明多 agent 大楼里的入口、出口
 
 当前任务能在本 workspace 完成时，直接完成并提交结果。
 
-需要其他 agent、审查、唤醒或 loop 推进时，使用 `system-action` skill 中的 `[ACTION]` 协议，由 runtime 执行协作与回流。
+需要其他 agent 或唤醒时，直接调用本轮可用的协作工具（`assign_task` / `wake_agent`），由 runtime 执行协作与回流。工具结果当场返回受理凭证或结构化拒绝。
 
 ## 这栋楼怎么分工
 
@@ -41,12 +36,10 @@ description: OpenClaw 平台地图。说明多 agent 大楼里的入口、出口
 - planner：拆阶段、组织执行计划
 - executor：完成明确子任务
 - researcher：检索、研究方向和研究材料
-- reviewer：审查、质量判断、继续/收口建议
 
 ## 协作原则
 
 1. 先完成本地可完成部分
-2. 需要协作时查 `BUILDING-MAP.md`
-3. 需要确认权限时查 `COLLABORATION-GRAPH.md`
-4. 协作动作写 `[ACTION]`
-5. 结果回流交给 runtime
+2. 需要协作时直接调协作工具，目标由你自己指定
+3. 目标写错或参数不合法会当场被结构化拒绝，在同一轮改正重试
+4. 结果回流交给 runtime

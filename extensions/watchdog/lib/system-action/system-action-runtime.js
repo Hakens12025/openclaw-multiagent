@@ -1,5 +1,7 @@
-import { join } from "node:path";
+import { readdir } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { dispatchAcceptIngressMessage } from "../ingress/dispatch-entry.js";
+import { normalizeIngressPhases } from "../ingress/ingress-classification.js";
 import {
   buildRuntimeWakeReason,
   RUNTIME_WAKE_SEMANTICS,
@@ -10,31 +12,33 @@ import { EVENT_TYPE } from "../core/event-types.js";
 import { agentWorkspace } from "../state.js";
 import {
   hasDistinctUpstreamReply,
-} from "../coordination-primitives.js";
-import { deliveryEnqueueSystemActionReturn } from "../routing/delivery-system-action-transport.js";
+} from "../routing/coordination-primitives.js";
+import { deliveryEnqueueSystemActionReturn } from "../routing/delivery/delivery-system-action-transport.js";
 import {
   deriveDispatchStatusFromWake,
   getWakeError,
   normalizeWakeDiagnostic,
-} from "../lifecycle/runtime-diagnostics.js";
+} from "../routing/runtime-diagnostics.js";
 import {
   INTENT_TYPES,
   createDirectRequestEnvelope,
-} from "../protocol-primitives.js";
+} from "../protocol/protocol-primitives.js";
 import {
   attachOperatorContext,
 } from "../operator/operator-context.js";
 import {
   attachSystemActionDeliveryTicket,
-} from "../routing/delivery-system-action-ticket.js";
-import { SYSTEM_ACTION_DELIVERY_IDS } from "../routing/delivery-protocols.js";
-import { systemActionRunRequestReview } from "./system-action-request-review.js";
+} from "../routing/delivery/delivery-system-action-ticket.js";
+import { SYSTEM_ACTION_DELIVERY_IDS } from "../routing/delivery/delivery-protocols.js";
+import { DELIVERY_LEGS } from "../store/delivery-idempotency-store.js";
+import { materializeExpectationPaths, normalizeContractExpectations } from "../contract/contract-expectations.js";
+import { inheritLineage } from "../contract/contract-lineage.js";
 import { resolveAgentIngressSource } from "../agent/agent-identity.js";
 import { SYSTEM_ACTION_STATUS } from "../core/runtime-status.js";
 import {
   planCollaborationSystemActionDelivery,
   prepareCollaborationTarget,
-} from "../collaboration-policy.js";
+} from "./collaboration-policy.js";
 
 async function systemActionRunWakeAgent(normalizedAction, {
   agentId,
@@ -122,6 +126,8 @@ async function systemActionRunCreateTask(normalizedAction, {
     returnContext: systemActionDelivery.returnContext,
     serviceSession: systemActionDelivery.serviceSession,
     systemActionDeliveryTicket: systemActionDelivery.deliveryTicket,
+    // 派生点(批①):子约继承源约谱系;源约无谱系 → null 透传(过渡期合法态)。
+    lineage: inheritLineage(contractData),
     ingressDirective: normalizedAction.params,
     api,
     logger,
@@ -160,6 +166,23 @@ async function systemActionRunCreateTask(normalizedAction, {
   };
 }
 
+// 受理凭证 queuePosition(spec §5):排队分支从合约实际落入的 direct-envelope
+// 落盘队列取位次(1 起算,文件名序=FIFO 序)。dispatch 传送带的内存队列是另一条
+// 传输,深度对不上这里,所以按 enqueue 结果的 queuePath 就地读目录。
+async function resolveDirectEnvelopeQueuePosition(enqueueResult) {
+  const queuePath = typeof enqueueResult?.queuePath === "string" ? enqueueResult.queuePath : "";
+  if (!queuePath) return null;
+  try {
+    const queuedFiles = (await readdir(dirname(queuePath)))
+      .filter((file) => /^contract-.*\.json$/i.test(file))
+      .sort();
+    const selfIndex = queuedFiles.indexOf(basename(queuePath));
+    return selfIndex >= 0 ? selfIndex + 1 : null;
+  } catch {
+    return null;
+  }
+}
+
 async function systemActionRunAssignTask(normalizedAction, {
   agentId,
   sessionKey,
@@ -183,6 +206,18 @@ async function systemActionRunAssignTask(normalizedAction, {
       status: SYSTEM_ACTION_STATUS.INVALID_PARAMS,
       actionType: normalizedAction.type,
       error: "assign_task requires targetAgent and message/instruction",
+    };
+  }
+
+  // 期望翻译唯一通道(spec 决议 6/22):派工方在参数里声明,平台建约时抄写;
+  // 结构非法在受理时刻拒绝,不建约。
+  const expectationsCheck = normalizeContractExpectations(normalizedAction.params?.expectations);
+  if (!expectationsCheck.ok) {
+    logger.warn(`[system_action] ${agentId} assign_task rejected: ${expectationsCheck.error}`);
+    return {
+      status: SYSTEM_ACTION_STATUS.INVALID_PARAMS,
+      actionType: normalizedAction.type,
+      error: `invalid expectations: ${expectationsCheck.error}`,
     };
   }
 
@@ -223,9 +258,16 @@ async function systemActionRunAssignTask(normalizedAction, {
     upstreamReplyTo,
     returnContext: systemActionDelivery.returnContext,
     serviceSession: systemActionDelivery.serviceSession,
+    // 派生点(批①):assign 子约继承源约谱系(同 run 传染);源约无谱系 → null。
+    lineage: inheritLineage(contractData),
     message,
+    // 派工先验阶段:与 ingress 侧同一把归一(字符串/带 name 对象、去空),
+    // 归一后交给建约方物化 stagePlan。
+    phases: normalizeIngressPhases(normalizedAction.params?.phases),
     outputDir: join(agentWorkspace(resolvedTargetAgent), "output"),
     source: INTENT_TYPES.ASSIGN_TASK,
+    // 建约抄写时物化:相对路径钉成受托方 workspace 绝对路径(判决侧零猜测)。
+    expectations: materializeExpectationPaths(expectationsCheck.expectations, agentWorkspace(resolvedTargetAgent)),
   });
   attachOperatorContext(contract, contractData?.operatorContext);
   attachSystemActionDeliveryTicket(contract, systemActionDelivery.deliveryTicket);
@@ -239,8 +281,9 @@ async function systemActionRunAssignTask(normalizedAction, {
     systemActionDeliveryTicket: systemActionDelivery.deliveryTicket || null,
   };
 
-  const { wake } = await deliveryEnqueueSystemActionReturn({
+  const { wake, enqueueResult } = await deliveryEnqueueSystemActionReturn({
     lane: SYSTEM_ACTION_DELIVERY_IDS.ASSIGN_TASK_RESULT,
+    deliveryLeg: DELIVERY_LEGS.DISPATCH,
     targetAgent: resolvedTargetAgent,
     contract,
     api,
@@ -271,30 +314,19 @@ async function systemActionRunAssignTask(normalizedAction, {
     ts: Date.now(),
   });
   logger.info(`[system_action] ${agentId} assigned task to ${resolvedTargetAgent}`);
+  const dispatchStatus = deriveDispatchStatusFromWake(wake);
+  const queuePosition = dispatchStatus === SYSTEM_ACTION_STATUS.QUEUED
+    ? await resolveDirectEnvelopeQueuePosition(enqueueResult)
+    : null;
   return {
-    status: deriveDispatchStatusFromWake(wake),
+    status: dispatchStatus,
     actionType: normalizedAction.type,
     targetAgent: resolvedTargetAgent,
     contractId: contract.id,
     deferredCompletion: systemActionDelivery.deferredCompletion,
     deliveryTicketId: systemActionDelivery.deliveryTicket?.id || null,
+    ...(queuePosition != null ? { queuePosition } : {}),
     wake,
-  };
-}
-
-async function systemActionRunAdvanceLoop(normalizedAction, {
-  agentId,
-  logger,
-}) {
-  // advance_loop is owned by the runtime graph (agent-end-graph-route.js).
-  // When an agent emits [ACTION] advance_loop the graph route already handles
-  // loop advancement; there is nothing for system_action to dispatch.
-  // Return NO_ACTION so deriveSystemActionTerminalOutcome skips contract
-  // termination — the contract must not be killed with FAILED.
-  logger.info(`[system_action] ${agentId} advance_loop acknowledged (graph-route-owned)`);
-  return {
-    status: SYSTEM_ACTION_STATUS.NO_ACTION,
-    actionType: normalizedAction.type,
   };
 }
 
@@ -302,12 +334,16 @@ const RUNTIME_SYSTEM_ACTION_HANDLERS = {
   [INTENT_TYPES.WAKE_AGENT]: systemActionRunWakeAgent,
   [INTENT_TYPES.CREATE_TASK]: systemActionRunCreateTask,
   [INTENT_TYPES.ASSIGN_TASK]: systemActionRunAssignTask,
-  [INTENT_TYPES.REQUEST_REVIEW]: systemActionRunRequestReview,
-  [INTENT_TYPES.ADVANCE_LOOP]: systemActionRunAdvanceLoop,
 };
 
 export async function systemActionDispatch(normalizedAction, context) {
   const handler = RUNTIME_SYSTEM_ACTION_HANDLERS[normalizedAction?.type];
   if (!handler) return undefined;
   return handler(normalizedAction, context);
+}
+
+// Consistency surface for collaboration-intent-policy (P2 acceptance:
+// the three query surfaces must agree — see tests/collaboration-intent-policy.test.js).
+export function listRuntimeHandledIntents() {
+  return Object.keys(RUNTIME_SYSTEM_ACTION_HANDLERS);
 }

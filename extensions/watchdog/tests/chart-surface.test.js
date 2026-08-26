@@ -18,7 +18,7 @@ import { getAdminSurfaceInputFields } from "../lib/admin/admin-surface-registry.
 import {
   getAdminSurfaceOperationHandler,
   executeAdminSurfaceOperation,
-} from "../lib/admin/admin-surface-operations.js";
+} from "../lib/admin/operations/admin-surface-operations.js";
 import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-inspector.js";
 import {
   createChartDefinition,

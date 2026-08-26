@@ -29,8 +29,8 @@ The canonical file ownership rules live in `extensions/watchdog/lib/dev/system-b
 
 ## Minimal Tests
 
-- `extensions/watchdog/tests/dashboard-contract-lane.test.js`
-- `extensions/watchdog/tests/dashboard-stage-visibility.test.js`
+- `extensions/watchdog/tests/ui-router.test.js`
+- `extensions/watchdog/tests/ui-store.test.js`
 
 ## Agent Assignment
 

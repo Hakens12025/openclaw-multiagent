@@ -20,16 +20,11 @@ export const EVENT_TYPE = Object.freeze({
   // Test
   TEST_DELIVERY_RECORDED: "test_delivery_recorded",
   TEST_SINK_NOTIFIED: "test_sink_notified",
-
-  // Loop runtime
-  LOOP_STARTED: "loop_started",
-  LOOP_ADVANCED: "loop_advanced",
-  LOOP_INTERRUPTED: "loop_interrupted",
-  LOOP_RESUMED: "loop_resumed",
-  LOOP_CONCLUDED: "loop_concluded",
+  // 测试收尾把控制态真值(agent-graph.json)恢复到测试前快照,且检出测试窗口内
+  // 有人改过该文件(手改边会被回滚)时发此告警——恢复不再无声(2026-08-26 用户裁决 b)。
+  TEST_CONTROL_STATE_RESTORED: "test_control_state_restored",
 
   // Contract lifecycle
-  TASK_AWAITING_INPUT: "task_awaiting_input",
   CONTRACT_SEMANTIC_FAILURE: "contract_semantic_failure",
   CONTRACT_STAGE_PLAN_UPDATED: "contract_stage_plan_updated",
 
@@ -48,14 +43,18 @@ export const EVENT_TYPE = Object.freeze({
 
   // System
   SYSTEM_RESET: "system_reset",
-  WORKSPACE_MIGRATION_APPLIED: "workspace_migration_applied",
-  LOOP_WARNING: "loop_warning",
-  LOOP_DETECTED: "loop_detected",
+  // 执行硬停的告警事件(重复工具调用逼近阈值)。2026-08-19 由 LOOP_WARNING 改名:
+  // 它与图回路零关系,回路机制已退役,loop 一词不再承担任何功能。
+  // 同批删除的 LOOP_DETECTED 是生产侧死常量(真发射走裸字符串,已随硬停归因修复收口)。
+  EXECUTION_HARD_STOP_WARNING: "execution_hard_stop_warning",
 
   // Errors
   ERROR: "error",
   RUNTIME_WAKE_FAILED: "runtime_wake_failed",
   SYSTEM_ACTION_DELIVERY_FAILED: "system_action_delivery_failed",
+  DELIVERY_PUMP_EXHAUSTED: "delivery_pump_exhausted",
+  DELIVERY_PUMP_COMPLETED: "delivery_pump_completed",
+  DELIVERY_TICKET_WRITE_FAILED: "delivery_ticket_write_failed",
   RUNTIME_AGENT_END_FAILED: "runtime_agent_end_failed",
   RUNTIME_FINALIZE_FAILED: "runtime_finalize_failed",
   RUNTIME_TRANSPORT_CLEANUP_FAILED: "runtime_transport_cleanup_failed",
@@ -70,16 +69,14 @@ export const EVENT_TYPE = Object.freeze({
 
   // Graph
   GRAPH_UPDATED: "graph_updated",
-  GRAPH_COLLABORATION_BLOCKED: "graph_collaboration_blocked",
 
   // System actions
   AGENT_TASK_ASSIGNED: "agent_task_assigned",
-  CODE_REVIEW_REQUESTED: "code_review_requested",
 
   // Bridge returns
   SYSTEM_ACTION_RUNTIME_RESULT_DELIVERED: "system_action_runtime_result_delivered",
   SYSTEM_ACTION_ASSIGN_TASK_RESULT_DELIVERED: "system_action_assign_task_result_delivered",
-  SYSTEM_ACTION_REVIEW_VERDICT_DELIVERED: "system_action_review_verdict_delivered",
+  SYSTEM_ACTION_ROLE_POLICY_REJECTED: "system_action_role_policy_rejected",
 
   // Test runs
   TEST_RUN_CLEANING: "test_run_cleaning",

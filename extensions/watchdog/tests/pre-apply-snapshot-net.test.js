@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
 import { CONTROL_PLANE_PATHS } from "../lib/control-plane/control-plane-paths.js";
 
 const logger = { info() {}, warn() {} };
@@ -12,14 +12,14 @@ const SNAP_FILE = CONTROL_PLANE_PATHS.structureSnapshotsFile;
 
 test("B3: destructive/structural apply captures a pre-apply structure snapshot (rollback net)", async () => {
   try {
-    // graph.loop.delete is risk:structural — the net fires even when the op is a no-op
-    // (nonexistent loop), proving the snapshot precedes the handler. No graph mutation.
+    // automations.delete is risk:destructive — the net fires even when the op is a no-op
+    // (nonexistent automation), proving the snapshot precedes the handler. No truth mutation.
     const res = await executeAdminSurfaceOperation({
-      surfaceId: "graph.loop.delete",
-      payload: { loopId: "b3-net-probe-nonexistent" },
+      surfaceId: "automations.delete",
+      payload: { automationId: "b3-net-probe-nonexistent" },
       logger,
     });
-    assert.equal(res.ok, false, "deleting a nonexistent loop is a no-op");
+    assert.equal(res.deleted, false, "deleting a nonexistent automation is a no-op");
     assert.match(res.preApplySnapshot || "", /^SNAP-\d+-[0-9a-f]{8}$/, "structural apply must carry a pre-apply snapshot id");
   } finally {
     await rm(SNAP_FILE, { force: true });

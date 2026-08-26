@@ -1,0 +1,806 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FC 债务源流 · 产物交接诊断 · 设计缺失审计</title>
+<style>
+:root{
+  --paper:#FAFAF7; --card:#FFFFFF; --ink:#262924; --sub:#565B52; --mut:#8A8E85;
+  --line:#E3E1D6; --line2:#D6D3C6;
+  --teal:#0F6B5C; --teal-soft:#E9F1EE;
+  --amber:#B08327; --amber-soft:#F6EFDE;
+  --red:#AE4A38; --red-soft:#F7EAE5;
+  --slate:#7A8590;
+  --serif:"Songti SC","Noto Serif SC","STSong",serif;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.65}
+.wrap{max-width:1280px;margin:0 auto;padding:40px 28px 120px}
+header h1{font-family:var(--serif);font-size:26px;margin:0 0 6px;letter-spacing:.04em}
+header .sub{color:var(--sub);font-size:13px;max-width:90ch}
+.meta{font-family:var(--mono);font-size:11.5px;color:var(--mut);margin-top:8px}
+section{margin-top:46px}
+.sechead{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--line2);padding-bottom:10px;margin-bottom:14px}
+.secno{font-family:var(--serif);font-size:15px;color:var(--teal);letter-spacing:.2em}
+h2{font-family:var(--serif);font-size:19px;margin:0;letter-spacing:.03em}
+.seccap{color:var(--sub);font-size:13.5px;margin:-2px 0 18px;max-width:96ch}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:14px 0 20px}
+.tile{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--teal);padding:12px 14px}
+.tile.red{border-top-color:var(--red)} .tile.amber{border-top-color:var(--amber)} .tile.slate{border-top-color:var(--slate)}
+.tile .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--mut);text-transform:uppercase}
+.tile .v{font-family:var(--serif);font-size:24px;margin-top:2px}
+.tile .d{font-size:12px;color:var(--sub);margin-top:4px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);font-size:12.5px}
+th{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line2);background:var(--paper)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.mono{font-family:var(--mono);font-size:11.5px}
+.det{color:var(--sub);font-size:12px;margin-top:3px;max-width:78ch}
+.anch{font-family:var(--mono);font-size:10.5px;color:var(--mut);margin-top:4px;word-break:break-all}
+.badge{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:1px 7px;border:1px solid;white-space:nowrap}
+.badge.red{color:var(--red);border-color:var(--red);background:var(--red-soft)}
+.badge.amber{color:var(--amber);border-color:var(--amber);background:var(--amber-soft)}
+.badge.teal{color:var(--teal);border-color:var(--teal);background:var(--teal-soft)}
+.badge.slate{color:var(--slate);border-color:var(--slate);background:#F0F1F2}
+.verdict{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--teal);padding:14px 18px;margin:14px 0;font-size:13.5px}
+.verdict.red{border-left-color:var(--red)}
+.verdict b{font-family:var(--serif)}
+ul.notes{font-size:12.5px;color:var(--sub);max-width:100ch}
+ul.notes li{margin-bottom:8px}
+.scroll{overflow-x:auto}
+footer{margin-top:60px;border-top:1px solid var(--line2);padding-top:14px;font-family:var(--mono);font-size:11px;color:var(--mut)}
+</style>
+<div class="wrap">
+<header>
+  <h1>FC 债务源流 · 产物交接诊断 · 设计缺失审计</h1>
+<div style="border:2px solid #a83030;background:#f5efd8;color:#1a1812;padding:12px 16px;margin:0 0 20px;font-family:'Microsoft YaHei',sans-serif;font-size:13px;line-height:1.7;"><strong>⚠ 历史快照，勿当现状读</strong>（标注于 2026-08-09）。此后已落地：动态协作不查图边（v179）、协作主路从 <code>[ACTION]</code> 标记换成 FC 工具、采集不再要求 <code>outbox/runtime_result.json</code> 提交令牌（v181）、<code>upstreamPackages</code> 升格为对象、<code>_manifest.json</code> 机制已删除。正文保留当时原貌。</div>
+
+  <div class="sub">统一 FC 证据面工程(P2-P6 + 清理波)收官三问的全量调查报告。三路只读审计,全部结论在当前代码逐点核实;与 <span class="mono">fc-flowmap.html</span> 体检报告同族,是它的收官对照卷。</div>
+  <div class="meta">2026-07-28 · HEAD 1e71c6d · audit wf_bf09a144(420k tokens / 159 tool-uses)· 结论摘要见 备忘录129</div>
+</header>
+
+<section id="s0">
+  <div class="sechead"><span class="secno">〇</span><h2>三句判决</h2></div>
+  <div class="verdict"><b>债务不是 FC 工程造出来的,是它照出来的。</b> 51 条债务中 55% 是设计前存量;证据面账本与静态审计第一次把"静默做错"变得可见。FC 自身新增 6 条,4 条当场修毕。</div>
+  <div class="verdict red"><b>产物交接:动态派工语义更病,但最重的三刀全在共用底座。</b> assign 腿根本没有产物交接(零包去、截断回);而单点危害最大的 P1/P2/P3(outbox 残件跨约污染、collect 静默失败、tracker 重启失忆)固定/动态两条链共用。</div>
+  <div class="verdict"><b>设计缺失净额 = 14 条遗漏,高危 3 条全是"最后一寸接线"。</b> 缓建 5 条与停靠 4 条各有案可查;遗漏三高危(合成事件零产者/assign 参数面残缺/guard.scope 未换证据源)单条工作量小,但直接削弱 spec 总纲。</div>
+</section>
+
+<section id="s1">
+  <div class="sechead"><span class="secno">一</span><h2>债务源流 · 51 条全量</h2></div>
+  <p class="seccap">每条债务标注来源(A 设计前既有 / B 设计落地新增 / C live 验收暴露 / D 清理审查发现)、层位、severity 与<b>当前核实状态</b>——"已修"验有实锚,"仍开"验有反证。</p>
+  <div class="tiles">
+    <div class="tile"><div class="k">Total</div><div class="v">51</div><div class="d">计债 49 + 驳回记录 2</div></div>
+    <div class="tile slate"><div class="k">A 设计前既有</div><div class="v">27</div><div class="d">55% — 最大宗</div></div>
+    <div class="tile amber"><div class="k">B 落地新增</div><div class="v">6</div><div class="d">4 条当场修毕</div></div>
+    <div class="tile red"><div class="k">C live 暴露</div><div class="v">10</div><div class="d">三颗雷全部静态不可见</div></div>
+    <div class="tile"><div class="k">D 清理审查</div><div class="v">8</div><div class="d">/simplify 四路</div></div>
+    <div class="tile teal"><div class="k">已修 / 停靠 / 未排期</div><div class="v">22·9·18</div><div class="d">当前代码核实</div></div>
+  </div>
+  <div class="scroll"><table>
+  <tr><th style="width:9%">id</th><th style="width:41%">债务 · 现象与根因 · 锚点</th><th style="width:20%">源流</th><th style="width:5%">层</th><th style="width:6%">危</th><th style="width:19%">状态 · 家族</th></tr>
+  <tr>
+<td class="mono">legacy-trace-store</td>
+<td><b>旧 execution-trace-store 与新证据面并存,死桥 recordDelegationIntent 仍零调用</b><div class="det">内存 Map(traces)版旧执行 trace 与 lib/evidence/ 新账本双轨并存,trace/expectations/verdict 三组概念命名互撞;recordDelegationIntent 定义在而全库零调用。根因:v170 前的旧完成度机器未退役,§9 把退役列为既有项但未排期。当前核实:文件在、Map 在、evaluateTrace/initTrace 仍被 hook 与 lifecycle 消费。</div>
+<div class="anch">extensions/watchdog/lib/store/execution-trace-store.js:10 · extensions/watchdog/lib/store/execution-trace-store.js:106 · extensions/watchdog/hooks/after-tool-call.js:17</div></td>
+<td>A.设计前既有<div class="det">半套遗留家族;FC 设计期查证时撞见并记为证据面复用候选,最终另起炉灶</div></td>
+<td class="mono">L0</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(§9 退役项,清理波范围外观察再次点名)</span><div class="det">半套遗留/命名互撞</div></td>
+</tr>
+<tr>
+<td class="mono">provenance-nonce-zero-writer</td>
+<td><b>B7 provenanceNonce 仍零写入,标记防伪门虚设</b><div class="det">agent-end 提取门只读 contract.provenanceNonce,注释明言 stays null until SOUL injection populates——SOUL 注入侧至今无写入方,伪造 [ACTION] 标记只能靠图边兜底(P3 live 中 planner 回显伪标记正是靠图边拦住)。根因:v170 只落了消费端,生产端缺位。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:331-334</div></td>
+<td>A.设计前既有<div class="det">v170 半套落地;体检列为独立债高危,P3 live 再次确认仍零写入</div></td>
+<td class="mono">L4</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge slate">记账未排期(grep 全库仅 agent-end-s</span><div class="det">半套遗留/防线虚设</div></td>
+</tr>
+<tr>
+<td class="mono">followup-lease-dead-channel</td>
+<td><b>followUpLease 零处 arm,deferred 回流簿记通道仍死</b><div class="det">armLease 全库唯一调用方仍是 lateCompletionLease;回流实际由票据+pending-signal+exact-session resume 承担(P3 已 live 验证贯通),followUpLease 只剩消费端(transport/tracker-store 读 active)无生产端。根因:回流机制演进后旧簿记未拆。</div>
+<div class="anch">extensions/watchdog/lib/lease-manager.js:45 · extensions/watchdog/lib/late-completion-lease.js:44</div></td>
+<td>A.设计前既有<div class="det">体检三条『设计需修订』之一;FC 工程实证了替代链后它彻底成死通道</div></td>
+<td class="mono">L1</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(armLease 调用方核实仅 late</span><div class="det">半套遗留</div></td>
+</tr>
+<tr>
+<td class="mono">resume-finalization-ghost</td>
+<td><b>resume_finalization 幽灵 intent(无 producer 无 handler)</b><div class="det">127 定的 5 工具面中被查出全仓零生产零处理的死 intent。终审裁掉除名,intent 7→6。</div>
+<div class="anch">use guide/备忘录128:三点九五</div></td>
+<td>A.设计前既有<div class="det">体检发现的幽灵引用;FC 终审顺手清葬</div></td>
+<td class="mono">L1</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge teal">已修(commit 92190d6,批次一)</span><div class="det">幽灵引用</div></td>
+</tr>
+<tr>
+<td class="mono">systemaction-single-slot</td>
+<td><b>markerActions[0] 只取第一张 + contract.systemAction 单槽容器</b><div class="det">多协作动作存不下,表达层与容器层双瓶颈。P3 T2 全量循环+数组化+同 (type,target) 收敛,终态阶梯 deferred 优先保回投机械。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js</div></td>
+<td>A.设计前既有<div class="det">127 已定案的单槽债,P3 兑现</div></td>
+<td class="mono">L1</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(P3 T2,commits 700ab5c 段</span><div class="det">容器瓶颈</div></td>
+</tr>
+<tr>
+<td class="mono">h1-upstream-pollution</td>
+<td><b>inbox/upstream 永不清理 → 跨合约上下文污染</b><div class="det">写入端不带 contractId、cleanInbox 只删顶层文件,上一合约 brief 滞留等下一合约;测试 fixture 亲手 rm -rf 掩盖了洞。修法采用写侧自清:routeInbox staging 时刻 rm 旧 upstream。当前核实:runtime-mailbox.js:49 的 rm(recursive,force) 在场并带 crash-retry 语义注释。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:49 · docs/artifact-flow-static-audit-2026-07-27.md:36-54</div></td>
+<td>A.设计前既有<div class="det">『谁写谁清』缺位家族;静态审计撞见</div></td>
+<td class="mono">L5</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(速修批 77af649 段)</span><div class="det">谁写谁清缺位</div></td>
+</tr>
+<tr>
+<td class="mono">h2-classifier-misfire</td>
+<td><b>控制噪声分类器非锚定子串误杀长交付物,且毒化证据面 outcome 单源</b><div class="det">CONTROL_TEXT_PATTERNS 无锚子串 .test() 整篇正文,『runtime 语义』恰是 blockReason 固定前缀→自反馈误杀;isToolOutcomeError 吃同一启发式级联翻转 trace outcome/writeSucceeded。当前核实:CONTROL_TEXT_SHORT_LIMIT=200 字闸在场(:14/:78),isToolOutcomeError 只认结构化+锚定(:177-196)。</div>
+<div class="anch">extensions/watchdog/lib/delivery/runtime-user-facing-output.js:14 · extensions/watchdog/lib/delivery/runtime-user-facing-output.js:78 · extensions/watchdog/lib/delivery/runtime-user-facing-output.js:177-196</div></td>
+<td>A.设计前既有<div class="det">门与判定谓词不共享家族;静态审计撞见,因毒化证据面被 FC 工程升为速修</div></td>
+<td class="mono">L5</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(速修批 77af649 段)</span><div class="det">谓词错用/证据面毒源</div></td>
+</tr>
+<tr>
+<td class="mono">h3-handoff-gate-bypass</td>
+<td><b>handoff 完成门不覆盖 loop 与两条硬停分支</b><div class="det">loop 合约带 pipelineStage 直接 return 绕门,多环协作主力形态恰是唯一不过门形态。当前核实:runHandoffGate 统一收口(带防 seam H3 复发注释),loop(:403)/硬停(:542,:554)/normal(:574) 四站点全部过门。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-graph-route.js:155-177 · extensions/watchdog/lib/lifecycle/agent-end-graph-route.js:403 · extensions/watchdog/lib/lifecycle/agent-end-graph-route.js:542</div></td>
+<td>A.设计前既有<div class="det">门覆盖面小于注释家族;静态审计撞见</div></td>
+<td class="mono">L2</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(H3/H4 批 f5c8e39 段,三层判定门</span><div class="det">门覆盖缺口</div></td>
+</tr>
+<tr>
+<td class="mono">h4-ghost-package</td>
+<td><b>空产出回退共享 contract.output → 幽灵包 + alias 半套死代码伪 credit</b><div class="det">hop≥2 上 contract.output 只可能是上一跳镜像,零产出 agent 被打成别人字节的产物包;ensureWorkspaceContractOutputAlias 生产零调用而 canonicalize 照常记 outputCommitted=true 伪 credit。当前核实:runtime-contract-output-alias.js 文件已删除,isPathFreshForSession 新鲜度门在 preserve(:247)与 graph-route(:206)消费。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:247 · extensions/watchdog/lib/lifecycle/agent-end-graph-route.js:206</div></td>
+<td>A.设计前既有<div class="det">半套遗留+无归属回退家族;静态审计对抗复核挖出 H4e 新雷</div></td>
+<td class="mono">L5</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(H3/H4 批:出处标记+新鲜度门+alias</span><div class="det">半套遗留/真值分裂</div></td>
+</tr>
+<tr>
+<td class="mono">m1-collected-flip</td>
+<td><b>normalizeExecutionObservation 把采集失败反转成 collected:true</b><div class="det">OR 链末两项 ||error/||primaryOutputPath 把失败载体与无条件 fallback 置真,日志与真值双向说谎、system_action 失败几乎不再产终态。速修批重构:collected 仅源信号,fallback 与 error 永不翻转。</div>
+<div class="anch">extensions/watchdog/lib/stage/execution-observation.js:96-108(审计位点,已重构)</div></td>
+<td>A.设计前既有<div class="det">静默吞错不对称家族(观测层反转);静态审计撞见</div></td>
+<td class="mono">L1</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(速修批 obs 重构)</span><div class="det">静默吞错不对称</div></td>
+</tr>
+<tr>
+<td class="mono">a2-inbox-hardcode</td>
+<td><b>readActiveInboxContract 硬编码 workspaces/&lt;agentId&gt; 绕过 workspace override</b><div class="det">与同次采集的 outbox 路径解析不一致,agent-for-kksl→kksl 类配置会确定性复现 v133 FAILED 形态。当前核实:已改 config-aware,注释明言 agentWorkspace is config-aware。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:108-114</div></td>
+<td>A.设计前既有<div class="det">路径解析多胞胎家族;静态审计撞见</div></td>
+<td class="mono">L1</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge teal">已修(速修批 config-aware 一行)</span><div class="det">路径解析分裂</div></td>
+</tr>
+<tr>
+<td class="mono">e-contract-006-blind-probe</td>
+<td><b>E-CONTRACT-006 探测双重失明,注册表与实现矛盾</b><div class="det">inbox 分支无 cid 参数、artifacts 分支被幽灵包喂绿,注册表明文要求校验 upstreamPackages 指针而实现从未读。杂务批由 probe-fixer 改为 workflow-trace 快照为主证据、产方 artifacts 不算送达证据,error-code 描述同步。</div>
+<div class="anch">extensions/watchdog/lib/formal-runtime/error-codes.js:61 附近</div></td>
+<td>A.设计前既有<div class="det">检查门证明力缺口;静态审计对抗复核确证</div></td>
+<td class="mono">L7</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge teal">已修(杂务批 14703d6 段,20/20)</span><div class="det">检查门失明</div></td>
+</tr>
+<tr>
+<td class="mono">workspaces-debris</td>
+<td><b>workspaces/ 2832 目录测试残骸</b><div class="det">历史测试在真工作区树留下 2822 个残骸目录(含 FC 工程自己的 cross-workspace 测试)。debris-auditor 清单+守护删除后只剩 10 真身。</div>
+<div class="anch">use guide/备忘录128:三点九九</div></td>
+<td>A.设计前既有<div class="det">测试不清场累积;审计附带盘面发现</div></td>
+<td class="mono">L7</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge teal">已修(杂务批,2822 目录清除)</span><div class="det">测试卫生</div></td>
+</tr>
+<tr>
+<td class="mono">test-sandbox-regen</td>
+<td><b>workspace 类测试仍写真工作区树(残骸防再生债)</b><div class="det">清残骸时发现 offender tests 含 FC 工程自己的 cross-workspace 测试——测试根未沙箱化则残骸会再生。三点九九明确记『测试防再生(workspace 类测试改沙箱根)』为遗留跟进;清理波只落了 trace-sandbox helper(63d6103),workspace 根沙箱未见落地。</div>
+<div class="anch">use guide/备忘录128:三点九九 · extensions/watchdog/package.json:30</div></td>
+<td>A.设计前既有<div class="det">测试卫生规矩缺位;债务清偿波自我发现</div></td>
+<td class="mono">L7</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">测试卫生</div></td>
+</tr>
+<tr>
+<td class="mono">zero-output-handoff-seam</td>
+<td><b>零产物交棒缝:中间腿空手交棒零门</b><div class="det">handoff gate 对无文件显式弃权、progress gate 只在 hard-stop 跑、loop-tagged 路径连 gate 都不过——run-1/2 实锤 outbox empty 照常转发。修法遵循『门是通用机,期望是数据』:声明门控读 contract.output(今天已存在的期望数据),无声明保持放行。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-graph-route.js:179</div></td>
+<td>A.设计前既有<div class="det">门覆盖缺口家族;live run 战报撞见后定案入档,与 H3/H4 批同落</div></td>
+<td class="mono">L2</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(H3/H4 批三层判定门:协议载荷弃权/声明门</span><div class="det">门覆盖缺口</div></td>
+</tr>
+<tr>
+<td class="mono">m2-outbox-nonatomic</td>
+<td><b>outbox 提交非事务化 + 无陈旧检测</b><div class="det">当前核实:helpers 循环仍是逐文件 copyFile(dest)→mirror→removeFileQuietly(src),单文件失败仅 warn 继续,runtime_result 仍无条件删(:284);无 atomicWriteFile、无产物 mtime 陈旧检测。半提交态残留物会被下一轮隐式兜底采走造成内容级错发。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:157-173 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:284</div></td>
+<td>A.设计前既有<div class="det">谁写谁清缺位+非原子写家族;静态审计撞见</div></td>
+<td class="mono">L1</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(三点九九『outbox 事务化+失败件隔</span><div class="det">非事务提交</div></td>
+</tr>
+<tr>
+<td class="mono">m3-package-accretion</td>
+<td><b>producer 包目录只增不清,manifest 只描述最后一次</b><div class="det">同 (cid,producer) 二次留存(loop 复用 cid/crash-retry)时旧文件堆积,下游按目录枚举而非 manifest 取包,可能按过期草稿行动。当前核实:artifact-store 留存路径仍无清理逻辑。</div>
+<div class="anch">docs/artifact-flow-static-audit-2026-07-27.md:154-160</div></td>
+<td>A.设计前既有<div class="det">谁写谁清缺位家族;静态审计撞见</div></td>
+<td class="mono">L5</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(未列入三批修复)</span><div class="det">谁写谁清缺位</div></td>
+</tr>
+<tr>
+<td class="mono">a1-contract-index-guard</td>
+<td><b>contractPathsById 无共享路径守卫 — v133 mirror bug 复发通道仍开</b><div class="det">当前核实:rememberContractSnapshot 对任何路径无条件 contractPathsById.set(nextId, normalizedPath)(:56-58);isSharedContractPath 助手存在(:29)且在别处用(:154),唯独索引写入点不设防。inbox 投影副本仍可投毒索引,靠 writeContractSnapshot 事后钉回共享路径的竞态自愈。</div>
+<div class="anch">extensions/watchdog/lib/store/contract-store.js:39-58 · extensions/watchdog/lib/store/contract-store.js:29</div></td>
+<td>A.设计前既有<div class="det">『按 id 取合约原语不可信』家族;静态审计撞见,三点九九明记本批未动</div></td>
+<td class="mono">L0</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">真值分裂</div></td>
+</tr>
+<tr>
+<td class="mono">l17-failed-empty-shell</td>
+<td><b>FAILED 对外交付仍是空壳『❌ 任务失败\n任务未完成。』</b><div class="det">当前核实:delivery-terminal-runtime.js:75 原样,判定理由(outcome.reason/summary)不出系统。这是历史 runtime 判定 bug 难定位的放大器——H2 类误杀发生时用户无从区分门拦与模型没干活。</div>
+<div class="anch">extensions/watchdog/lib/routing/delivery/delivery-terminal-runtime.js:75</div></td>
+<td>A.设计前既有<div class="det">可观测性缺口;静态审计撞见(建议动作 #10),未入三批</div></td>
+<td class="mono">L5</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">可观测性缺口</div></td>
+</tr>
+<tr>
+<td class="mono">stale-output-false-completed</td>
+<td><b>terminal/delivery 侧陈旧 contract.output 假 COMPLETED</b><div class="det">inspectArtifact 无 mtime/session 绑定,crash-retry 第二跑或多跳终端跳可拿上一轮镜像判 COMPLETED。工厂端(preserve/graph-route)新鲜度门已落,终态判定侧未动且被测试锁为 intent,需 live 定案。</div>
+<div class="anch">docs/artifact-flow-static-audit-2026-07-27.md:214-217</div></td>
+<td>A.设计前既有<div class="det">无新鲜度归属家族;静态审计 PLAUSIBLE-需live</div></td>
+<td class="mono">L2</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(三点九九明记 NEEDS_LIVE)</span><div class="det">无新鲜度归属</div></td>
+</tr>
+<tr>
+<td class="mono">retention-sweep-missing</td>
+<td><b>artifacts/output 保留期清扫缺失,持续增长</b><div class="det">当前磁盘核实:control-plane/artifacts 4663 个 cid/43MB(审计时 4460/41MB),output 67 文件(审计时 50),trace 74 文件也开始累积——三个目录零 GC。</div>
+<div class="anch">control-plane/artifacts(磁盘现状 4663 项) · control-plane/output(67 文件)</div></td>
+<td>A.设计前既有<div class="det">谁写谁清缺位家族;审计+清偿波记账</div></td>
+<td class="mono">L5</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(三点九九遗留跟进『保留期清扫』)</span><div class="det">谁写谁清缺位</div></td>
+</tr>
+<tr>
+<td class="mono">upstream-missing-marker</td>
+<td><b>producer 零产出对 consumer 零痕迹:『上游没产出』与『本腿没上游』不可区分</b><div class="det">当前核实:artifact-store.js:245 `if (!existsSync(srcPkg)) continue;` 仍静默跳过零产出上游;_MISSING.md 只覆盖『存在但读不了』。H1 写侧自清消除了陈旧残留冒充,但可区分性本体未治。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/artifact-store.js:245</div></td>
+<td>A.设计前既有<div class="det">静默吞错不对称家族;债务清偿波调查副产物</div></td>
+<td class="mono">L5</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(三点九六记『期望批次一并治』,期望批次 </span><div class="det">静默吞错不对称</div></td>
+</tr>
+<tr>
+<td class="mono">loop-lru-hardstop-evict</td>
+<td><b>loop LRU 可淘汰 hard-stop 标志</b><div class="det">当前核实:ensureSession 容量满时按 lastAccess 淘汰最旧会话,无 hardStopped 豁免(:46-56)——高并发下已硬停的会话标志可被挤出,硬停失忆。</div>
+<div class="anch">extensions/watchdog/lib/loop/loop-detection.js:46-56</div></td>
+<td>A.设计前既有<div class="det">体检独立债高危;FC 工程记账</div></td>
+<td class="mono">L3</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">内存态易失</div></td>
+</tr>
+<tr>
+<td class="mono">planner-legacy-trio</td>
+<td><b>planner 遗存清葬三件:planner-v3 死元数据 / planRequired 死字段 / wiki planner.md 滞后</b><div class="det">当前核实:soulTemplateId:&quot;planner-v3&quot; 仍在 role-spec-registry.js:47 且全库零读者;planRequired 仍只在 EXEC_POLICY_BOOLEANS 归一化数组里(零行为消费者);wiki/concepts/planner.md 仍以 planMode 三态为现行设计(实际 planMode 零实现,方向已移交 submit_plan/expectations)。</div>
+<div class="anch">extensions/watchdog/lib/prompt/role-spec-registry.js:47 · extensions/watchdog/lib/agent/agent-binding-store-read.js:13 · wiki/concepts/planner.md:1-15</div></td>
+<td>A.设计前既有<div class="det">死元数据/文档滞后;FC 设计测绘(二点六点五-B)顺带发现</div></td>
+<td class="mono">L4</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge slate">记账未排期(submit_plan 批的自然清葬点)</span><div class="det">死代码/文档滞后</div></td>
+</tr>
+<tr>
+<td class="mono">planner-inbox-autodelete</td>
+<td><b>after-tool-call planner inbox 自动删除 — 唯一按角色特判的运行时路径</b><div class="det">当前核实:hooks/after-tool-call.js:192-203 仍在,planner inbox 的 .json 读后 10 秒定时 unlink;已从硬编码 agent 名改为 resolveAgentIdByRole(AGENT_ROLE.PLANNER),但按角色特判运行时行为的反模式本体未除(违反传送带原则精神)。</div>
+<div class="anch">extensions/watchdog/hooks/after-tool-call.js:192-203</div></td>
+<td>A.设计前既有<div class="det">角色特化分支反模式;FC 设计测绘顺带发现</div></td>
+<td class="mono">L3</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(形式软化,反模式仍在)</span><div class="det">角色特判反模式</div></td>
+</tr>
+<tr>
+<td class="mono">ticket-source-contract-id</td>
+<td><b>票据 sourceContractId 记录性缺口:entry/ref 字段形状错位,attach 仍写 null</b><div class="det">当前核实:register 调用点已传 contractData?.id 且 entry 存于嵌套 source.contractId(:99-103);但 normalizeSystemActionDeliveryTicketRef 只读扁平 record.sourceContractId(:35),attach 把完整 entry 当 ref 传入时 sourceContractId 恒 null(ticket.js:75)。路由不受影响(returnContext 冗余携带),纯记录性缺口。</div>
+<div class="anch">extensions/watchdog/lib/routing/delivery/delivery-system-action-ticket-route.js:35 · extensions/watchdog/lib/routing/delivery/delivery-system-action-ticket-route.js:99-103 · extensions/watchdog/lib/routing/delivery/delivery-system-action-ticket.js:75</div></td>
+<td>A.设计前既有<div class="det">双形状同名字段;P3 战报入账</div></td>
+<td class="mono">L1</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">字段形状分裂</div></td>
+</tr>
+<tr>
+<td class="mono">artifact-lane-orphan</td>
+<td><b>artifact-lane 孤儿子系统(registry+bindings+消费链)仍完整在场</b><div class="det">当前核实:P3 T1 删掉 code_review.json 唯一写者后,artifact-lane-registry.js(72 行)、session-bootstrap 绑定路径(:118-119)、heartbeat-gate/tracking-work-item 消费面全部仍在,artifactContext 生产端已断;review-verdict 车道注释自认『artifactContext(code_review.json)形态随 contract 化退役』。自喂 payload 的测试仍绿=假活信号。</div>
+<div class="anch">extensions/watchdog/lib/artifact-lane-registry.js · extensions/watchdog/lib/session/session-bootstrap.js:118-119 · extensions/watchdog/lib/routing/delivery/delivery-system-action-review-verdict.js:4</div></td>
+<td>B.设计落地新增<div class="det">P3 评审腿 contract 化使其成孤儿(债因改造产生)</div></td>
+<td class="mono">L2</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge amber">停靠(simplify#F1 已备完整拆除清单,待单</span><div class="det">孤儿子系统</div></td>
+</tr>
+<tr>
+<td class="mono">test-trace-pollution</td>
+<td><b>npm test hook 类测试污染真值 trace 目录</b><div class="det">证据面上线后 hook 测试无 env 覆盖直接写生产 trace 目录,首日残留 95 个文件。修法:package.json test 脚本钉 OPENCLAW_TRACE_DIR=/tmp/openclaw-test-trace。当前核实:仍钉在。</div>
+<div class="anch">extensions/watchdog/package.json:30</div></td>
+<td>B.设计落地新增<div class="det">新落盘面未配套测试沙箱</div></td>
+<td class="mono">L7</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge teal">已修(7d45724)</span><div class="det">测试卫生</div></td>
+</tr>
+<tr>
+<td class="mono">registry-unclassified</td>
+<td><b>lib/protocol 等 51 文件在 block registry 无归属</b><div class="det">v171/v172 目录重排后 block-check registry 滞后,证据面新目录 unclassified。registry-fixer 整目录 pattern 对齐,51→0,死 pattern 清仓,412 文件归位。</div>
+<div class="anch">use guide/备忘录128:三点九六</div></td>
+<td>B.设计落地新增<div class="det">新目录未同步治理注册表(叠加重排滞后)</div></td>
+<td class="mono">L9</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge teal">已修(7d45724)</span><div class="det">治理注册表滞后</div></td>
+</tr>
+<tr>
+<td class="mono">seq-race</td>
+<td><b>证据桥并发竞态:并行工具调用重复 seq</b><div class="det">账本 validator 上线首日抓到并行 after_tool_call 分配重复 seq 的真竞态,当场修复。账本自证完整性设计(open/seq/close)第一次实战即回本。</div>
+<div class="anch">use guide/备忘录128:三点九五</div></td>
+<td>B.设计落地新增<div class="det">证据面主干并发路径考虑不足;validator(自家账本)抓获</div></td>
+<td class="mono">L0</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(e330c78,批次一)</span><div class="det">并发竞态</div></td>
+</tr>
+<tr>
+<td class="mono">api-key-scan-gap</td>
+<td><b>assign/review 工具参数不过 API-key 泄漏扫描</b><div class="det">当前核实:security.js Rule 2 明注『Block API key leakage via sessions_send』——扫描面只覆盖 sessions_send;P3/P4 新增的协作工具面 args(task/expectations 大文本,records only sessions_send)走 systemActionConsume 不经该闸。</div>
+<div class="anch">extensions/watchdog/lib/security/security.js:193</div></td>
+<td>B.设计落地新增<div class="det">新工具面开出新参数通道,既有安全闸未扩面(P4 hookRisks 测绘发现)</div></td>
+<td class="mono">L3</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">安全闸覆盖缺口</div></td>
+</tr>
+<tr>
+<td class="mono">p6-deferred-batch</td>
+<td><b>P6 推后批四件:gate.test/gate.schema 证据源改造、E-HARNESS-005 live 探针、考官判决消费面、期望驱动判决 live 案</b><div class="det">当前核实:gate.test 口令匹配/gate.schema LLM 自报仍在 4 个 harness profile 引用;E-HARNESS-005 注册在 error-codes.js:43 但 formal-runtime 各 suite 零引用(Path A 模块评估至今无 live 探针);evaluation-verdicts 在 dashboard/routes 零消费点;期望驱动判决只有单测覆盖,live 只验了零期望兜底路。</div>
+<div class="anch">extensions/watchdog/lib/harness/harness-registry.js:50-102 · extensions/watchdog/lib/formal-runtime/error-codes.js:43</div></td>
+<td>B.设计落地新增<div class="det">考官新机器的消费端与验证面有意推后</div></td>
+<td class="mono">L7</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期(三点一〇三推后批)</span><div class="det">消费端缺位</div></td>
+</tr>
+<tr>
+<td class="mono">cross-workspace-write-guard</td>
+<td><b>跨工作区写入放行:worker 把交付物写进 planner 的 outbox</b><div class="det">run-3 flake 直读账本破案:工作区圈禁只对 operator,执行层 agent 写他人 outbox 被放行→自己 outbox 无货→货检 FAIL。既有安全缝,live 一轮暴露。修为 before-tool-call 1d2 段双层判定守卫,拒绝自动入 trace。当前核实:1d2 段在场(:264)。</div>
+<div class="anch">extensions/watchdog/hooks/before-tool-call.js:264</div></td>
+<td>C.live 验收暴露<div class="det">静态审计从未列出此洞,靠证据账本直读定位</div></td>
+<td class="mono">L3</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(1c119cc,5 测试 TDD+32 回归)</span><div class="det">安全缝</div></td>
+</tr>
+<tr>
+<td class="mono">review-leg-protocol-mismatch</td>
+<td><b>回流链后半断:评审腿 hook+artifact 形态 vs 回投机械只认 contract</b><div class="det">reviewer1 按契约剧本找不到 code_review.json(seq1-10 全 refused/error 在账),且 agent_end 回投链靠 contractData 匹配票据,hook 会话 contract=null→verdict 永远回不去。126『场景-协议错配』家族完整复刻。修法:评审腿 contract 化(P3 T1),第四轮 live 全链贯通(票据 resolved+exact-session resume 实锤)。</div>
+<div class="anch">extensions/watchdog/lib/system-action/system-action-request-review.js · extensions/watchdog/lib/lifecycle/agent-end-terminal.js:279 附近</div></td>
+<td>C.live 验收暴露<div class="det">双断点全由 reviewer1 自己的 trace 账本破案</div></td>
+<td class="mono">L1</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(P3 T1,700ab5c 段)</span><div class="det">场景-协议错配</div></td>
+</tr>
+<tr>
+<td class="mono">mutate-snapshot-throw-mine</td>
+<td><b>mutateContractSnapshot 对缺文件 throw → 炸死整条 agent_end 流水线(潜伏雷)</b><div class="det">DIRECT 信封无正本文件,写标记突变直接 throw,终态/票据/投递全无——任何写标记的 DIRECT 子约均可触发,非 P3 新增但 P3 live 引爆。修法:降级 warn+内存镜像进 trackingState.contract。</div>
+<div class="anch">use guide/备忘录128:三点一〇〇</div></td>
+<td>C.live 验收暴露<div class="det">三颗雷之三,静态完全不可见</div></td>
+<td class="mono">L0</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(P3 live 第三轮,700ab5c 段)</span><div class="det">单点炸链</div></td>
+</tr>
+<tr>
+<td class="mono">zero-findings-false-approve</td>
+<td><b>『零标记即通过』初版修法会 false-approve 散文拒绝</b><div class="det">reviewer 用散文写『暂不通过』无标记,初版修法(零 findings→approve)被第二轮 live 直接否决。撤销;改评审工单 task 写明结论协议(标记逐条或 runtime_result 显式 verdict)——软路径引导硬路径不猜。</div>
+<div class="anch">use guide/备忘录128:三点一〇〇</div></td>
+<td>C.live 验收暴露<div class="det">软路径抗命类:LLM 表达不守协议,静态推不出</div></td>
+<td class="mono">L2</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge teal">已修(修法撤销+结论协议入 task;根治停靠见 p</span><div class="det">软路径抗命</div></td>
+</tr>
+<tr>
+<td class="mono">plugin-split-brain</td>
+<td><b>插件多实例分脑:同会话被 [gateway]/[plugins] 两实例处理,内存会话态互不可见</b><div class="det">routeInbox/绑定在实例 A、agent_end 在实例 B,插件按会话上下文反复实例化(日志 LOADING 6254 次),叠加 collectOutbox 静默路径→collect 缺席→提取死→终态 FAILED。L3 标记案偶发中招,L1 案免疫(中场执行不依赖 agent_end 提取)。是本平台多处历史 flake 的共同根。当前核实:P5 后无任何 instancing 相关 commit,未动。</div>
+<div class="anch">use guide/备忘录128:三点一〇二</div></td>
+<td>C.live 验收暴露<div class="det">多实例架构类;P5 五轮迭代逼出的残余闪断根因</div></td>
+<td class="mono">L0</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge amber">停靠(建议单独排期:单实例化或会话态落盘)</span><div class="det">多实例架构</div></td>
+</tr>
+<tr>
+<td class="mono">collect-outbox-silent</td>
+<td><b>collectOutbox 三条静默 {collected:false} 无日志路径仍在</b><div class="det">当前核实:无 workspace(:84)、readdir 失败(:93)、handler 缺失/非函数(:98-102)三条路径仍零日志返回,只有『outbox empty』一条有 info(:97)。与分脑叠加时 collect 缺席无痕,定位全靠猜。静默吞错不对称家族(空 outbox 有日志,更严重的 handler 缺失反而没有)。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:84 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:93 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:98-102</div></td>
+<td>C.live 验收暴露<div class="det">静默吞错不对称家族;P5 定位分脑时连带确诊</div></td>
+<td class="mono">L1</td>
+<td><span class="badge red">高</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">静默吞错不对称</div></td>
+</tr>
+<tr>
+<td class="mono">archive-race-write-reject</td>
+<td><b>agent_end 归档与模型流竞速:『contract session 已归档』写拒</b><div class="det">R2 denied 案实录:agent_end archive 早于模型收尾,模型残余写被拒。当前核实:before-tool-call.js:160 该拒绝路径原样,竞速窗口未治理。</div>
+<div class="anch">extensions/watchdog/hooks/before-tool-call.js:160</div></td>
+<td>C.live 验收暴露<div class="det">生命周期竞速类;P5 战报入账</div></td>
+<td class="mono">L0</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">生命周期竞速</div></td>
+</tr>
+<tr>
+<td class="mono">agent-end-single-stage-throw</td>
+<td><b>agent_end 主链 runStageList 仍 fail-fast:单 stage throw 弃后续主 stage</b><div class="det">当前核实:AGENT_END_MAIN_STAGES 走 swallowErrors=false(:86),一个 stage throw 即跳过剩余主链(终态/票据/投递),顶层 catch 只发 RUNTIME_AGENT_END_FAILED alert+失败事件走 crash-recovery(:143-172);close+考官已迁 FINALLY 段吞错(:90)。具体雷(mutate throw)已拔,但 L0 runner 容错语义(哪些 stage 该隔离降级)仍未议定。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-lifecycle.js:30-42 · extensions/watchdog/lib/lifecycle/agent-end-lifecycle.js:86-90 · extensions/watchdog/lib/lifecycle/agent-end-lifecycle.js:143-155</div></td>
+<td>C.live 验收暴露<div class="det">P3 潜伏雷引出的结构性议题(既有语义)</div></td>
+<td class="mono">L0</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge slate">部分缓解(FINALLY 迁移 968d1ee+顶层</span><div class="det">单点炸链</div></td>
+</tr>
+<tr>
+<td class="mono">heartbeat-read-refused</td>
+<td><b>reviewer1 hook 会话读自己 HEARTBEAT.md 被 refused,哪道守卫拒的待查</b><div class="det">回流链实验附带观察(seq1 在账)。无后续排查 commit,独立小项。</div>
+<div class="anch">use guide/备忘录128:三点九七</div></td>
+<td>C.live 验收暴露<div class="det">账本副产物</div></td>
+<td class="mono">L3</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge slate">记账未排期</span><div class="det">守卫误伤疑点</div></td>
+</tr>
+<tr>
+<td class="mono">dispatch-small-file-flake</td>
+<td><b>dispatch small-file-task 模型侧间歇 flake</b><div class="det">3 轮中 1 挂,failure mode=planner 交白卷→worker improvise;与证据面无关,模型侧行为波动。零产物门与提示词祈使化已收窄爆炸面。</div>
+<div class="anch">use guide/备忘录128:三点九五</div></td>
+<td>C.live 验收暴露<div class="det">软路径抗命类(模型侧,非代码债)</div></td>
+<td class="mono">L4</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge slate">记账(模型侧,门已兜底)</span><div class="det">软路径抗命</div></td>
+</tr>
+<tr>
+<td class="mono">examiner-timing</td>
+<td><b>eff#F1 考官时序:finalize 读判决在考官写入之前,P6 转正同轮恒 fallback</b><div class="det">当前核实:考官在 agent_end FINALLY 段跑(close 之后),automation finalize 经 reconcile/executor 读 getLatestEvaluationVerdictForContract(automation-finalize.js:108-110)——同轮只可能读到上一轮判决,EvaluationResult 转正实际总走 reviewerResult fallback。修法有权衡(考官前移丢 L3 动作证据),与 E-HARNESS-005 live 探针同批。</div>
+<div class="anch">extensions/watchdog/lib/automation/automation-finalize.js:106-125 · extensions/watchdog/lib/lifecycle/agent-end-lifecycle.js:90</div></td>
+<td>D.清理审查发现<div class="det">/simplify 效率路;P6 新机器的时序缝</div></td>
+<td class="mono">L8</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge amber">停靠(与 E-HARNESS-005 探针同批)</span><div class="det">时序缝</div></td>
+</tr>
+<tr>
+<td class="mono">probe-ambiguity-topology</td>
+<td><b>alt#F1 探针捏造拓扑:ensureRouteAmbiguity 改活图,真修法待做</b><div class="det">当前核实:suite-system-action.js:104/149/164 仍在。真修法=『终态 vs 前送』成为合约属性(graph_route 问未结票据账本而非数出边,禁用 replyTo 判);另附:单出边 planner 上 assign 静默丢弃无覆盖、denied 案第二条隐形拒绝路径、测试进程被 kill 会把授权边留活图。</div>
+<div class="anch">extensions/watchdog/lib/formal-runtime/suite-system-action.js:104 · extensions/watchdog/lib/formal-runtime/suite-system-action.js:149</div></td>
+<td>D.清理审查发现<div class="det">/simplify 高度路;P5 探针机关的架构性代价</div></td>
+<td class="mono">L7</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge amber">停靠(带完整分析)</span><div class="det">测试污染活图</div></td>
+</tr>
+<tr>
+<td class="mono">verdict-mapping-split</td>
+<td><b>alt#F3 verdict 双向映射互不相识,正向有损</b><div class="det">当前核实:mailbox 侧 approve→pass(reviewer-verdict.js:9)与车道侧 pass/fail→approve/reject(review-verdict.js:87-89)仍是互不相识的逆函数对,improved/regressed 往返成 null 静默退化。收敛为 review-semantics 单模块双向词表未做(全库无该模块)。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-reviewer-verdict.js:9 · extensions/watchdog/lib/routing/delivery/delivery-system-action-review-verdict.js:87-89</div></td>
+<td>D.清理审查发现<div class="det">/simplify 高度路;真值词表分裂</div></td>
+<td class="mono">L1</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge amber">停靠</span><div class="det">词表分裂</div></td>
+</tr>
+<tr>
+<td class="mono">collab-exemption-triple</td>
+<td><b>alt#F4/F5 协作工具豁免规则三种编码并存</b><div class="det">当前核实:before-tool-call 并集(:308 isExposedCollabToolForRole)、harness kind 过滤、health 挂载检查三处各自表达同一规则;收敛点 capability-registry 出 isToolAllowedForRole 未做(全库无该函数)。parity 检查(E-TOOLFACE-001)兜底防漂移。</div>
+<div class="anch">extensions/watchdog/hooks/before-tool-call.js:308 · extensions/watchdog/lib/security/capability-preset-registry.js:11</div></td>
+<td>D.清理审查发现<div class="det">/simplify 高度路;P4 修 R1 矛盾时的三处散点</div></td>
+<td class="mono">L3</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge amber">停靠(parity 检查兜底)</span><div class="det">规则多处编码</div></td>
+</tr>
+<tr>
+<td class="mono">review-staging-extraction</td>
+<td><b>alt#F7+reuse#10 评审包 staging 绕过 copyUpstream 预算/溢出/_MISSING 可观测,且无自己的 manifest</b><div class="det">当前核实:request_review 的 staging(preserved 包+manifest 文件并集,fede51d 修了异或 bug)仍是独立复制路径,不走字节预算与 _MISSING 机制;提取为 artifact-store 的 stageContractArtifactPackage 未做(全库无该函数)。</div>
+<div class="anch">extensions/watchdog/lib/system-action/system-action-request-review.js:131-144</div></td>
+<td>D.清理审查发现<div class="det">/simplify 高度+复用路;P3 T1 新路径与既有单路径原则的缝</div></td>
+<td class="mono">L5</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge amber">停靠(异或→并集已修 fede51d,提取未做)</span><div class="det">平行复制路径</div></td>
+</tr>
+<tr>
+<td class="mono">prose-verdict-protocol</td>
+<td><b>结论表达协议是提示词不是数据:评审合约不设 expectations</b><div class="det">request_review 用 task 散文声明结论协议(P3 ① 的软路径引导),而非给评审合约设结构化 expectations——『结论表达协议应是数据不是提示词』。停靠至 submit_plan 批一并治。</div>
+<div class="anch">use guide/备忘录128:三点一〇四</div></td>
+<td>D.清理审查发现<div class="det">/simplify 高度路范围外观察;软路径抗命的根治缺口</div></td>
+<td class="mono">L4</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge amber">停靠(submit_plan 批)</span><div class="det">协议数据化缺口</div></td>
+</tr>
+<tr>
+<td class="mono">false-red-pair</td>
+<td><b>两条假失败:guard 用量对账工具别名假红 + health 挂载检查数组简写假 E-CONFIG-002</b><div class="det">WebSearch vs web_search 未折叠必假红;数组简写 tools 配置未并集 alsoAllow 必假 E-CONFIG-002。均为 P4/P6 新检查自带的判定缺口,/simplify 抓获并修:uniqueTools 别名折叠+readTopLevelTools 并集。</div>
+<div class="anch">use guide/备忘录128:三点一〇四</div></td>
+<td>D.清理审查发现<div class="det">/simplify 抓获的 B 类新增缺口</div></td>
+<td class="mono">L7</td>
+<td><span class="badge amber">中</span></td>
+<td><span class="badge teal">已修(007c470 + 63d6103)</span><div class="det">检查门假红</div></td>
+</tr>
+<tr>
+<td class="mono">low-value-pair</td>
+<td><b>eff#F2a collab facts 缓存 / eff#F5 staging 并行 — 低值优化记过</b><div class="det">两条效率路 finding 评估为低值,记过不排期。</div>
+<div class="anch">use guide/备忘录128:三点一〇四</div></td>
+<td>D.清理审查发现<div class="det">/simplify 效率路</div></td>
+<td class="mono">L1</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge slate">记账未排期(明确低值)</span><div class="det">低值优化</div></td>
+</tr>
+<tr>
+<td class="mono">buildhop-null-note</td>
+<td><b>(非债)buildHopExpectations 恒 null 被裁定『诚实接缝勿修』</b><div class="det">固定管线每跳期望的挂点已在,图 schema 未定义期望→null 是诚实状态而非缺陷;/simplify 驳回修改。记录在此防后续误当债修。</div>
+<div class="anch">use guide/备忘录128:三点一〇四</div></td>
+<td>D.清理审查发现<div class="det">驳回项(altitude 裁定)</div></td>
+<td class="mono">L2</td>
+<td><span class="badge slate">低</span></td>
+<td><span class="badge slate">驳回不计债</span><div class="det">诚实接缝</div></td>
+</tr>
+  </table></div>
+  <ul class="notes"><li>源流统计(计债 49 条,另 1 条驳回项仅记录):A.设计前既有 27 条(55%)/ B.设计落地新增 6 条 / C.live 验收暴露 10 条 / D.清理审查发现 6 条+已修假红 1 条+低值 1 条(共 8 条)。状态分布:已修 22 / 停靠 9 / 记账未排期 18(含部分缓解 1)。</li><li>最大家族:A 类里的产物搬运链『静默做错』双家族——『谁写谁清缺位』(H1/M2/M3/retention,4 条)与『静默吞错不对称』(M1/collectOutbox/upstream-missing,3 条),加上『半套遗留』(alias/followUpLease/provenanceNonce/旧trace store,4 条)。C 类的共同根是 L0 多实例分脑+生命周期竞速(split-brain/archive-race/single-stage-throw 同一片土壤)。</li><li>结论一句话:债务主要不是 FC 工程造出来的,而是它照出来的——56% 是设计前存量(证据面账本和静态审计只是第一次把『静默做错』变得可见),FC 自身新增的 6 条 B 类债里 4 条当场修毕,真正的 B 类残留只有 artifact-lane 孤儿、API-key 扫描缺口和 P6 推后批这种『新机器消费端未闭合』;live 与 /simplify 是暴露渠道而非债源,但 live 独有价值实证了三次(三颗雷全部静态不可见)。</li><li>核实方法说明:HEAD=1e71c6d(三点一〇四 memo commit),工作树仅 skills/error-avoidance/SKILL.md 有未提交改动,备忘录与代码同步——所有『已修』条目在当前代码验有实锚(如 runHandoffGate 四站点、200 字闸、alias 文件已删、rm(upstream)),所有『仍开』条目验有反证(如 recordDelegationIntent 零调用、armLease 唯一调用方、contractPathsById 无守卫写入、ref/entry 字段形状错位)。</li><li>盘面数据(2026-07-28 现刻):control-plane/artifacts 4663 cid/43MB(审计时 4460/41MB,两日 +200)、output 67 文件、trace 74 文件——保留期清扫债在实时增长,建议排入下一杂务批。</li><li>跨会话提醒:三点九八注意事项仍有效——并行会话曾两次削图(canonical 边被删),本轮盘点为只读未触图;另 push 仪式未做(branch ahead 9 commits,建议 tag 沿用 v175-stable 提案)。</li></ul>
+</section>
+
+<section id="s2">
+  <div class="sechead"><span class="secno">二</span><h2>产物交接诊断 · 固定管线与动态派工</h2></div>
+  <p class="seccap">固定管线主干(preserve_artifact → artifacts/&lt;cid&gt;/&lt;producer&gt; → routeInbox → copyUpstream 预算/溢出清单/_MISSING → upstreamPackages 指针 → collectOutbox → mirror contract.output)经 B8/H4/v133 修复后<b>已基本健康</b>;下表是核实后<b>仍存在</b>的 10 个问题,按修复优先序排。含对备忘录128 的两处纠偏:staging"绕过预算"不成立(真缺口是 role-fallback 无边整包不入仓);"多实例分脑"字面不可复现(真身是 tracker 重启失忆)。</p>
+  <div class="scroll"><table>
+  <tr><th style="width:6%">序</th><th style="width:56%">问题 · 证据 · 锚点</th><th style="width:8%">危</th><th style="width:30%">修法</th></tr>
+  <tr>
+<td class="mono"><b>P1</b></td>
+<td><b>outbox 失败路径无事务化/无隔离目录:残件跨约污染 + legacy 文件永久卡死收集</b><div class="det">核实为真且比备忘录更严重。collectRuntimeResult 所有失败分支都把残件原样留在 outbox:legacy _manifest.json 直接拒收且不移除(outbox-helpers.js:227-230)——该文件存在一天,这个 agent 的收集就永久失败一天(每次 agent_end 先检查 legacy 再看 runtime_result);缺 runtime_result.json 时已写好的产物文件全部滞留(:232-234);runtime_result.json 解析失败/非法时该文件本身也滞留(:241-244/:342-345,removeFileQuietly 只在成功路径 :284);单文件 copy 失败滞留(:171-173)。cleanInbox 只清 inbox(runtime-mailbox-transport.js:68-75),ensureMailboxDirs 只 mkdir——outbox 无任何清理路径。跨约污染:下一个合约收集时 implicitArtifactFiles 把 outbox 里【所有】非控制文件当本约产物(:249-253),上一约的残件被归属到新约、mirror 到新约的 contract.output、preserve 进新约的 artifacts 包。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:227-234 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:241-244 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:284 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:171-173 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:249-253 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-transport.js:68-75</div></td>
+<td><span class="badge red">high</span></td>
+<td><div class="det" style="color:var(--ink)">1) 收集失败(legacy/missing/invalid/parse error)时把 outbox 现存文件移入 outbox/.rejected/&lt;ts&gt;/ 隔离目录并落一个 reason.txt,而不是原地滞留;2) legacy _manifest.json 改为隔离+warn 而非永久拒收;3) implicit 文件收集加 H4 同款新鲜度门(mtime &gt;= session startMs 才算本约产物),防跨约归属;4) 成功路径把「移动整包」做成先全部 copy 后统一 unlink 的两段式,避免半搬状态。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P2</b></td>
+<td><b>collectOutbox 多条静默 {collected:false} 路径:失败零日志、executionObservation.error 全库零消费</b><div class="det">逐条核实的静默路径:runtime-mailbox.js:84(getMailboxWorkspace 返回 null,无日志)、:93(readdir 抛错吞掉,无日志)、:102(handler 无 collectOutbox 方法,无日志——注:registry 永远兜底到 executor_contract 默认 handler,此路近死但仍静默)、outbox-helpers.js:229(legacy 拒收,返回 error 字段但无日志)、:233(缺 runtime_result.json——最常见的真实失败形态,agent 写了产物但没写协议文件,零日志零标记)。有日志的只有 :97(outbox empty, info)、:242(invalid, warn)、:343(parse error, warn)。上层 agent-end-transport.js:30-31 只在 collected===true 时打 success 日志,失败侧完全无声。返回的 error 字段进入 executionObservation.error 后全库无任何消费点(grep executionObservation.error / obs.error 零命中)——错误串被 normalize 保存然后丢弃。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:84 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:93 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:102 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:229 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:233 · extensions/watchdog/lib/lifecycle/agent-end-transport.js:30-31</div></td>
+<td><span class="badge red">high</span></td>
+<td><div class="det" style="color:var(--ink)">1) collectOutbox(runtime-mailbox.js)在每条 collected:false 返回前统一 logger.warn(带 agentId+具体 reason);2) agent-end-transport 在 collected:false 且 outbox files&gt;0 时 warn+broadcast(参照 RUNTIME_TRANSPORT_CLEANUP_FAILED 先例);3) 给失败 reason 注册 E-码(error-codes.js 已有 E-CONTRACT-004 mirror 先例),test-runner dispatch 预设纳入检查;4) 让终态判定/dashboard 消费 executionObservation.error 而不是静默丢弃。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P3</b></td>
+<td><b>trackingState 内存单点:agent_end 缺 tracking 时 preserve_artifact/graph_route 静默缺席、合约僵死</b><div class="det">备忘录的「A 实例绑定 B 实例 agent_end」字面场景今天不可复现:ps 只有一个 openclaw-gateway 进程,端口 18789 独占。但同形故障真实存在于重启失忆:tracker 是纯内存 Map(state-collections.js:5),persistState 只快照 followUpLease 活跃会话(tracker-store.js:259-280),运行中合约绑定的会话不持久且 restore 时 contract 一律置 null(:315)。gateway 重启后若旧会话补发 agent_end(或 late agent_end),hooks/agent-end.js:19-20 从内存拿不到 trackingState → 生命周期照跑但:preserve_artifact 门=trackingState.contract.id(stage-definitions.js:239)→ 整包不存;graph_route match 同门(:280-282)→ 不前送;collect+mirror 仍会跑(collectWorkerOutbox 从 inbox/共享合约解析 output,不依赖 tracker,runtime-mailbox-outbox-handlers.js:10-22)。净效果:产物落了 output/ 和 contract.output,但 artifacts 包缺失、下游 inbox 拿不到上游包、合约僵在 running 无人推进,全程无告警。</div>
+<div class="anch">extensions/watchdog/lib/state/state-collections.js:5 · extensions/watchdog/lib/store/tracker-store.js:259-280 · extensions/watchdog/hooks/agent-end.js:19-20 · extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:239 · extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:280-282 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-handlers.js:10-22</div></td>
+<td><span class="badge red">high</span></td>
+<td><div class="det" style="color:var(--ink)">在 agent_end 入口(或 preserve_artifact/graph_route 各自内部)加 trackingState 缺席兜底:从 inbox/contract.json(或共享合约按 assignee 反查)late-bind contractId——collectWorkerOutbox 已有同款回退先例,复用同一路径;bind 不上时 warn+broadcast 一条 TRACKING_MISSING 告警而不是静默走完。长期:把运行中合约会话纳入 persistState 快照(contract id+path 即可,无需全量)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P4</b></td>
+<td><b>control-plane/output/ 扁平共享目录按裸文件名落盘,跨约同名覆盖</b><div class="det">materializeOutboxArtifacts 把 outbox 文件搬到共享扁平目录:dest=join(OUTPUT_DIR, fileName)(outbox-helpers.js:158-159,OUTPUT_DIR=control-plane/output,:21)。live 目录现有 67 个文件,answer.md/artifact.txt/assign_result.txt 等通用名高频复用——后约同名文件直接覆盖前约。后果:所有持久化了绝对路径的引用(contract.terminalOutcome.artifact、delivery 信封、workflow-trace、dashboard)事后读到的是别的合约的内容;preserve_artifact 从这些路径复制入包,与并发 agent_end 的覆盖之间存在竞态窗(虽小但存在);artifacts 包是事后审计的正本,被污染后无从发现。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:21 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:158-159</div></td>
+<td><span class="badge red">medium-high</span></td>
+<td><div class="det" style="color:var(--ink)">落盘路径改为 output/&lt;contractId&gt;/&lt;fileName&gt;(mirror 到 contract.output 的行为不变,contract.output 本身已按 cid 命名);存量引用兼容:resolveRuntimeResultOutputPath 等读方已走 contract 字段而非拼路径,改动集中在 materializeOutboxArtifacts 一处。最低代价方案:同名冲突时检测已存在且 mtime 非本会话则加 &lt;cid&gt; 后缀。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P5</b></td>
+<td><b>request_review staging 三缺口:role-fallback 断链无 _MISSING、staged 包 manifest 身份错误/缺失、无预算整包复制放大</b><div class="det">先修正备忘录:「staging 绕过 copyUpstream 字节预算」不准确——staging 落到 artifacts/&lt;reviewCid&gt;/&lt;worker&gt;/ 后,reviewer 被唤醒时 routeInbox→copyUpstreamArtifactsToInbox 照常按 graph 入边搬运,预算/COMPRESSED_MANIFEST/_MISSING 全生效(前提:graph 有 worker→reviewer 边)。真实缺口:(a) reviewer 走 role fallback 选出(request-review.js:121,listAgentIdsByRole)且图上无 worker→reviewer 边时,resolveUpstreamAgents(graph, reviewer) 不含 worker(artifact-store.js:201-209)→ staged 包永远不入 reviewer inbox,且无任何 _MISSING 标记,reviewer 只能按 task 文本里的路径盲读;其中相对路径(如 outbox/x.md)在 stageReviewUpstreamPackage:154 的 pathExists 按 gateway cwd 解析、在 reviewer 侧按它自己 workspace 解析,两头都是错的。(b) staged 包无正确 manifest:cp preserved 包连带旧 manifest.json(contractId=sourceCid,身份错误,request-review.js:146-149);仅 manifest-files staging 时整包无 manifest(:151-159)→ manifest 消费方(agent-session-transcript.js:36-44 取 primary)拿错或拿不到。(c) staging cp -r 无字节上限,每轮评审把 worker 整包在 artifacts/ 再复制一份,自动化循环评审是存量增长放大器(与 P7 叠加)。preserved∪manifest 并集逻辑本身核实为真且正确(:142-159)。</div>
+<div class="anch">extensions/watchdog/lib/system-action/system-action-request-review.js:121 · extensions/watchdog/lib/system-action/system-action-request-review.js:142-159 · extensions/watchdog/lib/lifecycle/artifact-store.js:201-209 · extensions/watchdog/lib/agent/agent-session-transcript.js:36-44</div></td>
+<td><span class="badge amber">medium</span></td>
+<td><div class="det" style="color:var(--ink)">1) staging 完成后重写 targetDir/manifest.json(contractId=reviewCid、producer=sourceAgent、files=实际清单);2) resolveReviewTargetAgent 命中 role-fallback 时在返回值里带 viaGraphEdge:false,stageReviewUpstreamPackage 据此在 reviewer 的 inbox/upstream/ 直接落 _MISSING.md 说明「包在 artifacts/&lt;reviewCid&gt;/&lt;worker&gt;/,图上无边未自动入仓」,或干脆对 reviewContext.sourceAgentId 做一次显式 copyUpstream 补拷(复用同一函数,不造第二路径);3) artifactManifest 相对路径条目在 collectReviewArtifacts 时 resolve 到 source agent workspace;4) staging 前用 computeContextBudgetPlan 预检,超限时只 stage 清单。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P6</b></td>
+<td><b>assign 腿「零上游包」三义不可分 + 回程只回 1200 字截断、子约整包不回流</b><div class="det">去程核实为真:assign_task 只建 DIRECT 信封,context 全在 message 文本,不 stage 任何上游包(system-action-runtime.js:232-243)。目标 agent 的 routeInbox 对新 DIRECT cid 找不到任何 artifacts 包,而这个「空」与另外两种情况完全同相:固定管线上游真没产出(artifact-store.js:245 existsSync 失败静默 continue)、上游产出了但 preserve 失败(saveAgentArtifact 顶层 catch 全静默,artifact-store.js:194-196,连 logger 都没接)。下游无从分辨「本腿没上游/上游没产出/系统丢了包」。回程同样弱:delivery 信封只内嵌 summarizeDeliveryResult 截断到 1200 字符的正文(delivery-result.js:218-222,经 buildRuntimeResultDeliveryTask :321/:337)加 terminalOutcome.artifact 一个绝对路径(delivery-system-action-runtime-result.js:225-233),子约的多文件整包不回流上游 inbox——上游要么信 1200 字摘要,要么违反「只用相对路径」纪律去读 control-plane 绝对路径。</div>
+<div class="anch">extensions/watchdog/lib/system-action/system-action-runtime.js:232-243 · extensions/watchdog/lib/lifecycle/artifact-store.js:245 · extensions/watchdog/lib/lifecycle/artifact-store.js:194-196 · extensions/watchdog/lib/routing/delivery/delivery-result.js:218-222 · extensions/watchdog/lib/routing/delivery/delivery-system-action-runtime-result.js:212-233</div></td>
+<td><span class="badge amber">medium</span></td>
+<td><div class="det" style="color:var(--ink)">1) copyUpstreamArtifactsToInbox 区分三态:graph 有上游但全部无包时落 inbox/upstream/_NO_UPSTREAM_OUTPUT.md(逐上游列「未运行/无产物」);saveAgentArtifact 接收 logger,吞错时至少 warn(修最后一个全静默点);assign 腿(DIRECT cid+无图上游)保持干净不落 marker——三态即可分。2) 回程:assign_task_result/review_verdict 投递时,若子约 artifacts/&lt;childCid&gt;/&lt;child&gt;/ 存在,把包身份写进回程合约(upstreamPackages 同款指针),上游 routeInbox 复用 copyUpstream 一条路径按预算搬入——不造第二条搬运协议。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P7</b></td>
+<td><b>control-plane/artifacts/ 无保留期清扫:4663 个 cid、43MB、单调增长</b><div class="det">live 实测 4663 个 cid 目录(备忘录写 4460+,已再涨)、共 43MB,最老的 TC-1780184090847(约 2026-06-01)仍在。全库 grep(retention/prune/sweep/expire/ttl × artifacts)零命中——没有任何清扫代码,gateway_start 的各类 prune(guidance backups/pending signals/dispatch chain)都不覆盖 artifacts。P5(c) 的评审整包复制是增长放大器。当前 43MB 不致命,但设计上「独立留存」没有配对的「留存期限」,且 agent-session-transcript/dashboard 按 cid 枚举时目录基数只增不减。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/artifact-store.js:36 · control-plane/artifacts (live: 4663 dirs, 43MB)</div></td>
+<td><span class="badge amber">medium</span></td>
+<td><div class="det" style="color:var(--ink)">挂一个保留期清扫(gateway_start 定时或 schedule 表面):按合约终态时间+N 天(建议 14d)删 artifacts/&lt;cid&gt;/;豁免活跃 automation/loop 引用的 cid 与 running 合约;首版先 dry-run 输出候删清单到 test-reports 供人工确认,再启用真删。与 workflow-trace/output/ 的同类清扫合并成一个 control-plane 存储治理模块,不散造三个清扫器。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P8</b></td>
+<td><b>preserve_artifact 无 success 门(失败会话半成品标 completed 入包)+ H4 新鲜度门 fail-open</b><div class="det">H4 现状核实:陈旧 mirror skip 已生效且方向正确——preserve_artifact 在 obs.primaryOutputPath 缺席时才回退 contract.output,且回退前过 isPathFreshForSession(agent-end-stage-definitions.js:242-251);observation 侧 primaryOutputPathSource 也已区分 collected/contract_output_fallback(execution-observation.js:102-105),transport 路径不注入 fallback(agent-end-transport.js:29)。两个残留:(1) isPathFreshForSession 对 startMs&lt;=0 fail-open(execution-observation.js:171:since 非法即视为 fresh)——注释承认这是设计,但 trackingState 异常时陈旧镜像会被打包冒充本环产物,门形同虚设;(2) preserve_artifact 无 match 门,event.success===false 的会话照样入包(stage-definitions.js:235-273),且 saveAgentArtifact 的 status 默认 completed(artifact-store.js:185)——重试耗尽的失败合约留下一个标着 completed 的半成品包,下游/评审读包无从分辨。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:235-273 · extensions/watchdog/lib/stage/execution-observation.js:171 · extensions/watchdog/lib/lifecycle/artifact-store.js:185</div></td>
+<td><span class="badge amber">low-medium</span></td>
+<td><div class="det" style="color:var(--ink)">1) isPathFreshForSession 在 since&lt;=0 时改 fail-closed 并 warn(拿不到会话起点就不冒认新鲜);2) preserve_artifact 的 status 改传 obs.stageCompletion?.status || (event.success ? &#x27;completed&#x27; : &#x27;failed&#x27;),或给 stage 加 match: event.success===true(与 graph_route 对齐)——推荐前者,失败半成品保留但如实标注,便于审计。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P9</b></td>
+<td><b>saveAgentArtifact 按 basename 扁平化+同名去重,静默丢文件</b><div class="det">saveAgentArtifact 把所有产物按 basename 落到包根,同名只保留首个且无任何日志(artifact-store.js:162-163 `if (seen.has(name)) continue;`)。artifactPaths 可同时包含 outbox 物化件与 external 绝对路径产物(collectRuntimeResult :255-267 合并),两路同名(如都叫 report.md)时后者静默消失;单文件 copy 失败也静默(:168-170)。与 copyUpstreamArtifactsToInbox 保留 relPath 结构的做法不对称。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/artifact-store.js:162-163 · extensions/watchdog/lib/lifecycle/artifact-store.js:168-170 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-outbox-helpers.js:255-267</div></td>
+<td><span class="badge slate">low</span></td>
+<td><div class="det" style="color:var(--ink)">同名冲突时加序号后缀(report-2.md)并在 manifest.files 如实登记,copy 失败记入 manifest 的 errors 字段或至少 warn;不必改成全递归结构(包内目前本就是扁平约定),只消灭静默丢失。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>P10</b></td>
+<td><b>writeUpstreamPackagesPointer 非原子读改写 inbox/contract.json</b><div class="det">routeInbox 先用 atomicWriteFile stage inbox/contract.json(runtime-mailbox-inbox-handlers.js:98-100),随后 writeUpstreamPackagesPointer 却用普通 readFile+writeFile 改写同一文件(runtime-mailbox.js:66-78)——崩溃/并发窗口内可能留下半写的合约文件,agent 启动读 inbox 时解析失败,整个 task-facing 合约不可用(比丢指针严重)。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox.js:66-78 · extensions/watchdog/lib/routing/mailbox/runtime-mailbox-inbox-handlers.js:98-100</div></td>
+<td><span class="badge slate">low</span></td>
+<td><div class="det" style="color:var(--ink)">换用 state-file-utils 的 atomicWriteFile(临时文件+rename),一行改动;顺带把 cacheContractSnapshot 同步刷新以免缓存与盘上不一致。</div></td>
+</tr>
+  </table></div>
+  <ul class="notes"><li>判决(固定 vs 动态哪边更病):按「交接语义完整度」动态派工更病——assign 腿根本没有产物交接(去程零包、回程 1200 字截断+整包不回流,全靠 task 文本硬扛),review 腿是全系统唯一的第二条搬运路径且带 role-fallback 断链/manifest 身份错误;固定管线主干(preserve→artifacts→budget copyUpstream→pointer→mirror)经 B8/H4/v133 修复后语义齐全。但按「单点危害」最重的三个问题(P1 outbox 残件跨约污染、P2 collect 静默、P3 tracker 失忆)全在两条链共用的 L0/L1 底座上,固定管线因为跳数多反而暴露面更大。</li><li>修复优先序:P1(outbox 隔离目录+新鲜度门,一次修两边)→ P2(collect 失败可观测+E码,是诊断其它一切的前提)→ P3(trackingState 缺席 late-bind 兜底)→ P4(output/ 按 cid 分桶)→ P5+P6(动态腿语义补齐,复用 copyUpstream 一条路径不造新协议)→ P7(artifacts 保留期,先 dry-run)→ P8/P9/P10(小项,可搭车)。</li><li>备忘录纠偏两条:①清单③「staging 绕过 copyUpstream 字节预算/溢出清单/_MISSING」在当前代码不成立——graph 有边时 reviewer inbox 腿完整走 copyUpstreamArtifactsToInbox 的预算/清单/_MISSING;真缺口是 role-fallback 无边时包整个不入仓且无标记(P5a)。②「L0 多实例分脑(A 绑定 B agent_end)」字面场景当下不可复现:ps 实测单 gateway 进程、18789 端口独占;真实同形故障是重启失忆(tracker 纯内存、运行中会话不持久),P3 按此重述。</li><li>核实为真的既有修复(不再列为问题):v133 mirror bug 修复在位(collectWorkerOutbox 从共享合约取 output,runtime-mailbox-outbox-handlers.js:19-21);B8 预算/COMPRESSED_MANIFEST/_MISSING 全链在位且枚举失败也落 marker(artifact-store.js:241-307);H4 陈旧 mirror skip 在位(stage-definitions.js:243-251);routeInbox 换约时 rm 旧 upstream 防串包(runtime-mailbox.js:49);request_review 的 preserved∪manifest 并集在位(request-review.js:142-159)。</li><li>P1 的跨约污染有一个隐蔽触发链值得 live 复现验证:agent 会话 A 写了产物但漏写 runtime_result.json(collected:false 静默,文件滞留)→ 同 agent 下一合约 B 正常收集 → A 的残件被 implicitArtifactFiles 归入 B 的产物、mirror 到 B 的 contract.output——按记忆里的教训(核心运行时判定 bug 别静态猜),建议修复前先用 test-runner dispatch 预设加一个此形态的 case。</li></ul>
+</section>
+
+<section id="s3">
+  <div class="sechead"><span class="secno">三</span><h2>设计缺失审计 · 遗漏 14 条(净额)</h2></div>
+  <p class="seccap">spec §0-§12 + 28 决议逐条对代码。<b>遗漏 = 设计要求了、既没建也没有任何推迟记录。</b>高危三条共性:主干建成后"最后一寸接线"没接——单条工作量小,但直接削弱总纲(同一本账 / 期望源头翻译 / 对账实际)。</p>
+  <div class="scroll"><table>
+  <tr><th style="width:9%">编号</th><th style="width:55%">遗漏项 · 证据</th><th style="width:6%">危</th><th style="width:30%">补法</th></tr>
+  <tr>
+<td class="mono"><b>OMIT-01</b></td>
+<td><b>文本/围栏路合成事件 synthesized:true 全系统零产者(决议3/§3)</b><div class="det">schema 已支持 synthesized 与 fence/text 通道(extensions/watchdog/lib/evidence/trace-event-schema.js:42,58 与 :10-14),但全库唯一的 buildTraceEvent 调用方只有 evidence-bridge.js:27/:46 两处,全部 channel:fc、synthesized 恒 false。L3 [ACTION] 标记与 ```action 围栏(lib/security/action-marker-parser.js:10 结构化通道确实存在于执行面)提取成功后从不回写 trace;agent_end 的 synthesizeTraceSystemActionResults(lib/lifecycle/agent-end-stage-definitions.js:324;lib/system-action/system-action-trace-merge.js:19-51)只从 trace 读事实合成终态条目,方向相反,不落账。后果:账本对文本路动作零痕迹,考官只能靠 contract.systemAction 数组条目兜底(session-examiner.js:83-88 有此兜底,属部分缓解),违背&quot;两类 FC 同进一本账、同一考官&quot;总纲;备忘录128 各战报无任何停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/evidence/trace-event-schema.js:42 · extensions/watchdog/lib/evidence/evidence-bridge.js:27 · extensions/watchdog/lib/evidence/evidence-bridge.js:46 · extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:324 · extensions/watchdog/lib/system-action/system-action-trace-merge.js:19</div></td>
+<td><span class="badge red">高</span></td>
+<td><div class="det" style="color:var(--ink)">在 agent_end 提取成功点(markerActions 过滤后)为每个提取动作 appendTraceEvent(kind:collab, channel:text|fence, synthesized:true),置于 close 哨兵前(close 已走同一 per-session 追加队列,顺序天然可保);围栏路复用 action-marker-parser 的通道判别标 channel:fence。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-02</b></td>
+<td><b>assign_task L1 参数面缺 expectations+phases,handler 不透传 phases(§5/§6三源①)</b><div class="det">L1 工具 schema 只有 targetAgent/message/reason 三参(extensions/watchdog/lib/system-action/collaboration-toolface.js:20-28)——LLM 经 FC 调用时没有任何 schema 供给去填期望或 phases。handler 侧:expectations 有受理校验与抄写(lib/system-action/system-action-runtime.js:192,242),L3 路参数带上就能通,但 L1 面&quot;期望翻译唯一通道&quot;名存实亡;phases 则 handler 完全不读(system-action-runtime.js:180-260 无一处 params.phases),尽管 createDirectRequestEnvelope 已支持 phases 入参并物化 stagePlan(lib/protocol/protocol-primitives.js:210,248)——机器在,只差最后一寸接线。备忘录二点七明确&quot;phases 参数不等 report_progress,随 assign_task 先行&quot;,即明确不缓建;全部战报无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/system-action/collaboration-toolface.js:20 · extensions/watchdog/lib/system-action/system-action-runtime.js:192 · extensions/watchdog/lib/system-action/system-action-runtime.js:242 · extensions/watchdog/lib/protocol/protocol-primitives.js:210</div></td>
+<td><span class="badge red">高</span></td>
+<td><div class="det" style="color:var(--ink)">①toolface TOOL_DEFINITIONS.assign_task 增 expectations(对象,requiredArtifacts/expectedActions)与 phases(数组)两个 schema 属性;②handler 读 params.phases 经 normalizeIngressPhases 后传给 createDirectRequestEnvelope 的 phases 入参(protocol-primitives.js:210 现成);expectations 链已通无需改。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-03</b></td>
+<td><b>guard.scope 仍查声明,未换对账实际写路径(§9 拆换清单半件)</b><div class="det">P6 只换了两件(备忘录三点一〇三自述&quot;§9 拆换两件&quot;):collector.trace 换真采集(harness-guard-registry.js:62-109)与 guard.tool_access 对账实际用量(harness-guard-checks.js:181-225,final 阶段读 trace internal 工具名对白名单)。但 evaluateScopeGuard(harness-guard-checks.js:227-237)仍纯声明判定:evaluateSandboxPolicy(:59-87)查配置 policy vs 声明 workspaceDir,evaluateWorkspaceScope(:140-165)查 workspaceDir 是否在允许根内——零 trace 消费,agent 实际写到哪不看。trace 里 write 事件已带 {path,bytes,hash}(tool-event-digest),对账原料齐备。三点一〇三推后批清单(gate.test/gate.schema/E-HARNESS-005/判决消费面)不含 scope,无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/harness/harness-guard-checks.js:227 · extensions/watchdog/lib/harness/harness-guard-checks.js:140 · extensions/watchdog/lib/harness/harness-guard-checks.js:59 · extensions/watchdog/lib/harness/harness-guard-checks.js:181</div></td>
+<td><span class="badge red">高</span></td>
+<td><div class="det" style="color:var(--ink)">仿 tool_access 模式:evaluateScopeGuard 在 ctx.run.sessionKey 在场时读 trace,取 internal write/edit 事件的 args.path 对 effectiveWorkspaceRoots 对账,越界即 failed 带 offendingPaths;trace 不可得保留声明判定并如实标注(与 tool_access 同一&quot;缺证据不冒充&quot;语义)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-04</b></td>
+<td><b>期望三消费之①渲染缺失:outputDirectives 零静态指令(§4/决议8)</b><div class="det">expectations 已入 inbox 白名单(extensions/watchdog/lib/routing/mailbox/runtime-mailbox-inbox-handlers.js:33),contract.json 数据能到 assignee 手上;但 lib/prompt 全目录对 expectation 零命中(role-spec-registry.js 的 PLANNER/DELIVERABLE_OUTPUT_DIRECTIVES 均无相关 bullet)——接收方从不被告知合约里有期望字段该看。备忘录二点六点五-B 早已找到缝(&quot;指令缝=getRoleOutputDirectives 加一条 bullet 即可&quot;),测绘完却没做,战报无停靠记录。三消费只落了②受理校验③考官 diff。</div>
+<div class="anch">extensions/watchdog/lib/routing/mailbox/runtime-mailbox-inbox-handlers.js:33 · extensions/watchdog/lib/prompt/role-spec-registry.js:6 · extensions/watchdog/lib/prompt/role-spec-registry.js:139</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">在 role-spec-registry 的通用 outputDirectives 加一条静态 bullet(如&quot;合约 expectations 字段列出本次必须写出的产物与必须发起的协作动作,交付前逐条核对&quot;)——一行文案,零渲染层改动(合缓存裁定)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-05</b></td>
+<td><b>考官不回盘复核 contentHash(§7 判据一后半句)</b><div class="det">checkArtifactExpectation(extensions/watchdog/lib/evidence/session-examiner.js:50-67)只找路径匹配的 write 事件并把 hash 摘要抄进证据串,从不 readFile+重算 hash 与盘上文件比对——&quot;当时写的确实还是盘上这份&quot;(防事后覆盖/幽灵包)这半个判据没落。考官是纯函数、IO 由调用方备好(session-examiner.js:127 注释),调用方 session-examiner-runtime 也未备盘上复核输入。承认措辞歧义:&quot;可复核&quot;可辩解为&quot;hash 已存储故具备可复核性&quot;,但该句列在考官判据下,存储侧 B2 早已单列,判据侧应为动作;无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/evidence/session-examiner.js:50 · extensions/watchdog/lib/evidence/session-examiner.js:127 · extensions/watchdog/lib/evidence/session-examiner-runtime.js:1</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">在 examineFinishedSession(runtime 层,可做 IO)对 required artifact 的目击 write 事件补一步:读盘上同路径文件重算 sha256 与账上 hash 比对,不符标注 evidence(如&quot;hash mismatch: 盘上文件已被覆盖&quot;),可降 not_provable 或加 tampered 标志;纯函数侧接受预算好的 diskHashes 入参保持可重放。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-06</b></td>
+<td><b>证据链 E-码零注册,&quot;证据不足反复出现&quot;健康信号缺位(§3/§10)</b><div class="det">error-codes.js 现有 100 个 E-码,grep EVIDENCE/TRACE/EXAMINER/VERDICT 零命中——P2-P6 五期没有任何一期加证据链 E-码;health 预设无 trace 完整性/桥健康检查(P4 只加了 E-CONFIG-002 挂载与 E-TOOLFACE-001 定义面一致性,均属工具面不属证据链)。桥的失败只有 hook 里一行 warn(evidence-bridge.js:37,57),&quot;反复出现&quot;无人统计。三点一〇三推后批的&quot;考官判决消费面(dashboard 列/推送/E-码)&quot;只覆盖判决消费侧 E-码,盯桥的健康信号是另一半,无记录。</div>
+<div class="anch">extensions/watchdog/lib/formal-runtime/error-codes.js:15 · extensions/watchdog/lib/evidence/evidence-bridge.js:37 · extensions/watchdog/lib/evidence/session-examiner.js:145</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">health 预设加纯代码检查:抽样近期合约会话的 trace validator 结果,incomplete 比例超阈值报新 E-码(如 E-EVIDENCE-001 盯桥);judged 案卷 evidenceStatus:incomplete 连续出现同样升格。E-码入 error-codes.js 注册表(fail 必带码的既有纪律)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-07</b></td>
+<td><b>ID 铸造 mintId 未统一(TC- 双胞胎仍在),且证据层新增两份私有 sha256 wrapper(§2 单源红线)</b><div class="det">全库无 mintId helper。铸造点仍散:DIRECT-(extensions/watchdog/lib/protocol/protocol-primitives.js:237)、SADT-(lib/routing/delivery/delivery-system-action-ticket.js:112)、TC- 双胞胎(lib/ingress/dispatch-execution-contract-entry.js:77 与 lib/loop/loop-contract-builder.js:16——体检点名的双胞胎原样)。digest 侧更逆行:证据层自己又造了两份私有 sha256Hex(lib/evidence/tool-event-digest.js:13、lib/evidence/session-trace-store.js:28),现状 9 份变 11 份。红线本意&quot;新码不添乱&quot;被新码自己违反;无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/protocol/protocol-primitives.js:237 · extensions/watchdog/lib/routing/delivery/delivery-system-action-ticket.js:112 · extensions/watchdog/lib/ingress/dispatch-execution-contract-entry.js:77 · extensions/watchdog/lib/loop/loop-contract-builder.js:16 · extensions/watchdog/lib/evidence/tool-event-digest.js:13 · extensions/watchdog/lib/evidence/session-trace-store.js:28</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">lib/core 出 mintId(prefix) 与 sha256Hex 单 helper;四个铸造点+证据层两处收编(TC- 双胞胎必并);存量其余 9 份私有 wrapper 属独立债可另批。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-08</b></td>
+<td><b>commitments.systemActionSeen 永假字段仍活着,消费者仍在读(§9)</b><div class="det">字段仍在(extensions/watchdog/lib/store/execution-trace-store.js:45,86,148),置真条件 exp.label===&quot;system_action&quot; 全库零生产者(grep 唯一命中即该行自身),永假属性未变;两个活消费者仍在读:lib/lifecycle/agent-end-graph-route.js:77 与 hooks/after-tool-call.js:308——永假值参与路由判定属僵尸逻辑。战报无停靠记录(三点一〇四只记了 execution-trace-store 整体退役观察,未点名此项)。</div>
+<div class="anch">extensions/watchdog/lib/store/execution-trace-store.js:86 · extensions/watchdog/lib/lifecycle/agent-end-graph-route.js:77 · extensions/watchdog/hooks/after-tool-call.js:308</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">删字段与两处消费分支(消费侧表达式里它是 || 链一员,删除即语义不变);若随 STOP-02 整店退役一并做更省。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-09</b></td>
+<td><b>recordDelegationIntent+delegationReceipt 死桥仍在(§9)</b><div class="det">生产者 recordDelegationIntent 零调用(定义在 extensions/watchdog/lib/store/execution-trace-store.js:106,全库无 caller,与备忘录128 §三 测绘一致),delegationReceipt 存取仍在(:124,:152),消费分支活在 lib/lifecycle/agent-end-terminal.js:166-167——永远走不进的 if。项目红线&quot;不留遗留代码&quot;;无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/store/execution-trace-store.js:106 · extensions/watchdog/lib/store/execution-trace-store.js:124 · extensions/watchdog/lib/lifecycle/agent-end-terminal.js:166</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">删 recordDelegationIntent/receipt 相关行与 agent-end-terminal 消费分支;同样可随 STOP-02 整店退役合批。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-10</b></td>
+<td><b>过程合规判据缺&quot;空转&quot;检测(§7)</b><div class="det">buildProcessProfile(extensions/watchdog/lib/evidence/session-examiner.js:108-125)只算 refusedCount/errorCount/同签名≥3 重复风暴,无任何空转(idle/零推进)信号。备忘录三点一〇三战报自述也只列&quot;refused/error/同签名≥3 重复风暴&quot;,空转既没建也没记推迟。</div>
+<div class="anch">extensions/watchdog/lib/evidence/session-examiner.js:108</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">profile 补一维:如事件间隔大于阈值的空窗计数,或 elapsedMs 高而 toolCallTotal/写事件极低的比值信号,喂 automation 画像即可,不参与三态判决。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-11</b></td>
+<td><b>计划覆写事件不入 trace 留痕(决议22/§6)</b><div class="det">appendTraceEvent 全库调用方仅 evidence-bridge 两处,materializeTaskStagePlan 及其调用点(extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:156、lib/stage/task-stage-plan.js:170)覆写 stagePlan 时零留痕。今天 [STAGE] 物化覆写 ingress 先验 plan 的场景已可发生;三源全景(assign phases/submit_plan)落地后该缺口放大。无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:156 · extensions/watchdog/lib/stage/task-stage-plan.js:170</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">materializeTaskStagePlan 检出&quot;已有 plan 被替换&quot;时经 evidence-bridge 追加一条 kind:internal 合成事件(name:stage_plan_overwritten,synthesized:true,args 记新旧来源);与 OMIT-01 的合成事件通道同批建最顺。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-12</b></td>
+<td><b>planRequired 死字段未清葬(§6/§9)</b><div class="det">extensions/watchdog/lib/agent/agent-binding-store-read.js:13 的 EXEC_POLICY_BOOLEANS 仍含 &quot;planRequired&quot;(schema 活/行为死,零运行时消费者,与备忘录二点六点五-B 测绘一致)。清葬不依赖 submit_plan 落地(死字段删除与三态新家建成是两件事),§10 后批只点名四个工具不含此项;无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/agent/agent-binding-store-read.js:13</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">从 EXEC_POLICY_BOOLEANS 删除该项并清扫存量 binding 文件里的残留键;一行改动。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-13</b></td>
+<td><b>planner-v3 死元数据未清理(§9)</b><div class="det">extensions/watchdog/lib/prompt/role-spec-registry.js:47 仍有 soulTemplateId:&quot;planner-v3&quot;——备忘录二点六点五-B 判定的死元数据(soul-template-builder 六层重构时已删,无任何代码读它)原样留存;战报无停靠记录。</div>
+<div class="anch">extensions/watchdog/lib/prompt/role-spec-registry.js:47</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">删该行;顺手核对 after-tool-call planner inbox 特判(备忘录点名的同段顺带债)是否也该同批。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>OMIT-14</b></td>
+<td><b>受理凭证缺 queuePosition 字段(§5)</b><div class="det">buildCollaborationReceipt(extensions/watchdog/lib/system-action/collaboration-toolface.js:70-92)实现为 {accepted,status,actionType,contractId,deliveryTicketId,queued?:true}——排队时只有布尔 queued,无 queuePosition 位次。备忘录三点一〇〇 T3 记录的就是实现形状,未标注与 spec 的差异,不构成推迟决策。属低危字段面偏差:调用方无法据位次决定改道。</div>
+<div class="anch">extensions/watchdog/lib/system-action/collaboration-toolface.js:70 · extensions/watchdog/lib/system-action/collaboration-toolface.js:83</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">受理时从 dispatch 队列取目标 agent 的队列长度填 queuePosition(排队分支);或走正门把 spec 该字段修订为 queued+deliveryTicketId(承认现状),二选一,别留分歧。</div></td>
+</tr>
+  </table></div>
+</section>
+
+<section id="s4">
+  <div class="sechead"><span class="secno">四</span><h2>设计缺失审计 · 有案可查的 9 条(缓建 5 + 停靠 4)</h2></div>
+  <p class="seccap">这些不是遗漏:缓建有 spec 明文("等什么再开"),停靠有备忘录决策记录。列出以完成分类闭环;STOP-02(旧 trace store 退役)记录偏弱,建议补排期。</p>
+  <div class="scroll"><table>
+  <tr><th style="width:9%">编号</th><th style="width:55%">项 · spec 原文出处</th><th style="width:6%">危</th><th style="width:30%">解锁条件 / 停靠去向</th></tr>
+  <tr>
+<td class="mono"><b>DEFER-01</b></td>
+<td><b>create_task 工具缓建(known-but-denied 已按 spec 落位)</b><div class="det">spec 原文&quot;缓建:create_task(等\&quot;先立项后派送\&quot;真场景)&quot;。代码正确落位:intent 留在词汇表但 roles=[](extensions/watchdog/lib/system-action/collaboration-intent-policy.js:31-38 注释明书 Deferred build spec §5),L3 路解析为 known-but-denied 而非 unknown,P5 还建了 create-task-denied 探针(E-SYSACTION-002)。</div>
+<div class="anch">extensions/watchdog/lib/system-action/collaboration-intent-policy.js:31</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:出现真实&quot;先立项后派送&quot;场景(任务需先挂账再择机派送);解锁时 roles 填授权角色+exposedAsTool:true+补 TOOL_DEFINITIONS 条目(E-TOOLFACE-001 parity 检查会强制补齐)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>DEFER-02</b></td>
+<td><b>submit_output 平台服务 FC 缓建</b><div class="det">spec 原文&quot;平台服务 FC 族(不跨 agent、不走 consume、不查图边,均缓建):submit_output(等返工痛)&quot;;§10 后批再列&quot;submit_output...按&#x27;等什么再开&#x27;逐个解锁&quot;。全库无该工具,与设计一致。</div>
+<div class="anch">extensions/watchdog/lib/system-action/collaboration-toolface.js:16</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:agent_end 打回返工的痛感真实出现(货检 FAIL 后无中场自纠通道成为高频损耗)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>DEFER-03</b></td>
+<td><b>report_progress 缓建 → §7&quot;声明可审计&quot;判据连带缺席</b><div class="det">spec §5 明文缓建 report_progress(等 UX 排期);而 §7 的&quot;声明可审计&quot;(声明阶段2完成⚠未目击产物)整条判据以它为前提,故当前考官无声明-目击对账能力属设计内连带,不计遗漏。现状目击机器 syncTrackingRuntimeStageProgress 单源运行(备忘录二点六定案的双源互相背书暂缺声明源)。</div>
+<div class="anch">extensions/watchdog/lib/evidence/session-examiner.js:108</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:dashboard 进度体验排期启动;解锁时按二点六四条语义(advisory-only/入 trace kind:internal/UI 吃声明考官吃目击/单调推进回退带 reason)一并实现声明可审计。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>DEFER-04</b></td>
+<td><b>submit_plan 族整体后批:planner 升级 L1、planMode 三态、PLANNER_OUTPUT_DIRECTIVES 更新、plan 层级 L1/L3</b><div class="det">§6 的成套设计——[STAGE]→submit_plan 主升级、planner/plan-mode 共用工具(决议25)、planMode 三态新家(off/auto/required,决议23)、PLANNER_OUTPUT_DIRECTIVES 文案更新、plan 层级只设 L1/L3——全部悬于 submit_plan,§10 明文后批。代码核实:无 submit_plan 工具,PLANNER_OUTPUT_DIRECTIVES 仍 [STAGE] 版(extensions/watchdog/lib/prompt/role-spec-registry.js:6-11),planMode 字面量零实现,[STAGE] 物化桥照常(agent-end-stage-definitions.js:156)。均与缓建决定一致。注意两条被拆开的例外:planRequired 清葬(OMIT-12)与 assign 带 phases(OMIT-02)不属此批——前者是死字段独立可删,后者备忘录明文&quot;随 assign_task 先行&quot;。</div>
+<div class="anch">extensions/watchdog/lib/prompt/role-spec-registry.js:6 · extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:156</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:planner 升级批次开工(spec 未设硬触发,建议以&quot;坏计划提取失败静默&quot;痛感或前端实时 phase 需求为触发);实施按二点六点五-C 五条方案。</div></td>
+</tr>
+  <tr>
+<td class="mono"><b>STOP-01</b></td>
+<td><b>gate.test 口令匹配 / gate.schema 自报证据源未改造(§9)</b><div class="det">备忘录128 三点一〇三明文记账:&quot;P6 推后批记账:gate.test 口令匹配/gate.schema LLM 自报改造(退役或换证据源,动 4 profile+operator 面)&quot;。代码核实原样:gate.schema 读 stageResult.metadata.schemaValid 自报(extensions/watchdog/lib/harness/harness-module-evaluators.js:238-253),gate.test 读显式 testSignal 口令(:254-272)。停靠理由成立(牵动 4 profile+operator 面)。</div>
+<div class="anch">extensions/watchdog/lib/harness/harness-module-evaluators.js:238 · extensions/watchdog/lib/harness/harness-module-evaluators.js:254</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:推后批开工时二选一——退役出 catalog(E-HARNESS-001 计数同步),或换证据源(test 可对账 trace 里 bash 事件的测试命令+exitCode;schema 可由平台代验产物)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>STOP-02</b></td>
+<td><b>execution-trace-store 内存 Map 未退役,新旧两套 trace 并存(§9)</b><div class="det">备忘录128 三点一〇四有记录:&quot;范围外观察入档(altitude):新旧两套 trace+expectations+verdict 并存命名互撞(execution-trace-store 退役=§9 既有项)&quot;——算会话记录,故不判遗漏;但该记录只是观察入档,没给解锁条件或批次归属,与 STOP-01 的&quot;推后批记账&quot;级别不同,有滑向真遗漏的风险。代码核实:store 全活(extensions/watchdog/lib/store/execution-trace-store.js),8 个消费文件(hard-stop-terminalize/runtime-admin/agent-end-graph-route/agent-end-terminal/agent-end-stage-definitions/after-tool-call/before-agent-start),initTrace 期望提取未上移。OMIT-08/09 两个死项寄生其中,退役时一并清。</div>
+<div class="anch">extensions/watchdog/lib/store/execution-trace-store.js:45 · extensions/watchdog/lib/lifecycle/agent-end-terminal.js:166 · extensions/watchdog/hooks/after-tool-call.js:308</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">建议补一次正式排期决策(哪批做、并入哪个 store、initTrace 期望提取上移到哪)写进备忘录,免得停靠状态退化;实施时 8 个消费点逐个改读新账本或砍死分支。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>STOP-03</b></td>
+<td><b>EvaluationResult 转正同轮恒 fallback(考官时序 eff#F1)</b><div class="det">备忘录128 三点一〇四明文停靠:&quot;eff#F1 考官时序:finalize 读判决在考官写入之前 → P6 转正同轮恒 fallback(只可能读到上一轮)。修法有权衡(考官前移丢 L3 动作证据;close 前移+finalize 直取需 live automation 探针验证而 Path A 无探针)——与 E-HARNESS-005 live 探针同批做&quot;。代码核实:automation-finalize.js:108-110 读 getLatestEvaluationVerdictForContract,而考官在 agent_end close 哨兵后才写账(examine_session stage,agent-end-stage-definitions.js:439)——同轮 finalize 拿不到本轮判决,&quot;终结转贴&quot;实际仍靠 reviewerResult fallback 撑门面。</div>
+<div class="anch">extensions/watchdog/lib/automation/automation-finalize.js:108 · extensions/watchdog/lib/lifecycle/agent-end-stage-definitions.js:439</div></td>
+<td><span class="badge amber">中</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:E-HARNESS-005 live automation 探针就位后同批修(方案:close+考官前移或 finalize 直取当轮判决,live 验证防丢 L3 证据)。</div></td>
+</tr>
+<tr>
+<td class="mono"><b>STOP-04</b></td>
+<td><b>P6 推后批其余项:E-HARNESS-005 live 探针 / 考官判决消费面 / 期望驱动判决 live 案</b><div class="det">备忘录128 三点一〇三明文:&quot;P6 推后批记账:...E-HARNESS-005 live 预设扩展(Path A 模块评估至今无 live 探针)/ 考官判决消费面(dashboard 列/推送/E-码)/ 期望驱动判决的 live 案(单测已覆盖,live 只验了零期望兜底路)&quot;。代码核实:evaluation-verdicts.json 判决账本有写无读(除 finalize),dashboard 无案卷列(备忘录 B 段也早定&quot;dashboard 案卷页后置&quot;);live 预设无期望驱动 case。注意:判决消费面的 E-码与 OMIT-06 的盯桥 E-码是两半,别互相冒充已覆盖。</div>
+<div class="anch">extensions/watchdog/lib/evidence/evaluation-verdict-store.js:1 · extensions/watchdog/lib/formal-runtime/error-codes.js:43</div></td>
+<td><span class="badge slate">低</span></td>
+<td><div class="det" style="color:var(--ink)">解锁条件:推后批排期;期望驱动 live 案建议排最前(考官核心判据的 live 空白,单测夹具与真实 trace 形状分歧风险最大)。</div></td>
+</tr>
+  </table></div>
+  <ul class="notes"><li>统计:审计项 23 条 = 故意缓建 5(DEFER-01..04,其中 DEFER-03/04 各含 spec 内连带项)/ 有意停靠 4(STOP-01..04)/ 遗漏 14(OMIT-01..14)。遗漏净额:14 条——高危 3(OMIT-01 合成事件零产者、OMIT-02 assign_task 参数面残缺、OMIT-03 guard.scope 未换证据源),中危 5(OMIT-04/05/06/07/08),低危 6(OMIT-09..14)。高危三条共性:都是&#x27;主干建成后最后一寸接线&#x27;,单条工作量小但直接削弱 spec 总纲(同一本账/期望源头翻译/对账实际)。</li><li>反向核查(设计要求&#x27;不建&#x27;的项均合规):回执回填通道确未建,B5 改读 trace+票据账本(system-action-trace-merge.js:19 只读不写,方向正确);L2 fence for plans 未造(YAGNI 红线守住);编排权 start_loop/advance_loop 未暴露为工具(collaboration-intent-policy.js:39 exposedAsTool:false);expectations 平台专写、执行者不可触(contract-expectations.js 头注+受理拒绝)。</li><li>拆除清单已完成项(验证过,非本审计缺口):resume_finalization 裁掉除名(全库零命中)/ advance_loop 从 planner 矩阵收回(system-action-role-policy.js:8 决议26)/ collector.trace 换真采集(harness-guard-registry.js:62)/ guard.tool_access 对账实际用量(harness-guard-checks.js:181)/ systemAction 单槽数组化 / EvaluationResult 转正代码在(但见 STOP-03 时序空转)。主干合规项:哈希链+双哨兵+seq(session-trace-store.js:70,123)/ refused 入账 / 脱敏复用 security.redactSensitiveText 单源(tool-event-digest.js:8)/ outcome 单源 isToolOutcomeError(evidence-bridge.js:33)/ not_provable→inconclusive 中性(automation-finalize.js:32, profile-lifecycle.js:53)/ 授权冲突判 violated 附拒绝证据(session-examiner.js:94-103)/ (roundId,contractId) 幂等 upsert / expectations 入 inbox 白名单。</li><li>边角发现(不计缺口,记档):①期望校验的 intent 词汇走 isKnownIntentType(protocol INTENT_TYPES 全集,contract-expectations.js:32)而非 collaboration-intent-policy 表——&#x27;一表四消费&#x27;的第③消费走了旁门,后果是 expectedActions 可合法声明 start_loop/advance_loop 等编排 intent(agent 无法达成,考官必判 violated),建议收敛到策略表的 intent 列;②examiner 判决主体按&#x27;该腿会话&#x27;成立,但轮次案卷的跨会话 (ts,sessionKey) 排序语义(§3)没有独立物化对象,现状以 per-(roundId,contractId) 判决替代,够用但与 spec 措辞有措距;③L2 fence 的执行面入口其实存在(action-marker-parser.js 的 ```action 结构化通道),缺的只是证据面回写——修 OMIT-01 时两通道一并接。</li><li>方法论备注:全部结论基于当前代码逐点 grep+读文件核实(备忘录128 战报与代码逐条对过,未发现战报虚报;三点一〇三&#x27;§9 拆换两件&#x27;的措辞诚实——正因只换两件,scope 这半件才成遗漏)。审计为只读,未改任何文件。</li></ul>
+</section>
+
+<section id="s5">
+  <div class="sechead"><span class="secno">五</span><h2>下一步 · 按批建议</h2></div>
+  <div class="tiles">
+    <div class="tile teal"><div class="k">批 1 · 接线批</div><div class="v">5 刀</div><div class="d">合成事件入账 / assign 参数面(expectations+phases)/ guard.scope 换证据源 / 证据链 E-码 / intent 词汇收敛——小工作量高杠杆</div></div>
+    <div class="tile red"><div class="k">批 2 · 交接批</div><div class="v">P1-P4</div><div class="d">outbox 隔离+新鲜度门(先 live 复现触发链)/ collect 可观测 / tracker late-bind / output 分桶</div></div>
+    <div class="tile amber"><div class="k">批 3 · 既定停靠</div><div class="v">3 波</div><div class="d">E-HARNESS-005+考官时序 / artifact-lane 拆除波 / L0 会话态落盘(分脑债重述)</div></div>
+    <div class="tile slate"><div class="k">批 4 · 杂务</div><div class="v">P7+</div><div class="d">artifacts 保留期(4663 cid/43MB 实时增长,先 dry-run)/ 动态腿语义补齐(复用 copyUpstream)</div></div>
+  </div>
+</section>
+
+<footer>fc-debt-audit · 2026-07-28 · 同族: fc-flowmap.html(体检卷) · 结论摘要: use guide/备忘录129 · 主线战报: 备忘录128</footer>
+</div>

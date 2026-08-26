@@ -6,7 +6,7 @@ import {
   DEFAULT_PROGRESS_LEASE_MS,
   DEFAULT_QUEUE_ALLOWANCE_MS,
   createTestTimeoutBudget,
-} from "../lib/test-timeout-policy.js";
+} from "../lib/formal-runtime/test-timeout-policy.js";
 
 test("timeout budget uses the larger base window plus queue allowance", () => {
   const budget = createTestTimeoutBudget({

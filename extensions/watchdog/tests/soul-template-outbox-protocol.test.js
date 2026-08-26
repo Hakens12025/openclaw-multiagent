@@ -32,7 +32,6 @@ function assertIdentityStaysRoleOnly(identity, agentId) {
   assert.doesNotMatch(identity, /outbox\/stage_result\.json/, `${agentId} IDENTITY should not teach legacy stage_result commit`);
   assert.doesNotMatch(identity, /outbox\/contract_result\.json/, `${agentId} IDENTITY should not teach legacy contract_result commit`);
   assert.doesNotMatch(identity, /HEARTBEAT_OK/, `${agentId} IDENTITY should not hardcode heartbeat stop protocol`);
-  assert.doesNotMatch(identity, /outbox\/_manifest\.json/, `${agentId} IDENTITY should not mention legacy outbox manifest`);
 }
 
 test("executor IDENTITY keeps role persona while leaving shared-contract IO to the wake layer", async () => {

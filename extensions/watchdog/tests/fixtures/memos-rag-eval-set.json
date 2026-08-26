@@ -1,0 +1,1134 @@
+{
+  "_note": "memos 语料评测集(kbId=memos, 150 篇备忘录 / 3642 chunk)。建立动机:wiki fixture 只覆盖 wiki 的 444 块 = 全语料 11%,memos 的 3642 块(89%)零覆盖 —— v183 修掉的四个真缺陷(代码围栏被劈、元数据头被整块删、表格分隔行、活密钥入索引)100% 潜伏在这个盲区里,潜伏两个月而测试全绿。本集就是给那半边装的灯。\n\n【构造纪律】(违反其一,本集就退化成'我挑的能过的题',失去诊断力)\n1. 查询用构造者自己的措辞,不抄语料原文 —— 抄了就是词法作弊,测的是字符串匹配不是检索。\n2. 先全部写完再测一次,不逐条调到通过。逐条调 = 过拟合。\n3. 测完只允许改'标注错了'的(expectedSourcePath 本身不对/有更好的答案),**不允许为了让某例通过而改写 query**。\n4. 允许存在测不过的用例并保留。100% 通过的评测集没有诊断力 —— 它只证明题出得容易。\n\n【覆盖设计】六类,前三类是 v183 之前物理上不可能命中的区域:\n- command    : 内容原本在 ``` 围栏里(围栏被 # 注释劈开 → 109 段命令行当自然语言进索引)\n- metadata   : 内容在 <!-- --> 元数据头里(整块被删 → 104,693 字符不可检索)\n- table      : 内容在表格行里(分隔行灌 9,646 个横杠挤占 chunk 预算)\n- ghost      : 真实取代链(52→53→54→55 等)。期望=现行版,ghostSourcePaths=被取代的旧版。\n               memos 有 30 篇 [过时] 且部分显式写明'被 X 取代' —— 天然 ghost 语料,非合成。\n- decision   : 设计决策的 WHY(备忘录的核心价值,也是 Claude 自己最常回头查的)\n- architecture: 概念/边界/架构\n\n【已知陷阱】备忘录125 和 126 各有两篇同号不同主题(oh-my-pi vs viz-master / system-action vs 图表防伪)。按编号提问天然歧义,故本集一律按主题提问,并留 disambiguation 用例测这种撞号。\n\n【首测后的标注修正记录】(2026-08-09,只改标注不改查询,逐条留痕于 _annotationFix)首测 40 例:recall@1 27.5 / @3 50.0 / @10 67.5 / MRR 0.411 / ghostHitRate 0.75。复核 13 条未命中后判定:10 条是真检索失败(期望文件里答案实打实存在,关键词 3~115 处不等)予以保留;3 条是标注缺陷 —— ①USR1 案期望文件含 0 处、全库仅[过时]篇有答案→改 undecided+ghost;②分层案 77 比 134 贴题→改期望;③'被取代清单'案全库无对应页、题目不成立→删除。 【v189 扩充】39→84 例:5 片并行出题(措辞自拟不抄原文)+ 逐片对抗查漏(grep 计数验标注、最大公共子串扫词法泄漏)。保留 45、判废 5、改标注 21。**mid 片(备忘录41-80)的审查 agent 失败,其草稿未经查漏,按纪律未纳入** —— 未审的题正是「由熟悉语料的人构造」失效模式的温床。扩充动机:n=39 时配对符号检验 p=0.629,统计功效不足以判定检索改动。",
+  "topK": 10,
+  "cases": [
+    {
+      "query": "网关改完配置以后怎么让它重新加载,不想整个杀掉重启",
+      "expectedSourcePath": "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md",
+      "expectedKeywords": [
+        "USR1",
+        "reload"
+      ],
+      "category": "command",
+      "_annotationFix": "v193:**前一次标注错误**。当初判 undecided 的依据是「全库仅 3 篇[过时]写了 USR1」,实测为 7 篇、其中 135/136/36/38 四篇现行 —— 那次 grep 跑在加入 135/136 之前且未复查。现行答案存在,改回可计分,主 gold 取 135(:151 给出 kill -USR1 重载与 launchctl 彻底重启的对照)。",
+      "secondarySourcePaths": [
+        "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md",
+        "use guide/备忘录36_前端交互化可行性分析_2026-03-11-1730.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录136_[主]_平台解耦两刀_令牌取消与上游清单_2026-08-08-1830.md",
+        "use guide/备忘录38_Dashboard交互系统完整实现_2026-03-11-1847.md"
+      ]
+    },
+    {
+      "query": "跑测试的入口命令是哪个,有哪些预设可以选",
+      "expectedSourcePath": "use guide/备忘录_测试工具用法指导V3_2026-03-10-0300.md",
+      "expectedKeywords": [
+        "test-runner",
+        "preset"
+      ],
+      "category": "command",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录_测试工具用法指导_2026-03-09-1000.md",
+        "use guide/[过时]备忘录_测试工具用法指导_2026-03-09-0230.md",
+        "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/[过时]备忘录_测试工具设计指标_2026-03-09-0100.md",
+        "use guide/备忘录117_[主]_随机Preset运行时真值与Blocked判定收口_2026-04-16-0455.md",
+        "use guide/计划_随机Preset族实施计划_2026-04-16-0458.md"
+      ]
+    },
+    {
+      "query": "为什么测试必须一个一个串着跑,不能几个一起并行",
+      "expectedSourcePath": "use guide/备忘录119_[主]_全面修复执行记录_2026-05-30-0400.md",
+      "expectedKeywords": [
+        "串行",
+        "共享"
+      ],
+      "category": "command",
+      "marginalSourcePaths": [
+        "use guide/备忘录_测试系统维护与污染问题_2026-03-12-1302.md"
+      ]
+    },
+    {
+      "query": "本地跑嵌入用的是哪个模型,向量多少维",
+      "expectedSourcePath": "use guide/备忘录122_[主]_高星AgentRAG调研对照与三档落地计划_2026-06-05-1910.md",
+      "expectedKeywords": [
+        "embedding",
+        "ollama"
+      ],
+      "category": "command"
+    },
+    {
+      "query": "那次大审计是在哪条分支上修的,分了几波",
+      "expectedSourcePath": "use guide/备忘录119_[主]_全面修复执行记录_2026-05-30-0400.md",
+      "expectedKeywords": [
+        "repair",
+        "W0"
+      ],
+      "category": "metadata"
+    },
+    {
+      "query": "哪一篇记录里改动牵扯到 operator 的知识注入相关文件",
+      "expectedSourcePath": "use guide/备忘录55_[主]_Operator本地知识检索层落地_2026-03-19-1237.md",
+      "expectedKeywords": [
+        "operator",
+        "知识"
+      ],
+      "category": "metadata",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录54_[主]_Operator知识层注入与说明型问句收敛_2026-03-19-1225.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/[过时]备忘录53_[主]_Operator声明式平台代理化与LLM规划落地_2026-03-19-1211.md",
+        "use guide/备忘录45_[主]_RuntimeOperator实施蓝图_2026-03-14-0127.md"
+      ]
+    },
+    {
+      "query": "各家 multi-agent 框架横向对比下来,谁的检索做法值得抄",
+      "expectedSourcePath": "use guide/备忘录122_[主]_高星AgentRAG调研对照与三档落地计划_2026-06-05-1910.md",
+      "expectedKeywords": [
+        "LangGraph",
+        "rerank"
+      ],
+      "category": "table",
+      "marginalSourcePaths": [
+        "use guide/备忘录139_[参]_多agent执行取经合集_外部系统对照_2026-08-11-1030.md"
+      ]
+    },
+    {
+      "query": "几个模型供应商各自负责什么,主力和兜底怎么分",
+      "expectedSourcePath": "use guide/备忘录125_[主]_oh-my-pi借鉴分析与provider兜底链_2026-06-09-1047.md",
+      "expectedKeywords": [
+        "provider",
+        "兜底"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录11_[主]_V7系统全貌_2026-03-09-1630.md"
+      ]
+    },
+    {
+      "query": "整个系统分了多少层,每层各管哪一摊",
+      "expectedSourcePath": "use guide/备忘录77_[主]_全系统分层总图_内核层通讯层控制面执行层治理层_2026-03-28-0414.md",
+      "expectedKeywords": [
+        "边界"
+      ],
+      "category": "table",
+      "_annotationFix": "v183+:原标134,实为77(标题即全系统分层总图);77 原被检回 rank2",
+      "marginalSourcePaths": [
+        "use guide/备忘录87_[主]_GitWorktree协作切片与Lane分层_2026-03-31-1413.md",
+        "use guide/备忘录90_[主]_统一渠道重构与系统精华总备忘录_2026-04-02-1822.md"
+      ]
+    },
+    {
+      "query": "operator 要查本地资料的时候,知识是怎么喂给它的",
+      "expectedSourcePath": "use guide/备忘录55_[主]_Operator本地知识检索层落地_2026-03-19-1237.md",
+      "expectedKeywords": [
+        "operator",
+        "检索"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录54_[主]_Operator知识层注入与说明型问句收敛_2026-03-19-1225.md",
+        "use guide/[过时]备忘录53_[主]_Operator声明式平台代理化与LLM规划落地_2026-03-19-1211.md",
+        "use guide/[过时]备忘录52_[主]_RuntimeOperator前台小窗与建Agent真路径落地_2026-03-19-1050.md"
+      ],
+      "secondarySourcePaths": [
+        "use guide/备忘录123_[主]_三计划真值层协调与meta旁路_2026-06-06-0319.md"
+      ]
+    },
+    {
+      "query": "测试工具到底怎么用,最新的说法是什么",
+      "expectedSourcePath": "use guide/备忘录_测试工具用法指导V3_2026-03-10-0300.md",
+      "expectedKeywords": [
+        "测试"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录_测试工具用法指导_2026-03-09-0230.md",
+        "use guide/[过时]备忘录_测试工具用法指导_2026-03-09-1000.md"
+      ],
+      "secondarySourcePaths": [
+        "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录117_[主]_随机Preset运行时真值与Blocked判定收口_2026-04-16-0455.md",
+        "use guide/备忘录119_[主]_全面修复执行记录_2026-05-30-0400.md"
+      ]
+    },
+    {
+      "query": "70 到 90 这段的收口最后是怎么定的",
+      "expectedSourcePath": "use guide/备忘录90_[主]_统一渠道重构与系统精华总备忘录_2026-04-02-1822.md",
+      "expectedKeywords": [
+        "收口",
+        "渠道"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录90_[主]_70-90统一收口计划_2026-04-01-0200.md"
+      ],
+      "secondarySourcePaths": [
+        "use guide/备忘录91_[主]_统一渠道重构总纲_进度追赶方案_2026-04-02-2000.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md",
+        "use guide/备忘录99_[主]_超级Session全景复盘_2026-04-08.md"
+      ]
+    },
+    {
+      "query": "派工的并发问题最后是怎么解决的,谁来认领任务",
+      "expectedSourcePath": "use guide/备忘录109_[主]_Dispatch精确Claim与接收排队统一_2026-04-13-0515.md",
+      "expectedKeywords": [
+        "claim",
+        "排队"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录13_[主]_V9并发派发研究_2026-03-09-2110.md",
+        "use guide/[过时]备忘录12_[主]_V8全链路加固_2026-03-09-1750.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录69_[主]_统一通讯协议ConveyorBelt改造计划_2026-03-26-1400.md",
+        "use guide/备忘录70_[主]_统一通讯协议为什么更好与最佳实践_2026-03-26-2355.md"
+      ]
+    },
+    {
+      "query": "协作授权归谁管,是图边说了算吗",
+      "expectedSourcePath": "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md",
+      "expectedKeywords": [
+        "协作",
+        "图边"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录137_[主]_未做事项全清单与过时知识清扫_2026-08-09-1700.md"
+      ]
+    },
+    {
+      "query": "为什么不给 RAG 单独造一个专门的 agent 来管",
+      "expectedSourcePath": "use guide/备忘录123_[主]_三计划真值层协调与meta旁路_2026-06-06-0319.md",
+      "expectedKeywords": [
+        "meta",
+        "旁路"
+      ],
+      "category": "decision",
+      "marginalSourcePaths": [
+        "use guide/备忘录125_[主]_可视化大师viz-master第二meta-agent_2026-06-07-0359.md"
+      ]
+    },
+    {
+      "query": "知识库里的东西能不能当作系统真值来用",
+      "expectedSourcePath": "use guide/备忘录123_[主]_三计划真值层协调与meta旁路_2026-06-06-0319.md",
+      "expectedKeywords": [
+        "真值",
+        "知识"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "换检索环节之前要先做什么,凭什么判断该不该换",
+      "expectedSourcePath": "use guide/备忘录122_[主]_高星AgentRAG调研对照与三档落地计划_2026-06-05-1910.md",
+      "expectedKeywords": [
+        "召回",
+        "评测"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "system-action 那个预设连红四轮,根因到底是什么",
+      "expectedSourcePath": "use guide/备忘录126_[主]_system-action场景协议错配定案与悬办清单_2026-07-19-0302.md",
+      "expectedKeywords": [
+        "ACTION",
+        "contract"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录128_[主]_统一FC证据面设计定案_双平面与期望结构化_2026-07-26-0602.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录139_[参]_多agent执行取经合集_外部系统对照_2026-08-11-1030.md"
+      ]
+    },
+    {
+      "query": "随机测试那几个预设各自想测什么,边界怎么划的",
+      "expectedSourcePath": "use guide/备忘录116_[主]_随机Preset三分语义与入口边界_2026-04-15-1459.md",
+      "expectedKeywords": [
+        "random",
+        "preset"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/计划_随机Preset族实施计划_2026-04-16-0458.md",
+        "use guide/备忘录117_[主]_随机Preset运行时真值与Blocked判定收口_2026-04-16-0455.md"
+      ]
+    },
+    {
+      "query": "什么情况下判 blocked 而不是判失败",
+      "expectedSourcePath": "use guide/备忘录117_[主]_随机Preset运行时真值与Blocked判定收口_2026-04-16-0455.md",
+      "expectedKeywords": [
+        "blocked"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录_测试系统blocked分类与重置收敛_2026-03-12-1124.md",
+        "use guide/计划_随机Preset族实施计划_2026-04-16-0458.md"
+      ]
+    },
+    {
+      "query": "那份真值修复方案改了好几版,最后定的是哪版、改了什么",
+      "expectedSourcePath": "use guide/备忘录118_[主]_系统真值修复计划v5到v5.1修订过程_2026-04-20-0650.md",
+      "expectedKeywords": [
+        "v5",
+        "真值"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "外部审计提的问题,哪些认了哪些没认",
+      "expectedSourcePath": "use guide/备忘录121_[主]_外部审计核实与P0P1P2修改计划_2026-06-01-1952.md",
+      "expectedKeywords": [
+        "审计",
+        "P0"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "画图那套东西为什么要单独立一个大脑,不挂在 operator 下面",
+      "expectedSourcePath": "use guide/备忘录125_[主]_可视化大师viz-master第二meta-agent_2026-06-07-0359.md",
+      "expectedKeywords": [
+        "viz",
+        "meta-agent"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录123_[主]_三计划真值层协调与meta旁路_2026-06-06-0319.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录126_[主]_图表防伪对照与viz生命周期完善_2026-07-19-0207.md"
+      ]
+    },
+    {
+      "query": "怎么防止图表是编出来的、数字对不上原始数据",
+      "expectedSourcePath": "use guide/备忘录126_[主]_图表防伪对照与viz生命周期完善_2026-07-19-0207.md",
+      "expectedKeywords": [
+        "防伪",
+        "图表"
+      ],
+      "category": "decision",
+      "marginalSourcePaths": [
+        "use guide/备忘录129_FC债务源流·产物交接诊断·设计缺失审计_2026-07-28-0430.md"
+      ]
+    },
+    {
+      "query": "从别的开源项目那里学到了什么、又故意没学什么",
+      "expectedSourcePath": "use guide/备忘录125_[主]_oh-my-pi借鉴分析与provider兜底链_2026-06-09-1047.md",
+      "expectedKeywords": [
+        "借鉴"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录81_[主]_吸收AutoGenStudio有益架构的接入边界与取舍_2026-03-28-1603.md",
+        "use guide/备忘录82_[主]_外部参考吸收现状与核心设计指标违例审查_2026-03-29-0327.md",
+        "use guide/备忘录122_[主]_高星AgentRAG调研对照与三档落地计划_2026-06-05-1910.md",
+        "use guide/备忘录64_[主]_DeerFlow对照_插件边界与外部Agent接入_2026-03-23-1832.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录22_Edict对比分析_2026-03-10-1500.md",
+        "use guide/备忘录94_[主]_Reviewer基座重定位与系统增强灵感库_2026-04-04-1600.md",
+        "use guide/备忘录139_[参]_多agent执行取经合集_外部系统对照_2026-08-11-1030.md"
+      ]
+    },
+    {
+      "query": "这个系统平时到底拿来干什么的,典型用法是怎样",
+      "expectedSourcePath": "use guide/备忘录124_[主]_使用场景大楼模型_2026-06-06-1857.md",
+      "expectedKeywords": [
+        "场景",
+        "gateway"
+      ],
+      "category": "architecture",
+      "marginalSourcePaths": [
+        "use guide/备忘录50_[主]_楼宇地图与协作协议显式化_2026-03-19-0056.md",
+        "use guide/备忘录72_[主]_包裹流转故事与BUILDING-MAP拆分原则_2026-03-27-0534.md",
+        "use guide/备忘录73_[主]_Agent引导文档拆分与读取顺序重构_2026-03-27-0628.md"
+      ]
+    },
+    {
+      "query": "命令行那一层是怎么组织的,读和写的口子分开了吗",
+      "expectedSourcePath": "use guide/备忘录112_[主]_CLISystem正式架构与Surface分层_2026-04-14-0033.md",
+      "expectedKeywords": [
+        "surface",
+        "CLI"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录110_[主]_深水区四层联动_Harness_CLISystem_Operator_Automation总纲_2026-04-13-2333.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录111_[主]_四层联动旧讨论回查与外部工程实践研究入口_2026-04-14-0003.md"
+      ]
+    },
+    {
+      "query": "脑子、手、工具这三者在系统里分别对应什么",
+      "expectedSourcePath": "use guide/备忘录113_[主]_拼图化Harness与脑手工具自治链_2026-04-14-0112.md",
+      "expectedKeywords": [
+        "harness",
+        "自治"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录120_[主]_四关节自治闭环系统计划_2026-05-31-1727.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录114_[主]_四层联动编译版与概念预算_2026-04-14-0256.md"
+      ]
+    },
+    {
+      "query": "深水区那四层是哪四层,它们怎么串起来的",
+      "expectedSourcePath": "use guide/备忘录110_[主]_深水区四层联动_Harness_CLISystem_Operator_Automation总纲_2026-04-13-2333.md",
+      "expectedKeywords": [
+        "四层",
+        "联动"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录114_[主]_四层联动编译版与概念预算_2026-04-14-0256.md",
+        "use guide/备忘录111_[主]_四层联动旧讨论回查与外部工程实践研究入口_2026-04-14-0003.md",
+        "use guide/备忘录113_[主]_拼图化Harness与脑手工具自治链_2026-04-14-0112.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录112_[主]_CLISystem正式架构与Surface分层_2026-04-14-0033.md"
+      ]
+    },
+    {
+      "query": "harness 模块对外暴露的接口冻结成什么样了",
+      "expectedSourcePath": "use guide/备忘录115_[主]_HarnessModule接口冻结入口与反证对照_2026-04-14-0256.md",
+      "expectedKeywords": [
+        "HarnessModule",
+        "接口"
+      ],
+      "category": "architecture",
+      "marginalSourcePaths": [
+        "use guide/备忘录_Harness基础模块与Profile执行计划_2026-03-23-1338.md",
+        "use guide/备忘录114_[主]_四层联动编译版与概念预算_2026-04-14-0256.md"
+      ]
+    },
+    {
+      "query": "概念预算是个什么东西,为什么要限制概念数量",
+      "expectedSourcePath": "use guide/备忘录114_[主]_四层联动编译版与概念预算_2026-04-14-0256.md",
+      "expectedKeywords": [
+        "概念预算"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录115_[主]_HarnessModule接口冻结入口与反证对照_2026-04-14-0256.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录120_[主]_四关节自治闭环系统计划_2026-05-31-1727.md"
+      ]
+    },
+    {
+      "query": "生产环境、工作空间、判决这三块各自的边界在哪",
+      "expectedSourcePath": "use guide/备忘录134_[主]_三系统边界划分_生产·工作空间·判决_2026-08-07-1612.md",
+      "expectedKeywords": [
+        "边界",
+        "工作空间"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录133_[主]_FC证据面与阶段真值口径对齐_双agent合稿_2026-08-07-1453.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录137_[主]_未做事项全清单与过时知识清扫_2026-08-09-1700.md"
+      ]
+    },
+    {
+      "query": "自动化闭环由哪几个部分组成,靠什么驱动往前走",
+      "expectedSourcePath": "use guide/备忘录120_[主]_四关节自治闭环系统计划_2026-05-31-1727.md",
+      "expectedKeywords": [
+        "闭环",
+        "自治"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录80_[主]_EvaluationResult到AutomationDecision到ProfileLifecycle对象链_2026-03-28-0427.md",
+        "use guide/备忘录79_[主]_自动化自动化终局与全系统能力进化路线_2026-03-28-0414.md"
+      ]
+    },
+    {
+      "query": "别的平台上的 agent 想接进来,现在支持吗、走什么口",
+      "expectedSourcePath": "use guide/备忘录103_[主]_外部Agent联邦接入现状与待决_2026-04-09-1645.md",
+      "expectedKeywords": [
+        "A2A",
+        "联邦"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录64_[主]_DeerFlow对照_插件边界与外部Agent接入_2026-03-23-1832.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/[过时]备忘录9_[主]_V4队列+原子写入_2026-03-09-1100.md",
+        "use guide/备忘录139_[参]_多agent执行取经合集_外部系统对照_2026-08-11-1030.md"
+      ]
+    },
+    {
+      "query": "协议名字乱了以后是怎么统一的,结果回传走哪条路",
+      "expectedSourcePath": "use guide/备忘录106_[主]_协议命名注册表与Delivery收口_2026-04-12-1811.md",
+      "expectedKeywords": [
+        "protocol-registry",
+        "delivery"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录60_[主]_定时任务与渠道回传统一设计_2026-03-21-2104.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录107_[主]_80-106主线起点复原与Harness到系统真值收口脉络_2026-04-12-2057.md",
+        "use guide/备忘录104_[主]_Discovery默认世界与WorkspaceAlias治理及协议流线统一_2026-04-10-1229.md"
+      ]
+    },
+    {
+      "query": "有哪些原则是不能违反的、属于永久红线",
+      "expectedSourcePath": "use guide/备忘录_[主]_核心设计指标_2026-03-08-1543.md",
+      "expectedKeywords": [
+        "设计指标",
+        "原则"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录82_[主]_外部参考吸收现状与核心设计指标违例审查_2026-03-29-0327.md",
+        "use guide/备忘录66_[主]_代码库清洁指标与运行时真值投影_2026-03-24-1650.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录120_[主]_四关节自治闭环系统计划_2026-05-31-1727.md"
+      ]
+    },
+    {
+      "query": "以前哪些地方违反过自己定的核心原则,后来怎么查出来的",
+      "expectedSourcePath": "use guide/备忘录82_[主]_外部参考吸收现状与核心设计指标违例审查_2026-03-29-0327.md",
+      "expectedKeywords": [
+        "违例",
+        "设计指标"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录90_[主]_统一渠道重构与系统精华总备忘录_2026-04-02-1822.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md"
+      ]
+    },
+    {
+      "query": "agent 的拓扑能不能随便扩,现在的结构撑得住吗",
+      "expectedSourcePath": "use guide/备忘录102_[主]_Agent拓扑扩展审计与备忘录100后续解耦优先级_2026-04-09-1502.md",
+      "expectedKeywords": [
+        "拓扑",
+        "graph"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录108_[主]_80-106回顾类备忘录再提炼的可施工方向总表_2026-04-12-2057.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录83_[主]_PoolDispatch绕过GraphEdges前端连线与实际路由不一致_2026-03-29-0500.md"
+      ]
+    },
+    {
+      "query": "可视化大师和 operator 是什么关系,谁管谁",
+      "expectedSourcePath": "use guide/备忘录125_[主]_可视化大师viz-master第二meta-agent_2026-06-07-0359.md",
+      "expectedKeywords": [
+        "viz-master",
+        "operator"
+      ],
+      "category": "disambiguation",
+      "secondarySourcePaths": [
+        "use guide/备忘录123_[主]_三计划真值层协调与meta旁路_2026-06-06-0319.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录126_[主]_图表防伪对照与viz生命周期完善_2026-07-19-0207.md"
+      ]
+    },
+    {
+      "query": "主插件那个 js 文件早期堆到了几千行,后来是怎么收拾的?",
+      "expectedSourcePath": "use guide/备忘录29_[主]_index模块化拆分_2026-03-11-0040.md",
+      "expectedKeywords": [
+        "模块",
+        "lib/"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录17_[主]_V10.1_QQ体验升级与LLM审计_2026-03-09-2344.md",
+        "use guide/[过时]备忘录13_[主]_V9并发派发研究_2026-03-09-2110.md",
+        "use guide/[过时]备忘录11_[主]_V7系统全貌_2026-03-09-1630.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/[过时]备忘录11_[主]_V7系统全貌_2026-03-09-1630.md",
+        "use guide/[过时]备忘录17_[主]_V10.1_QQ体验升级与LLM审计_2026-03-09-2344.md"
+      ]
+    },
+    {
+      "query": "跑测试那个脚本自己也胖成一大坨了,最后是怎么切开的?",
+      "expectedSourcePath": "use guide/备忘录30_审计收尾_test拆分与worker清理_2026-03-11-0130.md",
+      "expectedKeywords": [
+        "tests/",
+        "suite"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录_测试工具用法指导_2026-03-09-1000.md",
+        "use guide/[过时]备忘录_测试工具用法指导_2026-03-09-0230.md"
+      ]
+    },
+    {
+      "query": "推送到 QQ 被对面平台拦下来了,这种失败该记在我们头上吗?",
+      "expectedSourcePath": "use guide/备忘录_测试系统blocked分类与重置收敛_2026-03-12-1124.md",
+      "expectedKeywords": [
+        "白名单",
+        "BLOCKED"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录_测试系统修复进展_2026-03-12-1104.md"
+      ],
+      "secondarySourcePaths": [
+        "use guide/备忘录_测试系统维护与污染问题_2026-03-12-1302.md"
+      ]
+    },
+    {
+      "query": "干活的节点从一个扩到三个之后,监控图的布局是怎么重画的?",
+      "expectedSourcePath": "use guide/备忘录_前端V4多Worker改版设计_2026-03-09-1700.md",
+      "expectedKeywords": [
+        "垂直",
+        "队列"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/备忘录_前端V3三角形拓扑_2026-03-09-0100.md",
+        "use guide/[过时]备忘录_前端SVG拓扑V2.1_2026-03-08-1417.md",
+        "use guide/[过时]备忘录_前端V2_2026-03-08.md"
+      ],
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录12_[主]_V8全链路加固_2026-03-09-1750.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录_前端V3三角形拓扑_2026-03-09-0100.md"
+      ]
+    },
+    {
+      "query": "网页那头老是收不到结果,查下来是 agent 自己瞎猜文件名,这块最后怎么根治的?",
+      "expectedSourcePath": "use guide/备忘录16_LLM指令审计与修复_2026-03-10-0030.md",
+      "expectedKeywords": [
+        "硬路径",
+        "delivery"
+      ],
+      "category": "ghost",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录17_[主]_V10.1_QQ体验升级与LLM审计_2026-03-09-2344.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/[过时]备忘录17_[主]_V10.1_QQ体验升级与LLM审计_2026-03-09-2344.md",
+        "use guide/备忘录_[主]_核心设计指标_2026-03-08-1543.md"
+      ]
+    },
+    {
+      "query": "那两个常驻的网关 agent 什么正事都没干,光定时醒一次一天要烧掉多少?",
+      "expectedSourcePath": "use guide/[过时]备忘录18_[主]_Token节约计划_2026-03-10-0330.md",
+      "expectedKeywords": [
+        "空转",
+        "heartbeat"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录8_[主]_效能优化与任务分类_2026-03-08-1730.md"
+      ]
+    },
+    {
+      "query": "有人照着古代朝廷那套官署制度搭了一版多 agent,我们当时评估完是要跟着改吗?",
+      "expectedSourcePath": "use guide/备忘录22_Edict对比分析_2026-03-10-1500.md",
+      "expectedKeywords": [
+        "subagent",
+        "增量扩展"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "哪一次改动单独加了一个专门装前端交互逻辑的 js,还顺带配了几个新的后端接口?",
+      "expectedSourcePath": "use guide/备忘录38_Dashboard交互系统完整实现_2026-03-11-1847.md",
+      "expectedKeywords": [
+        "dashboard-interactive",
+        "编辑模式"
+      ],
+      "category": "metadata",
+      "marginalSourcePaths": [
+        "use guide/备忘录36_前端交互化可行性分析_2026-03-11-1730.md"
+      ]
+    },
+    {
+      "query": "最早那轮拿四个大模型跑分对比,谁排第一,分差主要拉在哪个维度?",
+      "expectedSourcePath": "use guide/[过时]备忘录_V2测试基准结果_2026-03-08.md",
+      "expectedKeywords": [
+        "MiniMax",
+        "指令遵守"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录_测试工具设计指标_2026-03-09-0100.md"
+      ]
+    },
+    {
+      "query": "我只想跑一条用例,结果名字沾边的另一条也被一起带着跑了,这是什么毛病?",
+      "expectedSourcePath": "use guide/备忘录_测试系统维护与污染问题_2026-03-12-1302.md",
+      "expectedKeywords": [
+        "filter",
+        "includes"
+      ],
+      "category": "command"
+    },
+    {
+      "query": "网关重启的时候还在跑的那些任务会怎么样,用户那边有没有个交代?",
+      "expectedSourcePath": "use guide/备忘录37_前端修复与孤儿兜底_2026-03-11-1800.md",
+      "expectedKeywords": [
+        "孤儿",
+        "gateway_restart"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录12_[主]_V8全链路加固_2026-03-09-1750.md"
+      ]
+    },
+    {
+      "query": "图上我根本没给那个 worker 连线，它怎么还是接到了活",
+      "expectedSourcePath": "use guide/备忘录83_[主]_PoolDispatch绕过GraphEdges前端连线与实际路由不一致_2026-03-29-0500.md",
+      "expectedKeywords": [
+        "pickIdleWorker",
+        "pool.js"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md",
+        "use guide/备忘录137_[主]_未做事项全清单与过时知识清扫_2026-08-09-1700.md"
+      ]
+    },
+    {
+      "query": "想让系统在该动的时候自己动起来，是靠定时器一直扫还是有别的正经办法",
+      "expectedSourcePath": "use guide/备忘录84_[主]_按需唤醒控制面与WakeEvent_WakeRule设计_2026-03-29-2213.md",
+      "expectedKeywords": [
+        "WakeRule",
+        "控制面"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/[过时]备忘录8_[主]_效能优化与任务分类_2026-03-08-1730.md",
+        "use guide/备忘录60_[主]_定时任务与渠道回传统一设计_2026-03-21-2104.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/精简计划_备忘录60-84缺口补全_2026-03-31.md",
+        "use guide/[过时]备忘录90_[主]_70-90统一收口计划_2026-04-01-0200.md"
+      ]
+    },
+    {
+      "query": "那个负责派活规划的角色被当成系统里的特权角色，它到底缠在多少处代码里拆不掉",
+      "expectedSourcePath": "use guide/备忘录86_[主]_GodRole拆除与AgentGroup路径_2026-03-31-1400.md",
+      "expectedKeywords": [
+        "contractor",
+        "硬编码"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录96_[主]_Planner基座与DRAFT生命周期消除_2026-04-07.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录87_[主]_GitWorktree协作切片与Lane分层_2026-03-31-1413.md",
+        "use guide/备忘录89_[主]_Reviewer平台定位与EvaluationResult治理路径_2026-03-31-1939.md"
+      ]
+    },
+    {
+      "query": "几个人同时开工互不干扰，那套目录和分支的命名格式是怎么定的，建完怎么查怎么删",
+      "expectedSourcePath": "use guide/备忘录87_[主]_GitWorktree协作切片与Lane分层_2026-03-31-1413.md",
+      "expectedKeywords": [
+        "worktree",
+        "prune"
+      ],
+      "category": "command"
+    },
+    {
+      "query": "重构之前系统里究竟同时跑着几条投递通路，每条自己攥着一份忙闲队列吗",
+      "expectedSourcePath": "use guide/备忘录91_[主]_统一渠道重构总纲_进度追赶方案_2026-04-02-2000.md",
+      "expectedKeywords": [
+        "plan-dispatch",
+        "busyAgents"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md",
+        "use guide/备忘录90_[主]_统一渠道重构与系统精华总备忘录_2026-04-02-1822.md"
+      ]
+    },
+    {
+      "query": "跟体量差不多的开源项目摆在一起比，我们的代码卫生差在哪几项",
+      "expectedSourcePath": "use guide/备忘录93_[主]_代码全面审计报告_2026-04-04.md",
+      "expectedKeywords": [
+        "循环依赖",
+        "死代码"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录99_[主]_超级Session全景复盘_2026-04-08.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录66_[主]_代码库清洁指标与运行时真值投影_2026-03-24-1650.md"
+      ]
+    },
+    {
+      "query": "agent 以前往产出目录里写的那几种 json，哪些现在已经不认了",
+      "expectedSourcePath": "use guide/备忘录95_[主]_Agent系统连接点全图_2026-04-06.md",
+      "expectedKeywords": [
+        "contract_result.json",
+        "已清理"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录99_[主]_超级Session全景复盘_2026-04-08.md",
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录88_[主]_Evaluator去特殊化三桶拆解设计_2026-03-31-1600.md"
+      ]
+    },
+    {
+      "query": "复审那份大文件拆解方案时挑出了几处要改，说哪些字段不该跟着搬家",
+      "expectedSourcePath": "use guide/备忘录92_审查报告_2026-04-03.md",
+      "expectedKeywords": [
+        "replyTo",
+        "loop-session"
+      ],
+      "category": "disambiguation",
+      "marginalSourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md"
+      ]
+    },
+    {
+      "query": "那次连着好几天、消息几百条的大对话，复盘覆盖的是哪一段 stable 版本区间",
+      "expectedSourcePath": "use guide/备忘录99_[主]_超级Session全景复盘_2026-04-08.md",
+      "expectedKeywords": [
+        "v72",
+        "v90"
+      ],
+      "category": "metadata"
+    },
+    {
+      "query": "一单任务从进门到把结果送出去，中间应该由哪几个正式对象接力，而不是靠一堆零散字段拼",
+      "expectedSourcePath": "use guide/备忘录100_[主]_StagePlan重构到OneShot主干真值收口_2026-04-09-1031.md",
+      "expectedKeywords": [
+        "ExecutionObservation",
+        "TerminalOutcome"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录107_[主]_80-106主线起点复原与Harness到系统真值收口脉络_2026-04-12-2057.md",
+        "use guide/备忘录110_[主]_深水区四层联动_Harness_CLISystem_Operator_Automation总纲_2026-04-13-2333.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录102_[主]_Agent拓扑扩展审计与备忘录100后续解耦优先级_2026-04-09-1502.md"
+      ]
+    },
+    {
+      "query": "老感觉这套设计翻来覆去改，其实问题出在哪",
+      "expectedSourcePath": "use guide/备忘录101_[主]_70-100主线复盘与ACTION统一收口_2026-04-09-1331.md",
+      "expectedKeywords": [
+        "旧协议",
+        "旧测试"
+      ],
+      "category": "decision",
+      "secondarySourcePaths": [
+        "use guide/备忘录107_[主]_80-106主线起点复原与Harness到系统真值收口脉络_2026-04-12-2057.md",
+        "use guide/备忘录110_[主]_深水区四层联动_Harness_CLISystem_Operator_Automation总纲_2026-04-13-2333.md",
+        "use guide/备忘录108_[主]_80-106回顾类备忘录再提炼的可施工方向总表_2026-04-12-2057.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md"
+      ]
+    },
+    {
+      "query": "前端那条工具流水每条就一句话，是框架本身只给得出这么多吗",
+      "expectedSourcePath": "use guide/备忘录105_工具时间流增强与Plugin观测研究_2026-04-11-0205.md",
+      "expectedKeywords": [
+        "durationMs",
+        "state-tool-labels"
+      ],
+      "category": "architecture",
+      "secondarySourcePaths": [
+        "use guide/备忘录_Watchdog工具时间流观察收口与原仓验证_2026-04-11-0519.md"
+      ]
+    },
+    {
+      "query": "我让 agent 自己把活分给同事,它做好的那些文件下游拿得到吗?跟顺着固定连线传下去有差别没",
+      "expectedSourcePath": "use guide/备忘录131_产物交接系统问题全景_双轮结论_2026-08-06-0038.md",
+      "expectedKeywords": [
+        "upstreamPackages",
+        "零包"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录129_FC债务源流·产物交接诊断·设计缺失审计_2026-07-28-0430.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录132_产物交接批一波与FC最后三项_2026-08-06-0130.md"
+      ]
+    },
+    {
+      "query": "有没有现成的命令能扫出哪些追踪日志文件里混进了不止一份合约的记录",
+      "expectedSourcePath": "use guide/备忘录131_产物交接系统问题全景_双轮结论_2026-08-06-0038.md",
+      "expectedKeywords": [
+        "contractId",
+        "jsonl"
+      ],
+      "category": "command",
+      "marginalSourcePaths": [
+        "use guide/备忘录133_[主]_FC证据面与阶段真值口径对齐_双agent合稿_2026-08-07-1453.md"
+      ]
+    },
+    {
+      "query": "让它画一张隔一会儿就自动刷新的图,之前老是被打回来,后来查出是什么毛病",
+      "expectedSourcePath": "use guide/备忘录126_[主]_图表防伪对照与viz生命周期完善_2026-07-19-0207.md",
+      "expectedKeywords": [
+        "sse",
+        "过期"
+      ],
+      "category": "decision",
+      "ghostSourcePaths": [
+        "use guide/备忘录125_[主]_可视化大师viz-master第二meta-agent_2026-06-07-0359.md"
+      ]
+    },
+    {
+      "query": "顺着管线派下来的那种会话里,agent 在回复正文里写一句要再派个活出去,平台认不认",
+      "expectedSourcePath": "use guide/备忘录126_[主]_system-action场景协议错配定案与悬办清单_2026-07-19-0302.md",
+      "expectedKeywords": [
+        "wake_agent",
+        "白名单"
+      ],
+      "category": "architecture",
+      "marginalSourcePaths": [
+        "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md"
+      ]
+    },
+    {
+      "query": "那两级兜底写法为什么不干脆在系统提示里一并教掉,非要等它撞墙才给",
+      "expectedSourcePath": "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md",
+      "expectedKeywords": [
+        "竞争性",
+        "fallback"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "刚建出来的 agent 为什么一上来就不会用那几个跟别人打交道的功能",
+      "expectedSourcePath": "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md",
+      "expectedKeywords": [
+        "createAgentDefinition",
+        "派生"
+      ],
+      "category": "architecture",
+      "marginalSourcePaths": [
+        "use guide/备忘录137_[主]_未做事项全清单与过时知识清扫_2026-08-09-1700.md"
+      ]
+    },
+    {
+      "query": "直接开个会话找某个 agent 聊,跟把事情丢给前台让它安排,底下跑的路一样吗",
+      "expectedSourcePath": "use guide/备忘录124_[主]_使用场景大楼模型_2026-06-06-1857.md",
+      "expectedKeywords": [
+        "_directSession",
+        "replyTo"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录34_[主]_统一通信协议_Intake与SystemAction_2026-03-11-1500.md"
+      ]
+    },
+    {
+      "query": "上次为了重启把跑到一半的测试强杀了,之后新的一直卡着不动,这是什么毛病",
+      "expectedSourcePath": "use guide/备忘录117_[主]_随机Preset运行时真值与Blocked判定收口_2026-04-16-0455.md",
+      "expectedKeywords": [
+        "残锁",
+        "queued"
+      ],
+      "category": "command"
+    },
+    {
+      "query": "那轮大拆分为什么单单把前端那堆超大文件放过了",
+      "expectedSourcePath": "use guide/备忘录119_[主]_全面修复执行记录_2026-05-30-0400.md",
+      "expectedKeywords": [
+        "projection-ui",
+        "闭包"
+      ],
+      "category": "decision"
+    },
+    {
+      "query": "有一份计划把 qq 插件里的派工标记文件和它的网关脚本一起列进了改动范围,是哪一份",
+      "expectedSourcePath": "use guide/备忘录118_[主]_系统真值修复计划v5到v5.1修订过程_2026-04-20-0650.md",
+      "expectedKeywords": [
+        "dispatch-marker",
+        "gateway.ts"
+      ],
+      "category": "metadata"
+    },
+    {
+      "query": "我一直以为自治回路是断在决定做完了却没人去派下一轮,核实之后真正断掉的是哪几处",
+      "expectedSourcePath": "use guide/备忘录120_[主]_四关节自治闭环系统计划_2026-05-31-1727.md",
+      "expectedKeywords": [
+        "reworkGuidance",
+        "governanceSnapshot"
+      ],
+      "category": "decision",
+      "marginalSourcePaths": [
+        "use guide/备忘录122_[主]_高星AgentRAG调研对照与三档落地计划_2026-06-05-1910.md"
+      ]
+    },
+    {
+      "query": "我想跟别人同时改这个仓库又不互相踩,本地开几份彼此隔离的工作副本是怎么约定的,分支名有没有规矩",
+      "expectedSourcePath": "use guide/备忘录87_[主]_GitWorktree协作切片与Lane分层_2026-03-31-1413.md",
+      "expectedKeywords": [
+        "worktree",
+        "lane"
+      ],
+      "category": "command"
+    },
+    {
+      "query": "上一轮定时的活还没跑完,下一次又到点了,配置里靠哪个开关让它这次直接跳过",
+      "expectedSourcePath": "use guide/备忘录60_[主]_定时任务与渠道回传统一设计_2026-03-21-2104.md",
+      "expectedKeywords": [
+        "concurrency",
+        "runtime policy"
+      ],
+      "category": "command"
+    },
+    {
+      "query": "上游丢过来那一包东西,平台会不会顺手把里头有哪几份、哪一份才是正主一起报给下游,还是只甩个文件夹过去",
+      "expectedSourcePath": "use guide/备忘录136_[主]_平台解耦两刀_令牌取消与上游清单_2026-08-08-1830.md",
+      "expectedKeywords": [
+        "primary",
+        "producer"
+      ],
+      "category": "command",
+      "secondarySourcePaths": [
+        "use guide/备忘录135_[主]_动态协作解绑图边与FC接线全通_2026-08-08-1621.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录131_产物交接系统问题全景_双轮结论_2026-08-06-0038.md",
+        "use guide/备忘录137_[主]_未做事项全清单与过时知识清扫_2026-08-09-1700.md"
+      ]
+    },
+    {
+      "query": "以前 agent 往输出目录里写的那一堆约定好的 json,现在还剩几个是活的,砍掉的那几个各是因为什么",
+      "expectedSourcePath": "use guide/备忘录95_[主]_Agent系统连接点全图_2026-04-06.md",
+      "expectedKeywords": [
+        "code_verdict",
+        "废弃"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录99_[主]_超级Session全景复盘_2026-04-08.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md",
+        "use guide/备忘录88_[主]_Evaluator去特殊化三桶拆解设计_2026-03-31-1600.md"
+      ]
+    },
+    {
+      "query": "按图自动往下走的那条线,和 agent 自己点名找人干活的那条线,在把东西带给下游这件事上差在哪",
+      "expectedSourcePath": "use guide/备忘录131_产物交接系统问题全景_双轮结论_2026-08-06-0038.md",
+      "expectedKeywords": [
+        "upstreamPackages",
+        "截断"
+      ],
+      "category": "table",
+      "secondarySourcePaths": [
+        "use guide/备忘录129_FC债务源流·产物交接诊断·设计缺失审计_2026-07-28-0430.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/备忘录134_[主]_三系统边界划分_生产·工作空间·判决_2026-08-07-1612.md"
+      ]
+    },
+    {
+      "query": "早先有份东西专门盘过:干活的 agent 每次开工都被塞一堆用不上的材料,能碰的目录和命令也没卡住;里面开的方子到今天一条都没动工,是哪份",
+      "expectedSourcePath": "use guide/备忘录97_[主]_上下文注入与工具限制问题全图_2026-04-07.md",
+      "expectedKeywords": [
+        "待施工",
+        "SOUL"
+      ],
+      "category": "metadata",
+      "marginalSourcePaths": [
+        "use guide/备忘录98_[主]_备忘录90-97设计对照审计与当前实现偏差总表_2026-04-08-1255.md"
+      ]
+    },
+    {
+      "query": "把三千多行的主入口切成一堆模块那次,收工推上去时打的是哪个版本标记",
+      "expectedSourcePath": "use guide/备忘录29_[主]_index模块化拆分_2026-03-11-0040.md",
+      "expectedKeywords": [
+        "v12-stable",
+        "3063"
+      ],
+      "category": "metadata",
+      "marginalSourcePaths": [
+        "use guide/备忘录30_审计收尾_test拆分与worker清理_2026-03-11-0130.md"
+      ]
+    },
+    {
+      "query": "老听人说 evaluator,它到底是指某个具体的 agent,还是谁都能带的一种本事,这两种说法怎么分开",
+      "expectedSourcePath": "use guide/备忘录76_[主]_Evaluator语义分层与判别对象边界_2026-03-28-0414.md",
+      "expectedKeywords": [
+        "evaluation capability",
+        "角色能力"
+      ],
+      "category": "disambiguation",
+      "secondarySourcePaths": [
+        "use guide/备忘录89_[主]_Reviewer平台定位与EvaluationResult治理路径_2026-03-31-1939.md",
+        "use guide/备忘录88_[主]_Evaluator去特殊化三桶拆解设计_2026-03-31-1600.md"
+      ],
+      "marginalSourcePaths": [
+        "use guide/计划_Evaluator去特殊化与Review平台增强_2026-03-31.md"
+      ]
+    },
+    {
+      "query": "仪表盘上画的那几根箭头,跟任务实际会走的路是同一回事吗,有没有哪条派活根本不照着它走",
+      "expectedSourcePath": "use guide/备忘录83_[主]_PoolDispatch绕过GraphEdges前端连线与实际路由不一致_2026-03-29-0500.md",
+      "expectedKeywords": [
+        "pickIdleWorker",
+        "graph edges"
+      ],
+      "category": "disambiguation",
+      "secondarySourcePaths": [
+        "use guide/备忘录71_[主]_统一通讯协议ConveyorBelt常见陷阱与实施红线_2026-03-27-0025.md",
+        "use guide/备忘录90_[主]_统一渠道重构与系统精华总备忘录_2026-04-02-1822.md"
+      ]
+    },
+    {
+      "query": "有个干活的刚交完活马上又派第二个任务给它,结果怎么都叫不醒,当初是怎么绕过这个坑的",
+      "expectedSourcePath": "use guide/[过时]备忘录11_[主]_V7系统全貌_2026-03-09-1630.md",
+      "expectedKeywords": [
+        "重试",
+        "requestHeartbeatNow"
+      ],
+      "category": "ghost",
+      "verdictStatus": "undecided",
+      "ghostSourcePaths": [
+        "use guide/[过时]备忘录10_[主]_V6多Worker Pool_2026-03-09-1540.md",
+        "use guide/[过时]备忘录12_[主]_V8全链路加固_2026-03-09-1750.md"
+      ]
+    },
+    {
+      "query": "当初为了少烧点钱,每个工作区里那些自动加载的引导文档删掉了哪几个,心跳又调成了多久一次",
+      "expectedSourcePath": "use guide/[过时]备忘录18_[主]_Token节约计划_2026-03-10-0330.md",
+      "expectedKeywords": [
+        "BOOTSTRAP",
+        "2h"
+      ],
+      "category": "ghost",
+      "verdictStatus": "undecided",
+      "marginalSourcePaths": [
+        "use guide/备忘录_[主]_核心设计指标_2026-03-08-1543.md"
+      ]
+    }
+  ]
+}

@@ -20,15 +20,20 @@ OpenClaw 会为新 agent 注入一套最小平台画像。你的工作是：
 1. 在配置里注册 agent
 2. 创建 workspace
 3. 生成这些文件和目录：
-   - `SOUL.md`
+   - `SOUL.md`（用户自有，只在缺失时写一次）
+   - `IDENTITY.md`（系统托管，role persona 载体）
+   - `COLLABORATION-FALLBACK.md`（系统托管，工具走不通时的降级写法）
    - `HEARTBEAT.md`
-   - `AGENTS.md`
-   - `PLATFORM-GUIDE.md`
    - `agent-card.json`
    - `inbox/`
    - `outbox/`
    - `output/`
-4. 给 agent 写入默认 skills 和 role 对应的基础画像
+   执行层三角色（planner / executor / researcher）**只有上面这些**：
+   `AGENTS.md` / `BUILDING-MAP.md` / `COLLABORATION-GRAPH.md` / `DELIVERY.md` /
+   `PLATFORM-GUIDE.md` 会被 `workspace-guidance-writer.js` 的 `EXECUTION_LAYER_CLEANUP`
+   主动删除。所以提示词和 skill 里的文件指针，要限定在该角色实际拥有的那几份。
+4. 给 agent 写入默认 skills、role 对应的基础画像，以及按角色授权表裁剪出的协作工具
+   （`assign_task` / `wake_agent`），新 agent 建好即可用
 
 ## 先选 role，再谈技能
 
@@ -53,11 +58,7 @@ OpenClaw 会为新 agent 注入一套最小平台画像。你的工作是：
 
 - 负责研究、检索、找方向
 - 默认工具里带 `web_search` / `web_fetch`
-
-### `evaluator`
-
-- 负责审查、评价、给 verdict
-- 覆盖代码与产物审查
+- 平台的合法 role 只有 `bridge` / `planner` / `executor` / `researcher` / `agent`，没有 `evaluator`
 
 ### `agent`
 
@@ -77,7 +78,7 @@ OpenClaw 会为新 agent 注入一套最小平台画像。你的工作是：
 当前固定规则：
 
 - 所有 agent 都会有效拥有 `platform-map`
-- `agent` / `executor` / `researcher` / `evaluator` 会额外有效拥有 `system-action`
+- 五个角色（`bridge` / `planner` / `executor` / `researcher` / `agent`）都会额外有效拥有 `system-action`；能真正发起哪几个动作，由 `collaboration-intent-policy` 的角色表裁剪工具面
 
 注意：
 
@@ -108,13 +109,17 @@ OpenClaw 会为新 agent 注入一套最小平台画像。你的工作是：
 
 空闲时的最小行为提示。
 
-### `AGENTS.md`
+### `IDENTITY.md`
 
-面向 agent 的本地总引导。告诉它自己处在平台运行环境中。
+系统托管的 role persona 载体（全角色都有）。
 
-### `PLATFORM-GUIDE.md`
+### `COLLABORATION-FALLBACK.md`
 
-平台入口、出口、协作方式、已加载 skill 摘要。
+协作工具走不通时的两级文本标记降级写法。只在这里教语法，不进主提示词。
+
+### `AGENTS.md` / `PLATFORM-GUIDE.md`（仅 bridge 与 agent 角色保留）
+
+面向 agent 的本地总引导与平台入口、出口摘要。执行层四角色不生成这两份。
 
 ### `agent-card.json`
 
@@ -144,8 +149,8 @@ role 会决定 bootstrap 基础画像：
 当前 watchdog 会在同步画像时刷新：
 
 - `agent-card.json` 的基础画像
-- `AGENTS.md`
-- `PLATFORM-GUIDE.md`
+- `IDENTITY.md` / `COLLABORATION-FALLBACK.md` / `HEARTBEAT.md`（全角色）
+- `AGENTS.md` / `PLATFORM-GUIDE.md`（仅 bridge 与 agent；执行层四角色改为删除）
 
 注意边界：
 
@@ -157,7 +162,7 @@ role 会决定 bootstrap 基础画像：
 1. 先问它是收发、规划、执行、研究、评估，还是通用节点
 2. 选最小 role，先保持技能最小集
 3. 只给它完成当前职责必需的 skill
-4. 让它通过 `PLATFORM-GUIDE.md` 和 skill 获取协议
+4. 让它通过工具面（协作工具自带 schema）和 skill 获取协议；文件指针限定在该角色实际拥有的那几份
 5. 真有稳定复用需求，再增加新的 skill
 
 ## 最小心法

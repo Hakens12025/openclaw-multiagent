@@ -1,12 +1,12 @@
-// hooks/agent-end.js — thin hook shell; stage lifecycle lives in lib/agent-end-lifecycle.js
+// hooks/agent-end.js — thin hook shell; stage lifecycle lives in lib/lifecycle/agent-end/lifecycle.js
 
 import {
   runAgentEndLifecycle,
-} from "../lib/lifecycle/agent-end-lifecycle.js";
+} from "../lib/lifecycle/agent-end/lifecycle.js";
 import {
   clearProtocolCommitReconcile,
   flushProtocolCommitDeferredRelease,
-} from "../lib/protocol-commit-reconcile.js";
+} from "../lib/protocol/protocol-commit-reconcile.js";
 import { getTrackingState } from "../lib/store/tracker-store.js";
 import {
   isHeartbeatSessionIgnored,
@@ -28,6 +28,8 @@ export function register(api, logger) {
     unignoreHeartbeatSession(sessionKey);
     clearProtocolCommitReconcile(sessionKey);
 
+    // 证据面收官(close 哨兵→考官)已迁入 AGENT_END_FINALLY_STAGES——
+    // 顺序真值单处,吞错语义由 stage 表声明式提供。
     await runAgentEndLifecycle({
       event,
       ctx,

@@ -58,7 +58,7 @@ export const INSPECT_PLAN_HINTS = {
     expectedSignals: [],
   },
   "work_items.list": {
-    reads: ["control-plane/contracts/*.json"],
+    reads: ["control-plane/threads/*/runs/*/contracts/*.json"],
     apiChecks: ["GET /watchdog/work-items"],
     expectedSignals: [],
   },

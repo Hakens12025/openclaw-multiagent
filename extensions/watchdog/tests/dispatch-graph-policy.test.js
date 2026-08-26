@@ -44,6 +44,12 @@ mock.module("../lib/agent/agent-graph.js", {
       (graph?.edges || []).filter((e) => e.from === nodeId),
     getEdgesTo: (graph, nodeId) =>
       (graph?.edges || []).filter((e) => e.to === nodeId),
+    // 与真实实现同形:标了 pipeline 的边优先,一条都没标时全部边都是候选。
+    getPipelineEdgesFrom: (graph, nodeId) => {
+      const edges = (graph?.edges || []).filter((e) => e.from === nodeId);
+      const marked = edges.filter((e) => e.metadata?.pipeline === true);
+      return marked.length > 0 ? marked : edges;
+    },
   },
 });
 
@@ -186,7 +192,7 @@ const dispatchRuntimeStateExports = {
   },
 };
 
-mock.module("../lib/routing/dispatch-runtime-state.js", {
+mock.module("../lib/routing/dispatch/dispatch-runtime-state.js", {
   namedExports: dispatchRuntimeStateExports,
 });
 
@@ -200,7 +206,7 @@ mock.module("../lib/agent/agent-identity.js", {
   },
 });
 
-mock.module("../lib/role-spec-registry.js", {
+mock.module("../lib/prompt/role-spec-registry.js", {
   namedExports: {
     getRoleSummary: () => "planner summary",
   },
@@ -220,7 +226,7 @@ mock.module("../lib/store/tracker-store.js", {
 });
 
 const dispatchSharedCalls = [];
-mock.module("../lib/routing/dispatch-transport.js", {
+mock.module("../lib/routing/dispatch/dispatch-transport.js", {
   namedExports: {
     dispatchSendExecutionContract: async (...args) => {
       dispatchSharedCalls.push(args);
@@ -239,9 +245,9 @@ mock.module("../lib/transport/sse.js", {
 });
 
 let mutateCallback = null;
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
-    mutateContractSnapshot: async (_path, _logger, fn) => {
+    mutateContractById: async (_id, _logger, fn) => {
       // Call fn with a dummy contract so assignee logic runs
       const dummy = { assignee: null, status: "draft" };
       mutateCallback = fn;
@@ -267,7 +273,7 @@ const {
   resolveRouteAfterAgentEndTarget,
   dispatchRouteExecutionContract,
   dispatchResolveFirstHop,
-} = await import("../lib/routing/dispatch-graph-policy.js");
+} = await import("../lib/routing/dispatch/dispatch-graph-policy.js");
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -315,7 +321,7 @@ describe("graph topology routing", () => {
 
   test("dispatch graph policy no longer declares local busy or queue owners", async () => {
     const source = await readFile(
-      new URL("../lib/routing/dispatch-graph-policy.js", import.meta.url),
+      new URL("../lib/routing/dispatch/dispatch-graph-policy.js", import.meta.url),
       "utf8",
     );
 
@@ -879,44 +885,37 @@ describe("dispatchRouteExecutionContract", () => {
     assert.equal(dispatchSharedCalls.length, 0);
   });
 
-  test("loop_start authority allows only the declared loop start agent", async () => {
-    registerDispatchTarget("w1");
-    mockGraph = { edges: [{ from: "system", to: "other-worker" }] };
+  test("no runtimeAuthority kind other than system_action_delivery can bypass graph authorization", async () => {
+    // 回路退役(2026-08-18):旁路曾有第二腿 kind==="loop_start"(system→回路起点)。
+    // 面消失后旁路只剩 system_action_delivery 一腿——包括曾经合法的 loop_start 在内,
+    // 任何其它 kind 一律走图边授权,没有边就是拒绝。
+    const forgedKinds = [
+      { kind: "loop_start", loopId: "loop-1", startAgent: "w1", nodes: ["planner", "w1"] },
+      { kind: "system_action_delivery", deliveryId: "not-a-delivery-id", targetAgent: "w1" },
+      { kind: "anything_else", targetAgent: "w1" },
+    ];
 
-    const result = await dispatchRouteExecutionContract("C-LOOP-START", "system", "w1", api, logger, {
-      runtimeAuthority: {
-        kind: "loop_start",
-        loopId: "loop-1",
-        startAgent: "w1",
-        nodes: ["planner", "w1"],
-      },
-    });
+    for (const runtimeAuthority of forgedKinds) {
+      resetState();
+      registerDispatchTarget("w1");
+      mockGraph = { edges: [{ from: "system", to: "other-worker" }] };
 
-    assert.equal(result.dispatched, true);
-    assert.equal(result.queued, false);
-    assert.equal(result.failed, undefined);
-    assert.equal(dispatchSharedCalls.length, 1);
-  });
+      const result = await dispatchRouteExecutionContract(
+        `C-AUTHORITY-${runtimeAuthority.kind}`,
+        "system",
+        "w1",
+        api,
+        logger,
+        { runtimeAuthority },
+      );
 
-  test("loop_start authority with the wrong start agent cannot bypass graph authorization", async () => {
-    registerDispatchTarget("w1");
-    mockGraph = { edges: [{ from: "system", to: "other-worker" }] };
-
-    const result = await dispatchRouteExecutionContract("C-LOOP-START-WRONG", "system", "w1", api, logger, {
-      runtimeAuthority: {
-        kind: "loop_start",
-        loopId: "loop-1",
-        startAgent: "planner",
-        nodes: ["planner", "w1"],
-      },
-    });
-
-    assert.equal(result.dispatched, false);
-    assert.equal(result.queued, false);
-    assert.equal(result.failed, true);
-    assert.equal(result.action, "unauthorized_explicit_target");
-    assert.deepEqual(outgoingWriteCalls, []);
-    assert.equal(dispatchSharedCalls.length, 0);
+      assert.equal(result.dispatched, false, `${runtimeAuthority.kind} must not dispatch`);
+      assert.equal(result.queued, false);
+      assert.equal(result.failed, true);
+      assert.equal(result.action, "unauthorized_explicit_target");
+      assert.deepEqual(outgoingWriteCalls, []);
+      assert.equal(dispatchSharedCalls.length, 0);
+    }
   });
 });
 

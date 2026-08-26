@@ -2,9 +2,6 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { listAutomationSpecs } from "./automation-registry.js";
-import { projectAutomationHarnessSummary } from "./automation-harness-projection.js";
-import { normalizeReviewerResult } from "../harness/reviewer-result.js";
-import { normalizeHarnessRun, normalizeHarnessSpec } from "../harness/harness-run.js";
 import { normalizeEnum, normalizeFiniteNumber, normalizePositiveInteger, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
 import { normalizeAutomationDecision } from "./automation-decision.js";
 import { normalizeGovernanceSnapshot } from "./resolve-governance.js";
@@ -46,35 +43,8 @@ function normalizeRoundSummary(value) {
   };
 }
 
-// pendingReworkGuidance: rework 决策时落进 runtime 的「上轮教训」，
-// 下一轮 startAutomationRound 读它拼进 spec.entry.message 后清空（修死链 a）。
-// 形状沿用 automation-decision.buildReworkGuidance 产出：
-//   { failureClass, reworkTarget, actionableFindings:[{category,severity,message}], strategy }
-function normalizePendingReworkGuidance(value) {
-  const source = normalizeRecord(value, null);
-  if (!source) return null;
-
-  const failureClass = normalizeString(source.failureClass) || null;
-  const reworkTarget = normalizeString(source.reworkTarget) || null;
-  const strategy = normalizeString(source.strategy) || null;
-  const actionableFindings = (Array.isArray(source.actionableFindings) ? source.actionableFindings : [])
-    .map((finding) => {
-      const f = normalizeRecord(finding, null);
-      const message = f ? normalizeString(f.message) : null;
-      if (!message) return null;
-      return {
-        category: normalizeString(f.category) || "general",
-        severity: normalizeString(f.severity) || "info",
-        message,
-      };
-    })
-    .filter(Boolean);
-
-  // 与 buildReworkGuidance 一致：三者皆空则视为无教训（不存空壳）
-  if (!failureClass && !reworkTarget && actionableFindings.length === 0) return null;
-
-  return { failureClass, reworkTarget, actionableFindings, strategy };
-}
+// （pendingReworkGuidance 已随评审链删除退役——它的唯一生产者是 reviewerResult
+//  派生段，备忘录150 后无源，v226 一并摘除。历史落盘 state 的该键读进来即被丢弃。）
 
 function buildDefaultRuntimeState(automationSpec) {
   const automationId = normalizeString(automationSpec?.id);
@@ -88,8 +58,6 @@ function buildDefaultRuntimeState(automationSpec) {
     status: automationSpec?.enabled === false ? "paused" : "idle",
     currentRound: 0,
     activeContractId: null,
-    activeLoopId: null,
-    activePipelineId: null,
     lastWakeAt: null,
     nextWakeAt: null,
     lastResultAt: null,
@@ -100,13 +68,10 @@ function buildDefaultRuntimeState(automationSpec) {
     noImprovementStreak: 0,
     childAutomationIds: [],
     recentRounds: [],
-    activeHarnessSpec: null,
-    activeHarnessRun: null,
-    lastHarnessRun: null,
-    lastReviewerResult: null,
+    // harness 判定账字段（activeHarnessSpec/activeHarnessRun/lastHarnessRun/
+    // lastReviewerResult/recentHarnessRuns）已随 harness 全退役删除
+    // （v226 / 2026-08-23，备忘录149）；历史落盘 state 的这批键读进来即被丢弃。
     lastAutomationDecision: null,
-    pendingReworkGuidance: null,
-    recentHarnessRuns: [],
     // governanceSnapshot：当前生效的治理参数快照（由 resolveGovernance 消费；缺省 null=用 spec 默认）。
     // governanceSnapshotDisabled：全局熔断开关，true 时忽略 snapshot 回退到 spec 默认。
     // profileLifecycle：profile 生命周期只读快照（streak/trustLevel 等）。
@@ -129,9 +94,9 @@ function normalizeAutomationRuntimeState(value) {
     automationId,
     status: normalizeAutomationRuntimeStatus(source.status),
     currentRound: normalizePositiveInteger(source.currentRound, 0),
+    // 回路运行时退役(2026-08-18)：activeLoopId / activePipelineId 随之删除。
+    // 在跑身份收口到 activeContractId 单源。历史落盘 state 的这两个键读进来即被丢弃。
     activeContractId: normalizeString(source.activeContractId) || null,
-    activeLoopId: normalizeString(source.activeLoopId) || null,
-    activePipelineId: normalizeString(source.activePipelineId) || null,
     lastWakeAt: Number.isFinite(source.lastWakeAt) ? source.lastWakeAt : null,
     nextWakeAt: Number.isFinite(source.nextWakeAt) ? source.nextWakeAt : null,
     lastResultAt: Number.isFinite(source.lastResultAt) ? source.lastResultAt : null,
@@ -149,30 +114,14 @@ function normalizeAutomationRuntimeState(value) {
       .filter(Boolean)
       .sort((left, right) => right.round - left.round)
       .slice(0, 20),
-    activeHarnessSpec: normalizeHarnessSpec(source.activeHarnessSpec),
-    activeHarnessRun: normalizeHarnessRun(source.activeHarnessRun),
-    lastHarnessRun: normalizeHarnessRun(source.lastHarnessRun),
-    lastReviewerResult: normalizeReviewerResult(source.lastReviewerResult),
     lastAutomationDecision: normalizeAutomationDecision(source.lastAutomationDecision),
-    pendingReworkGuidance: normalizePendingReworkGuidance(source.pendingReworkGuidance),
     governanceSnapshot: normalizeGovernanceSnapshot(source.governanceSnapshot),
     governanceSnapshotDisabled: source.governanceSnapshotDisabled === true,
     profileLifecycle: normalizeProfileLifecycle(source.profileLifecycle),
-    recentHarnessRuns: (Array.isArray(source.recentHarnessRuns) ? source.recentHarnessRuns : [])
-      .map((entry) => normalizeHarnessRun(entry))
-      .filter(Boolean)
-      .sort((left, right) => {
-        const leftTs = Number(left?.finalizedAt) || Number(left?.startedAt) || 0;
-        const rightTs = Number(right?.finalizedAt) || Number(right?.startedAt) || 0;
-        if (rightTs !== leftTs) return rightTs - leftTs;
-        return Number(right?.round || 0) - Number(left?.round || 0);
-      })
-      .slice(0, 20),
     createdAt: Number.isFinite(source.createdAt) ? source.createdAt : null,
     updatedAt: Number.isFinite(source.updatedAt) ? source.updatedAt : null,
   };
 }
-
 async function readAutomationRuntimeStore() {
   try {
     return JSON.parse(await readFile(AUTOMATION_RUNTIME_STORE, "utf8"));
@@ -347,10 +296,6 @@ export async function deleteAutomationRuntimeState(automationId) {
 }
 
 function summarizeAutomationInstance(spec, runtime) {
-  const harnessSummary = projectAutomationHarnessSummary({
-    harness: spec?.harness,
-    runtime,
-  });
   return {
     id: spec.id,
     enabled: spec.enabled === true,
@@ -363,10 +308,8 @@ function summarizeAutomationInstance(spec, runtime) {
     currentRound: Number.isFinite(runtime?.currentRound) ? runtime.currentRound : 0,
     bestScore: runtime?.bestScore ?? null,
     activeContractId: runtime?.activeContractId || null,
-    activeLoopId: runtime?.activeLoopId || null,
     nextWakeAt: runtime?.nextWakeAt || null,
     childAutomationCount: Array.isArray(runtime?.childAutomationIds) ? runtime.childAutomationIds.length : 0,
-    ...harnessSummary,
     governance: spec.governance,
     // P4 ProfileLifecycle 尾段（只读投影）：trustLevel/status/streak + 本轮收紧治理参数。
     // governanceSnapshotDisabled = 安全阀熔断标志。这是「inspect.profile_lifecycle」的数据源——
@@ -402,11 +345,6 @@ export async function summarizeAutomationRuntimeRegistry({
     ...entry,
     summary: summarizeAutomationInstance(entry, entry.runtime),
   }));
-  const resolveHarnessVerdict = (entry) => (
-    entry?.summary?.activeHarnessGateVerdict
-    || entry?.summary?.lastHarnessGateVerdict
-    || "none"
-  );
 
   return {
     automations: summarizedEntries,
@@ -419,34 +357,7 @@ export async function summarizeAutomationRuntimeRegistry({
       paused: summarizedEntries.filter((entry) => entry.runtime?.status === "paused").length,
       completed: summarizedEntries.filter((entry) => entry.runtime?.status === "completed").length,
       error: summarizedEntries.filter((entry) => entry.runtime?.status === "error").length,
-      byExecutionMode: {
-        freeform: summarizedEntries.filter((entry) => entry.summary?.executionMode === "freeform").length,
-        hybrid: summarizedEntries.filter((entry) => entry.summary?.executionMode === "hybrid").length,
-        guarded: summarizedEntries.filter((entry) => entry.summary?.executionMode === "guarded").length,
-      },
-      byHarnessGateVerdict: {
-        none: summarizedEntries.filter((entry) => resolveHarnessVerdict(entry) === "none").length,
-        pending: summarizedEntries.filter((entry) => resolveHarnessVerdict(entry) === "pending").length,
-        passed: summarizedEntries.filter((entry) => resolveHarnessVerdict(entry) === "passed").length,
-        failed: summarizedEntries.filter((entry) => resolveHarnessVerdict(entry) === "failed").length,
-      },
-      activeHarnessRuns: summarizedEntries.filter((entry) => Boolean(entry.summary?.activeHarnessRunId)).length,
-      pendingHarnessAutomations: summarizedEntries.filter((entry) => (
-        entry.summary?.activeHarnessGateVerdict === "pending"
-        || (entry.summary?.activeHarnessPendingModuleCount || 0) > 0
-      )).length,
-      failingHarnessAutomations: summarizedEntries.filter((entry) => (
-        (entry.summary?.activeHarnessFailedModuleCount || 0) > 0
-        || (entry.summary?.lastHarnessFailedModuleCount || 0) > 0
-      )).length,
-      pendingHarnessModules: summarizedEntries
-        .reduce((total, entry) => total + (entry.summary?.activeHarnessPendingModuleCount || 0), 0),
-      failedHarnessModules: summarizedEntries
-        .reduce((total, entry) => total + Math.max(
-          entry.summary?.activeHarnessFailedModuleCount || 0,
-          entry.summary?.lastHarnessFailedModuleCount || 0,
-        ), 0),
-      recentHarnessRuns: summarizedEntries.filter((entry) => (entry.summary?.recentHarnessRunCount || 0) > 0).length,
+      // harness 执行模式/gate 判决计数已随 harness 全退役删除（v226 / 2026-08-23）。
     },
   };
 }

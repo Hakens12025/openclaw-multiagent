@@ -13,15 +13,15 @@ import { readFile } from "node:fs/promises";
 import { markBlocked, runCheck } from "./checks/check-runner.js";
 import { gatewayGetJson } from "./checks/check-http.js";
 import { loadConfig } from "./infra.js";
-import { embedText, resolveWikiRagEmbedConfig } from "../operator/wiki-rag-embed.js";
-import { searchWiki } from "../operator/wiki-rag-search.js";
-import { evaluateWikiRagRecall } from "../operator/wiki-rag-eval.js";
+import { embedText, resolveWikiRagEmbedConfig } from "../knowledge/wiki-rag-embed.js";
+import { searchWiki } from "../knowledge/wiki-rag-search.js";
+import { evaluateWikiRagRecall } from "../knowledge/wiki-rag-eval.js";
 
 // 与 tests/wiki-rag-recall.test.js 的回归地板逐字一致（那里是 gate 真值；改地板须两处同步）。
 export const KNOWLEDGE_RECALL_FLOORS = Object.freeze({ recallAt10: 0.85, recallAt5: 0.65, mrr: 0.5 });
 
 // 已知良查询的期望页：harness 概念页（独特术语多，hybrid 基线下稳定 top 命中）。
-export const KNOWN_GOOD_SOURCE_PATH = "concepts/harness.md";
+export const KNOWN_GOOD_SOURCE_PATH = "wiki/concepts/harness.md";
 
 const FIXTURE_URL = new URL("../../tests/fixtures/wiki-rag-eval-set.json", import.meta.url);
 
@@ -132,7 +132,7 @@ export async function runKnowledgeSuite(run, context) {
     await runCheck(context, {
       ...KNOWLEDGE_CHECK_DESCRIPTORS[3],
       code: "E-KNOWLEDGE-002",
-      hint: "searchWiki degrades when embedText throws INSIDE the serving process; if a fresh `node` probe to localhost:11434 works but the gateway search stays degraded, the gateway process state is stale (e.g. cached embed dispatcher in lib/operator/wiki-rag-embed.js after an ollama restart) — restart the gateway (launchctl kickstart) and reindex via apply.wiki_reindex",
+      hint: "searchWiki degrades when embedText throws INSIDE the serving process; if a fresh `node` probe to localhost:11434 works but the gateway search stays degraded, the gateway process state is stale (e.g. cached embed dispatcher in lib/knowledge/wiki-rag-embed.js after an ollama restart) — restart the gateway (launchctl kickstart) and reindex via apply.wiki_reindex",
     }, async () => {
       if (!searchBody) {
         // 上一条 check 连响应都没拿到（网络层抛了）→ 本检查没验证到，blocked 而非二次 fail。

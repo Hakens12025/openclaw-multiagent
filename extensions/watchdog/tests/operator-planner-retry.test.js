@@ -6,11 +6,11 @@ import assert from "node:assert/strict";
 // terminal planner call (spread the real llm-planner exports so parsePlannerJson etc. survive);
 // drive the real exported helpers. Needs --experimental-test-module-mocks.
 
-import * as realPlanner from "../lib/llm-planner.js";
+import * as realPlanner from "../lib/llm/llm-planner.js";
 
 let plannerScript = [];
 let plannerCalls = [];
-mock.module("../lib/llm-planner.js", {
+mock.module("../lib/llm/llm-planner.js", {
   namedExports: {
     ...realPlanner,
     callOpenAICompatiblePlanner: async (args) => {

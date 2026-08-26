@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeConstraintPatchInput } from "../lib/agent/agent-admin-defaults.js";
+import { normalizeConstraintPatchInput } from "../lib/agent/admin/agent-admin-defaults.js";
 
 test("maxConcurrent=1 合法（= 串行本身）", () => {
   const patch = normalizeConstraintPatchInput({ maxConcurrent: 1 });

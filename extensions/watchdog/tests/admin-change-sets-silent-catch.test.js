@@ -17,7 +17,7 @@ import { dirname } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(
-  join(__dirname, "../lib/admin/admin-change-sets.js"),
+  join(__dirname, "../lib/admin/change-sets/admin-change-sets.js"),
   "utf8",
 );
 

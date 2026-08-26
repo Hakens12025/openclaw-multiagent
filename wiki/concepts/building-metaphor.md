@@ -18,7 +18,7 @@
 
 两种工作模式（备忘录124，代码坐实）：
 
-- **模式 A 前台派工**: 外部消息 → bridge → 共享合约 → 传送带（图授权 + 排队 + 投 inbox + 唤醒）→ 办公室认领。会话键 `agent:<id>:contract:<cid>`。
+- **模式 A 前台派工**: 外部消息 → bridge → 共享合约 → 传送带（pipeline 边解下一跳 + 投递图边校验 + 排队 + 投 inbox + 唤醒）→ 办公室认领。会话键 `agent:<id>:contract:<cid>`。
 - **模式 B 直接敲门**: 直连某 agent → `before_agent_start` 直连 intake（`_directSession`）→ 按其 SOUL 跑 → `agent_end` 直接回用户。会话键 `agent:<id>:main`。
 - **天然融合**: 两模式共用同一 inbox 绑定（`bindInboxContractEnvelope`），只在 `agent_end` 分叉；一次直连里办公室可经 system_action 把活丢上传送带派给别人（B→A→replyTo 回流）。
 

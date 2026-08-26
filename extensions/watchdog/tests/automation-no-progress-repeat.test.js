@@ -1,7 +1,7 @@
 /**
  * automation-no-progress-repeat.test.js — 跨轮内容级 spin 守卫
  *
- * 背景：loop-detection.js 覆盖「同一轮内重复 tool-call」；maxRounds/earlyStopPatience 覆盖
+ * 背景：execution-hard-stop-registry.js 覆盖「同一轮内重复 tool-call」；maxRounds/earlyStopPatience 覆盖
  * 「轮数上限 / 分数无改善」。但都拦不住「连续多轮产出一字不差」——maxRounds 很大时白烧 token。
  * 本守卫：产物内容指纹连续 NO_PROGRESS_REPEAT_LIMIT(=2) 次不变 → deriveDecision 提前止损。
  *
@@ -9,10 +9,12 @@
  *   1. computeImprovementState：相同产物 → repeatStreak 累加（0→1→2）
  *   2. 产物变化 → repeatStreak 归零
  *   3. 空产物 → 指纹 null + streak 归零（不参与 spin 检测）
- *   4. deriveDecision：repeatStreak>=limit + 非失败 → conclude "no_progress_repeat"
+ *   4. deriveDecision：repeatStreak>=limit → conclude "no_progress_repeat"
  *   5. repeatStreak<limit → 不提前收敛
- *   6. repeatStreak>=limit + 失败(wakeOnFailure) → abandon "no_progress_repeat_failing"（不洗白）
- *   7. 本守卫早于 maxRounds：maxRounds 很大时 spin 在 round<maxRounds 就收敛
+ *   6. 本守卫早于 maxRounds：maxRounds 很大时 spin 在 round<maxRounds 就收敛
+ *
+ * （原第 6 条 no_progress_repeat_failing 已随 evaluationResult 死评价臂整删,
+ *   2026-08-26：failing 判定只依赖 evaluationResult.verdict,生产恒 null 不可达。）
  */
 
 import test from "node:test";
@@ -84,9 +86,9 @@ test("computeImprovementState：对象产物稳定序列化后比较", () => {
   assert.equal(b.repeatStreak, 1, "相同对象产物 → streak 累加");
 });
 
-// ── 4. deriveDecision：达阈值 + 非失败 → conclude ─────────────────────────────────
+// ── 4. deriveDecision：达阈值 → conclude ─────────────────────────────────────────
 
-test("deriveDecision：repeatStreak>=2 + 非失败 → conclude 'no_progress_repeat'", () => {
+test("deriveDecision：repeatStreak>=2 → conclude 'no_progress_repeat'", () => {
   const spec = { enabled: true, governance: { maxRounds: 100 } }; // maxRounds 很大 → 本守卫先于它
   const decision = deriveDecision(spec, {}, {
     round: 3,
@@ -112,26 +114,7 @@ test("deriveDecision：repeatStreak<2 → 不触发 no_progress_repeat", () => {
   assert.notEqual(decision.reason, "no_progress_repeat");
 });
 
-// ── 6. 达阈值 + 失败(wakeOnFailure) → abandon，不洗白成 completed ─────────────────
-
-test("deriveDecision：repeatStreak>=2 + 失败重试 → abandon 'no_progress_repeat_failing'（遵守 real[14]）", () => {
-  const spec = {
-    enabled: true,
-    governance: { maxRounds: 100 },
-    wakePolicy: { onFailure: true }, // 跳过上方 reviewer_fail 短路，走到重复守卫
-  };
-  const decision = deriveDecision(spec, {}, {
-    round: 3,
-    terminalStatus: "failed",
-    evaluationResult: { verdict: "fail" },
-    improvementState: { repeatStreak: 2 },
-  }, NOW);
-  assert.equal(decision.reason, "no_progress_repeat_failing", "重复的失败不得被洗白成 completed");
-  assert.equal(decision.decision, "error");
-  assert.equal(decision.action, "abandon");
-});
-
-// ── 7. 本守卫早于 maxRounds（核心价值：maxRounds 大时省 token）───────────────────
+// ── 6. 本守卫早于 maxRounds（核心价值：maxRounds 大时省 token）───────────────────
 
 test("deriveDecision：maxRounds=100 但 round=3 已 spin → 本守卫先收敛（不等到 round 100）", () => {
   const spec = { enabled: true, governance: { maxRounds: 100 } };

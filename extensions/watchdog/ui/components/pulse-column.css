@@ -1,0 +1,109 @@
+/* pulse-column.css — LIVE PULSE 右栏 + 哨兵卡 + 日志抽屉 */
+.pulse-title {
+  font-size: var(--fs-label);
+  letter-spacing: 1px;
+  border-bottom: var(--border);
+  padding-bottom: var(--sp-1);
+  margin-bottom: var(--sp-2);
+}
+.pulse-card {
+  border: var(--border);
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  cursor: pointer;
+}
+.pulse-card-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-label);
+  font-weight: bold;
+}
+.pulse-elapsed { color: var(--line-soft); }
+.pulse-tool-line {
+  font-size: var(--fs-micro);
+  color: var(--active);
+  margin: var(--sp-1) 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pulse-progress {
+  border: 1px solid var(--ink);
+  height: 6px;
+}
+.pulse-progress-fill {
+  background: var(--active);
+  height: 100%;
+}
+.pulse-empty {
+  color: var(--line-soft);
+  font-size: var(--fs-label);
+  border: 1px dashed var(--line-soft);
+  padding: var(--sp-2);
+}
+/* 哨兵卡：砖红底，出现即插入置顶 */
+.sentinel-card {
+  background: var(--alert);
+  color: var(--bg);
+  border: var(--border);
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.sentinel-head {
+  font-size: var(--fs-label);
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+.sentinel-body {
+  font-size: var(--fs-body);
+  margin: var(--sp-1) 0;
+}
+.sentinel-actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+.sentinel-actions button {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+}
+/* 无证据定位的降级态（诚实 UI：该信号族没有 runId/contractId 可跳） */
+.sentinel-actions button:disabled {
+  color: var(--muted);
+  border-color: var(--muted);
+  cursor: not-allowed;
+}
+/* 日志抽屉：底部收起条 */
+.log-drawer {
+  border-top: var(--border);
+  margin-top: var(--sp-3);
+}
+.drawer-bar {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  background: var(--bg);
+  color: var(--ink);
+  border: none;
+  text-align: left;
+  padding: var(--sp-2) 0;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.drawer-body {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px dashed var(--line-soft);
+  padding: var(--sp-2);
+}
+.drawer-event-row {
+  font-size: var(--fs-micro);
+  padding: 2px 0;
+  border-bottom: 1px dashed var(--line-soft);
+}
+.drawer-event-type { font-weight: bold; }
+.drawer-empty { color: var(--line-soft); font-size: var(--fs-label); }

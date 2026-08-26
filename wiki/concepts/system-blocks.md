@@ -23,7 +23,7 @@ node scripts/openclaw-block-check.js --primary <block-id>
 | `agent-assembly` | AgentBinding, effective profile, policy, role specs, skills, guidance |
 | `local-execution` | hooks, heartbeat, tool calls, tracking state, agent lifecycle |
 | `graph-dispatch-queue` | graph edge authorization, conveyor dispatch, queue, pool |
-| `loop-stage` | LoopSpec, LoopSession, stage result, stage projection |
+| `stage` | stage plan, stage runtime, stage result, stage projection |
 | `harness-assurance` | harness runs, evidence, failure classification, review bridge |
 | `operator-cli-control` | operator snapshot, CLI system, system action, admin surfaces |
 | `automation-governance` | automation runtime, schedule triggers, governance decisions |

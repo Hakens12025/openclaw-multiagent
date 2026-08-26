@@ -1,6 +1,6 @@
 // lib/heartbeat-session-store.js — Encapsulated access to ignoredHeartbeatSessions Set
 
-import { ignoredHeartbeatSessions } from "../state-collections.js";
+import { ignoredHeartbeatSessions } from "../state/state-collections.js";
 
 export function ignoreHeartbeatSession(sessionKey) {
   ignoredHeartbeatSessions.add(sessionKey);

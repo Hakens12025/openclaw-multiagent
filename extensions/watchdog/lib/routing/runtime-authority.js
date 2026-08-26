@@ -1,18 +1,12 @@
-import { SYSTEM_ACTION_DELIVERY_IDS } from "./delivery-protocols.js";
+import { SYSTEM_ACTION_DELIVERY_IDS } from "./delivery/delivery-protocols.js";
 
 const SYSTEM_ACTION_DELIVERY_SOURCE_IDS = new Set([
   SYSTEM_ACTION_DELIVERY_IDS.ASSIGN_TASK_RESULT,
-  SYSTEM_ACTION_DELIVERY_IDS.REVIEW_VERDICT,
   SYSTEM_ACTION_DELIVERY_IDS.RUNTIME_RESULT,
 ]);
 
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function listIncludesString(values, target) {
-  if (!Array.isArray(values)) return false;
-  return values.some((value) => normalizeString(value) === target);
 }
 
 function authorityMatchesTarget(runtimeAuthority, target) {
@@ -44,15 +38,8 @@ export function hasRuntimeGraphBypassAuthority({
     return true;
   }
 
-  if (runtimeAuthority.kind !== "loop_start") {
-    return false;
-  }
-
-  const loopId = normalizeString(runtimeAuthority.loopId);
-  const startAgent = normalizeString(runtimeAuthority.startAgent);
-  if (from !== "system" || !loopId || !target || startAgent !== target) {
-    return false;
-  }
-
-  return listIncludesString(runtimeAuthority.nodes, target);
+  // 回路运行时退役(2026-08-18):此处曾有第二腿 kind==="loop_start"(唯一生产者是
+  // loop-round-runtime 的开轮派工),给 system→回路起点 一条绕开图边授权的旁路。
+  // 面消失后旁路只剩 system_action_delivery 一腿——任何其它 kind 一律不授权。
+  return false;
 }

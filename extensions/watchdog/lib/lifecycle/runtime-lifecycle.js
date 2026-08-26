@@ -6,17 +6,17 @@ import {
   hasDispatchTarget,
   isDispatchTargetBusy,
   releaseDispatchTargetContract,
-} from "../routing/dispatch-runtime-state.js";
+} from "../routing/dispatch/dispatch-runtime-state.js";
 import {
   deleteTrackingSession,
 } from "../store/tracker-store.js";
-import { clearSession as clearLoopDetectionSession } from "../loop/loop-detection.js";
-import { resolveLoopEpochKey } from "../loop/loop-epoch-key.js";
-import { refreshTrackingProjection } from "../stage-projection.js";
+import { clearSession as clearLoopDetectionSession } from "../runtime/execution-hard-stop-registry.js";
+import { resolveSessionEpochKey } from "../runtime/session-epoch-key.js";
+import { refreshTrackingProjection } from "../stage/stage-projection.js";
 import { recordTaskHistory } from "../store/task-history-store.js";
-import { onAgentDone as dispatchGraphPolicyOnAgentDone } from "../routing/dispatch-graph-policy.js";
-import { syncTrackingRuntimeStageProgress } from "../runtime-stage-progress.js";
-import { qqTypingStop } from "../channel-notify.js";
+import { onAgentDone as dispatchGraphPolicyOnAgentDone } from "../routing/dispatch/dispatch-graph-policy.js";
+import { syncTrackingRuntimeStageProgress } from "../stage/runtime-stage-progress.js";
+import { qqTypingStop } from "../transport/channel-notify.js";
 
 export const SESSION_FINALIZE_MODE = Object.freeze({
   TERMINAL: "terminal",
@@ -66,7 +66,7 @@ export async function finalizeAgentSession({
 
       // Immediate cleanup — session 设计用确定性 sessionKey，不需要延迟保活
       deleteTrackingSession(sessionKey);
-      clearLoopDetectionSession(resolveLoopEpochKey(trackingState) || sessionKey);
+      clearLoopDetectionSession(resolveSessionEpochKey(trackingState) || sessionKey);
       trackerRemoved = true;
     }
 

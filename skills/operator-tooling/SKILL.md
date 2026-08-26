@@ -1,6 +1,6 @@
 ---
 name: operator-tooling
-description: Runtime Operator 高级工具箱。说明 operator 如何组合使用 snapshot、graph、catalog、change-set、test 与 loop 管理工具。
+description: Runtime Operator 高级工具箱。说明 operator 如何组合使用 snapshot、graph、catalog、change-set 与 test 管理工具。
 ---
 
 # Runtime Operator 高级工具箱
@@ -21,7 +21,7 @@ description: Runtime Operator 高级工具箱。说明 operator 如何组合使�
 这些真相回答：
 
 - 当前系统状态
-- 图边和 loop
+- 图边与环形结构
 - 已开放的管理动作
 - agent / skill / model 当前配置
 - contract、delivery ticket 与 runtime_result 状态
@@ -52,16 +52,13 @@ description: Runtime Operator 高级工具箱。说明 operator 如何组合使�
 
 结构性改动后优先用 `test_runs.start`，小修补可先用 `test.inject`。
 
-## 图和 loop 工具
+## 图工具
 
 - `graph.edge.add`
 - `graph.edge.delete`
-- `graph.loop.compose`
-- `graph.loop.repair`
-- `runtime.loop.interrupt`
-- `runtime.loop.resume`
+- `graph.group.compose`
 
-图边是协作真相。loop 成环后由 runtime 管理运行态。repair 补结构真相，resume / interrupt 控制运行态。
+图边是固定管线与投递结构的真相（协作授权真相在 `collaboration-intent-policy` 角色表）。迭代结构就是把边闭合成环（a→b→c→a）——环是边的形状，平台自己识别并在图谱上高亮，没有单独的 loop 对象、也没有单独的 loop 运行时面。`GET /watchdog/graph` 的 `cycles` 字段是读环的真相。
 
 ## 核心规则
 

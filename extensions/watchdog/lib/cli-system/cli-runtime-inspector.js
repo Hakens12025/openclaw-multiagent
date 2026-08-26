@@ -1,4 +1,4 @@
-import { buildDispatchRuntimeSnapshot } from "../routing/dispatch-runtime-state.js";
+import { buildDispatchRuntimeSnapshot } from "../routing/dispatch/dispatch-runtime-state.js";
 import { snapshotTrackingSessions } from "../store/tracker-store.js";
 import { getTaskHistoryCount } from "../store/task-history-store.js";
 import { getDispatchChainSize } from "../store/contract-flow-store.js";

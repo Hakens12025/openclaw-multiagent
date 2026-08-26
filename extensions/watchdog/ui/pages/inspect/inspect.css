@@ -1,0 +1,249 @@
+/* inspect.css — 透视页：左树(可折叠成细轨) + 右详三 Tab。
+   2026-08-25 重制：并入 command 页 NASA-punk 语言（面板分层 --bg-2/-3、
+   顶部橙强调条、五语义色、--muted 标签、工程网格底、丝滑过渡）。
+   纪律不变：零圆角、零阴影、零渐变（网格是 1px 线非材质渐变）。 */
+.inspect-page {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(139, 115, 85, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 115, 85, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  min-height: calc(100vh - 40px);
+}
+.inspect-title {
+  font-size: var(--fs-title);
+  margin: 0 0 var(--sp-2) 0;
+  letter-spacing: 1px;
+}
+.inspect-grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: start;
+  transition: grid-template-columns 0.28s ease;
+}
+.inspect-grid.tree-collapsed {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+/* ── Tab 条：底边 + 活动页橙强调 ── */
+.insp-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: var(--border);
+  margin-bottom: var(--sp-3);
+}
+.insp-tab {
+  font: inherit;
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  background: var(--bg-2);
+  /* 顶边随 border=1px 细黑线(与其余细化黑框一致);选中换 3px 橙粗条,
+     padding-top 补 2px 抵消 1px→3px 的高度差、防跳动(2026-08-26 用户裁决:
+     不要粗黑线,但细黑线要在;橙粗线仅选中)。 */
+  border: var(--border);
+  border-bottom: none;
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-top 0.18s ease;
+}
+.insp-tab:hover { color: var(--ink); background: var(--bg-3); }
+.insp-tab.active {
+  color: var(--ink);
+  background: var(--bg);
+  border-top: 3px solid var(--active);
+  padding-top: calc(var(--sp-1) - 2px);
+  font-weight: bold;
+}
+.insp-state {
+  padding: var(--sp-3);
+  color: var(--muted);
+  background: var(--bg-2);
+  border: 1px dashed var(--line-soft);
+}
+.insp-error { color: var(--alert); border-color: var(--alert); }
+
+/* 详情面板通用外框：面板底 + 顶橙条（对齐 command 列） */
+/* 面板不再挂入场动画:详情面板每次交互(展开条目等)都全量重建 innerHTML,
+   挂在容器上的 insp-panel-in 会随之重播 = 整块「像刷新」地闪一下(2026-08-26 治闪动根因)。
+   平滑只留给「真正新出现」的详情块(insp-reveal,见下),容器重建保持静默。 */
+.prompt-layers,
+.output-panel,
+.run-timeline {
+  border: var(--border);
+  border-top: 3px solid var(--active);
+  background: var(--bg-2);
+  overflow: auto;
+}
+
+/* ── 提示词装配：六层遥测读数栈 ── */
+.pl-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: var(--border);
+  background: var(--bg-3);
+  font-size: var(--fs-label);
+}
+.pl-head-title { font-weight: bold; letter-spacing: 0.12em; }
+.pl-meta { color: var(--muted); font-size: var(--fs-micro); }
+.pl-stack { padding: var(--sp-1) 0; }
+.pl-layer {
+  display: grid;
+  grid-template-columns: 14px 92px 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.16s ease, border-left-color 0.16s ease;
+}
+.pl-layer:hover { background: var(--bg-3); }
+.pl-layer.pl-layer-present.open { border-left-color: var(--active); background: var(--bg-3); }
+.pl-layer.pl-layer-absent { cursor: default; opacity: 0.55; }
+/* 在场指示灯：实心方块 */
+.pl-lamp { width: 10px; height: 10px; flex: none; }
+.pl-layer-present .pl-lamp { background: var(--ok); }
+.pl-layer-absent .pl-lamp { background: transparent; border: 1px solid var(--muted); }
+.pl-layer-name { font-weight: bold; letter-spacing: 0.06em; }
+.pl-layer-absent .pl-layer-name { font-weight: normal; color: var(--muted); }
+/* 字符数占比条：容器 + 填充 */
+.pl-bar {
+  height: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  overflow: hidden;
+}
+.pl-bar-fill {
+  height: 100%;
+  background: var(--active);
+  transition: width 0.4s ease;
+}
+.pl-layer-absent .pl-bar { visibility: hidden; }
+/* 结构层度量位：present 但无字数（framework/tools/skills 绑定注入）——不画空白条,
+   改一枚 --muted 结构标记,一眼看懂「在场·无字数可比」而非「白条不知所以」。 */
+.pl-bar-na {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-transform: uppercase;
+  align-self: center;
+}
+.pl-chars {
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: right;
+}
+.pl-layer-absent .pl-chars { color: var(--muted); }
+.pl-layer-source {
+  grid-column: 2 / -1;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  padding: 0 var(--sp-3) var(--sp-1);
+}
+.pl-layer-content,
+.pl-file-content {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-body);
+  border-top: 1px dashed var(--line-soft);
+  border-bottom: var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  animation: insp-reveal 0.18s ease;
+}
+.pl-files-title {
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  padding: var(--sp-2) var(--sp-3);
+  border-top: var(--border);
+  border-bottom: 1px dashed var(--line-soft);
+  background: var(--bg-3);
+}
+.pl-file-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: 1px dashed var(--line-soft);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.16s ease, border-left-color 0.16s ease;
+}
+.pl-file-row:hover { background: var(--bg-3); }
+.pl-file-row.open { border-left-color: var(--info); background: var(--bg-3); }
+.pl-file-name { color: var(--info); }
+.pl-truncated { color: var(--alert); font-size: var(--fs-micro); }
+.pl-unavailable { padding: var(--sp-3); color: var(--muted); }
+
+/* ── output-panel ── */
+.op-seal {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: var(--border);
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  background: var(--bg-3);
+  font-weight: bold;
+}
+.op-seal.op-sealed { color: var(--ok); }
+.op-seal.op-unsealed { color: var(--amber); }
+.op-section-title {
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px dashed var(--line-soft);
+  color: var(--muted);
+}
+.op-file-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: 1px dashed var(--line-soft);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.16s ease, border-left-color 0.16s ease;
+}
+.op-file-row:hover { background: var(--bg-3); }
+.op-file-row.open { border-left-color: var(--active); background: var(--bg-3); }
+.op-meta { color: var(--muted); font-size: var(--fs-micro); }
+.op-primary { color: var(--active); font-weight: bold; }
+.op-truncated { color: var(--alert); font-size: var(--fs-micro); }
+.op-file-content,
+.op-delivery-body {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-bottom: var(--border);
+  background: var(--bg);
+  animation: insp-reveal 0.18s ease;
+}
+.op-empty { padding: var(--sp-2) var(--sp-3); color: var(--muted); }
+
+/* insp-panel-in 已退役(容器重建重播=闪动根因);只保留详情块的 insp-reveal 淡入。 */
+@keyframes insp-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inspect-grid,
+  .insp-tab,
+  .pl-layer,
+  .pl-bar-fill,
+  .pl-file-row,
+  .op-file-row,
+  .prompt-layers,
+  .output-panel,
+  .run-timeline { transition: none; animation: none; }
+}

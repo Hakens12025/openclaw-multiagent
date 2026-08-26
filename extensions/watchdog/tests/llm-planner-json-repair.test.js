@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { repairTruncatedJsonText, parsePlannerJson } from "../lib/llm-planner.js";
+import { repairTruncatedJsonText, parsePlannerJson } from "../lib/llm/llm-planner.js";
 
 // Defensive JSON handling for glm-style truncated planner output (CLAUDE.md defensive_json_handling).
 // parsePlannerJson must salvage the common "cut off at the end" case and, when unsalvageable,
@@ -28,9 +28,9 @@ test("repairTruncatedJsonText drops trailing commas before closers (string-aware
 });
 
 test("parsePlannerJson repairs trailing comma + truncation transparently", () => {
-  const parsed = parsePlannerJson('{"intent":"build","steps":[{"surfaceId":"graph.loop.compose"},]');
+  const parsed = parsePlannerJson('{"intent":"build","steps":[{"surfaceId":"graph.group.compose"},]');
   assert.equal(parsed.intent, "build");
-  assert.equal(parsed.steps[0].surfaceId, "graph.loop.compose");
+  assert.equal(parsed.steps[0].surfaceId, "graph.group.compose");
 });
 
 test("parsePlannerJson throws PLANNER_JSON_PARSE_FAILED on unsalvageable input", () => {

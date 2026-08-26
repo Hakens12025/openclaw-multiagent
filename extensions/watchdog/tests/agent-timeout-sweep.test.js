@@ -58,7 +58,7 @@ async function withSweep(setup, fn) {
         },
       },
     }),
-    mock.module("../lib/lifecycle/agent-end-lifecycle.js", {
+    mock.module("../lib/session/session-phase-store.js", {
       namedExports: { isAgentEndInFlight: (sk) => inFlight.has(sk) },
     }),
     mock.module("../lib/transport/runtime-wake-transport.js", {

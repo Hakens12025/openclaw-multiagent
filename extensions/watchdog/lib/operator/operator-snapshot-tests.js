@@ -1,17 +1,9 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { normalizeString } from "../core/normalize.js";
 
 const TEST_REPORTS_DIR = join(homedir(), ".openclaw", "test-reports");
 const DEFAULT_TEST_REPORT_LIMIT = 5;
-
-function compactText(value, maxLength = 120) {
-  const normalized = normalizeString(value);
-  if (!normalized) return null;
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
-}
 
 function summarizeTestReport(content, filename) {
   const lines = String(content || "").split("\n");
@@ -122,16 +114,3 @@ export function summarizeTestRun(run) {
   };
 }
 
-export function summarizeHarnessRun(run) {
-  return {
-    runId: run?.id || run?.runId || "unknown",
-    status: run?.status || null,
-    startedAt: Number.isFinite(run?.startedAt) ? run.startedAt : null,
-    endedAt: Number.isFinite(run?.finalizedAt) ? run.finalizedAt : (Number.isFinite(run?.endedAt) ? run.endedAt : null),
-    agentId: run?.executor?.agentId || null,
-    contractId: run?.contractId || null,
-    totalCalls: run?.toolUsage?.totalCalls || 0,
-    result: run?.terminalStatus || run?.status || run?.outcome?.result || null,
-    summary: compactText(run?.summary || run?.outcome?.summary, 120),
-  };
-}

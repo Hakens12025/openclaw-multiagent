@@ -1,7 +1,7 @@
 {
   "name": "openclaw-multi-agent-system",
   "version": "1.0.0",
-  "description": "OpenClaw 多 Agent 协作编排插件:传送带 dispatch + graph-backed loop,以及 harness(工具)/CLI-system(手)/operator(脑)/automation(目标)四关节自治链。LLM 管内容,代码管流程。",
+  "description": "OpenClaw 多 Agent 协作编排插件:传送带 dispatch + agent graph,以及 CLI-system(手)/operator(脑)/automation(目标)自治链(harness 判定账已于 v226 全退役)。LLM 管内容,代码管流程。",
   "type": "module",
   "main": "index.js",
   "openclaw": {
@@ -11,20 +11,14 @@
   },
   "files": [
     "index.js",
-    "runtime-mailbox.js",
-    "protocol-registry.js",
     "lib/",
     "hooks/",
     "routes/",
-    "dashboard-*.js",
-    "dashboard-*.css",
-    "*.css",
+    "dashboard/",
     "*.html",
     "test-runner.js",
     "openclaw.plugin.json",
-    "README.md",
-    "AGENTS.md",
-    "SOUL.md"
+    "README.md"
   ],
   "scripts": {
     "test": "node --test --experimental-test-module-mocks --test-concurrency=1 --test-timeout=30000 tests/*.test.js"

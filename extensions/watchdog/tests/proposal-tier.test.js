@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { evaluateProposalTier, dedupeKey, describeProposalEffect } from "../lib/control-plane/proposal-tier.js";
-import { resolveDraftStatus } from "../lib/admin/admin-change-set-history.js";
+import { resolveDraftStatus } from "../lib/admin/change-sets/admin-change-set-history.js";
 
 test("evaluateProposalTier maps risk/confirmation to tiers + gates", () => {
   const t4 = evaluateProposalTier({ risk: "destructive", confirmation: "explicit" });
@@ -39,7 +39,7 @@ test("dedupeKey is stable + key-order independent + distinguishes payloads", () 
 
 test("describeProposalEffect gives human sentences + generic fallback", () => {
   assert.match(describeProposalEffect("graph.edge.add", { from: "researcher1", to: "reviewer1" }), /researcher1.*reviewer1/);
-  assert.match(describeProposalEffect("graph.loop.compose", { agents: ["a", "b", "c"], maxRounds: 4 }), /闭环|loop/);
+  assert.match(describeProposalEffect("graph.edge.delete", { from: "a", to: "b" }), /删除管线边/);
   assert.match(describeProposalEffect("agents.delete", { agentId: "worker-x" }), /删除.*worker-x/);
   assert.match(describeProposalEffect("some.unknown.surface", {}), /执行 some\.unknown\.surface/);
 });

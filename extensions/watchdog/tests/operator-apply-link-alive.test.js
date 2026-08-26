@@ -5,7 +5,7 @@ import {
   executeAdminSurfaceOperation as realExecuteAdminSurfaceOperation,
   getAdminSurfaceOperationHandler,
   hasAdminSurfaceOperationHandler,
-} from "../lib/admin/admin-surface-operations.js";
+} from "../lib/admin/operations/admin-surface-operations.js";
 
 // P2.5 end-to-end proof: an operatorExecutable:true admin apply surface passes
 // all four executor gates (actor===operator / operatorExecutable===true /
@@ -15,7 +15,7 @@ import {
 // real hasAdminSurfaceOperationHandler / getAdminSurfaceOperationHandler are
 // preserved so the registry's `executable` flag is still derived for real.
 const sinkCalls = [];
-mock.module("../lib/admin/admin-surface-operations.js", {
+mock.module("../lib/admin/operations/admin-surface-operations.js", {
   namedExports: {
     hasAdminSurfaceOperationHandler,
     getAdminSurfaceOperationHandler,

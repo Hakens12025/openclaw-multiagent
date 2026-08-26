@@ -142,18 +142,15 @@ export async function migrateControllerRootedStoresForPaths({
   let stateChanged = false;
   let skippedCompleted = 0;
   const pairs = [
-    ["contractsDir", copyDirIfMissing],
     ["stateFile", copyFileIfMissing],
     ["queueStateFile", copyFileIfMissing],
     ["outputDir", copyDirIfMissing],
-    ["conversationsDir", copyDirIfMissing],
     ["adminChangeSetsDir", copyDirIfMissing],
     ["taskStateFile", copyFileIfMissing],
     ["systemActionDeliveryTicketsFile", copyFileIfMissing],
     ["agentDefaultSkillsFile", copyFileIfMissing],
     ["agentJoinRegistryFile", copyFileIfMissing],
     ["agentGraphFile", copyFileIfMissing],
-    ["graphLoopRegistryFile", copyFileIfMissing],
     ["automationRuntimeFile", copyFileIfMissing],
     ["automationRegistryFile", copyFileIfMissing],
     ["scheduleRegistryFile", copyFileIfMissing],

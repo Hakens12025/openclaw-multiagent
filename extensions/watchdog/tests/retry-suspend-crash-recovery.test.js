@@ -16,7 +16,13 @@ mock.module("../lib/state.js", {
       writtenFiles.push({ path, content });
     },
     CONTRACTS_DIR: "/tmp/contracts",
+    // 批② 迁树:crash-recovery → contract-store/thread-tree-store 现在经 state.js
+    // 要 withLock;mock 版直通执行(单测无并发)
+    withLock: async (_key, fn) => fn(),
     isWorker: () => true,
+    // 批④刀2:crash-recovery 静态可达 agent-identity(GC 摘链的 agent 名单),
+    // 其 state.js 依赖仅此一项
+    runtimeAgentConfigs: new Map(),
   },
 });
 
@@ -34,7 +40,7 @@ mock.module("../lib/core/event-types.js", {
   },
 });
 
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
     readContractSnapshotByPath: async () => ({
       id: "TC-RETRY",
@@ -44,14 +50,23 @@ mock.module("../lib/contracts.js", {
     }),
     updateContractStatus: async () => ({ ok: true }),
     mutateContractSnapshot: async () => ({ result: null }),
-    evaluateContractOutcome: async () => ({
-      status: "failed",
-      reason: "simulated crash",
+  },
+});
+
+mock.module("../lib/contract/terminal-outcome.js", {
+  namedExports: {
+    resolveTerminalOutcome: async () => ({
+      terminalOutcome: { status: "failed", reason: "simulated crash", source: "session" },
+      terminalStatus: "failed",
+    }),
+    normalizeTerminalOutcome: (outcome, { terminalStatus } = {}) => ({
+      status: terminalStatus || outcome?.status || "failed",
+      ...outcome,
     }),
   },
 });
 
-mock.module("../lib/channel-notify.js", {
+mock.module("../lib/transport/channel-notify.js", {
   namedExports: {
     qqNotify: () => {},
     qqTypingStop: (contractId) => {

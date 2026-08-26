@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
-import { markSessionHardStopped, HARD_STOP_REASON, clearAllSessions } from "../lib/loop/loop-detection.js";
+import { markSessionHardStopped, HARD_STOP_REASON, clearAllSessions } from "../lib/runtime/execution-hard-stop-registry.js";
 
 const commits = [];
 const finalizedSessions = [];
 
-mock.module("../lib/terminal-commit.js", {
+mock.module("../lib/routing/terminal-commit.js", {
   namedExports: {
     commitSemanticTerminalState: async ({
       trackingState,
@@ -35,7 +35,7 @@ mock.module("../lib/lifecycle/runtime-lifecycle.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-graph-policy.js", {
+mock.module("../lib/routing/dispatch/dispatch-graph-policy.js", {
   namedExports: {
     resolveRouteAfterAgentEndTarget: async () => ({
       routable: false,
@@ -87,7 +87,8 @@ test("hard stop does not complete from default contract.output evidence", async 
     assert.equal(commits.length, 1);
     assert.equal(commits[0].terminalStatus, CONTRACT_STATUS.FAILED);
     assert.equal(commits[0].terminalOutcome.status, CONTRACT_STATUS.FAILED);
-    assert.equal(commits[0].terminalOutcome.source, "loop_runtime");
+    // 字面量而非引 HARD_STOP_TERMINAL_SOURCE:该字段无枚举校验,引常量会让改名悄悄通过。
+    assert.equal(commits[0].terminalOutcome.source, "execution_hard_stop");
     assert.equal(finalizedSessions.length, 1);
   } finally {
     await rm(tempDir, { recursive: true, force: true });

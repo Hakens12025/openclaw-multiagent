@@ -6,8 +6,8 @@ import {
   buildRuntimeWakeEnvelope,
   isInternalWakeSemanticType,
 } from "../lib/transport/runtime-wake-envelope.js";
-import { createDirectRequestEnvelope, isDirectRequestEnvelope } from "../lib/protocol-primitives.js";
-import { buildDirectServiceSession } from "../lib/service-session.js";
+import { createDirectRequestEnvelope, isDirectRequestEnvelope } from "../lib/protocol/protocol-primitives.js";
+import { buildDirectServiceSession } from "../lib/session/service-session.js";
 
 test("execution_contract vs direct_request_resume are distinct wake semantic types", () => {
   const exec = buildRuntimeWakeEnvelope({

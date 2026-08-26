@@ -19,10 +19,10 @@
 真正的可见正文从 ④⑤⑥ 开始落到文件 / 手拼串里。
 
 代码位置：
-- ④role 渲染：`lib/role-spec-registry.js` `renderRolePersonaBlock` / `getRoleSoulProfile`
+- ④role 渲染：`lib/prompt/role-spec-registry.js` `renderRolePersonaBlock` / `getRoleSoulProfile`
 - ④落地为 IDENTITY.md：`lib/workspace-guidance-writer.js` `buildManagedIdentityDoc`（托管，`writeManagedFile` 覆盖）
 - ⑤SOUL 用户占位：`lib/workspace-guidance-writer.js` `buildUserSoulPlaceholder`（`writeIfMissing`，不覆盖用户内容）
-- ⑥wake 手拼：`lib/contract-session-prompt-override.js` `buildContractSessionSystemPrompt`
+- ⑥wake 手拼：`lib/prompt/contract-session-prompt-override.js` `buildContractSessionSystemPrompt`
 
 ## 两条装配路径
 

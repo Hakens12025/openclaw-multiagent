@@ -28,6 +28,12 @@ mock.module("../lib/state.js", {
 
 mock.module("../lib/agent/agent-graph.js", {
   namedExports: {
+    // 与真实实现同形:标了 pipeline 的边优先,一条都没标时全部边都是候选。
+    getPipelineEdgesFrom: (graph, nodeId) => {
+      const edges = (graph?.edges || []).filter((e) => e.from === nodeId);
+      const marked = edges.filter((e) => e.metadata?.pipeline === true);
+      return marked.length > 0 ? marked : edges;
+    },
     loadGraph: async () => mockGraph,
     detectCycles: () => [],
     hasDirectedEdge: (graph, from, to) =>
@@ -37,7 +43,7 @@ mock.module("../lib/agent/agent-graph.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-transport.js", {
+mock.module("../lib/routing/dispatch/dispatch-transport.js", {
   namedExports: {
     dispatchSendExecutionContract: async (...args) => {
       dispatchSharedCalls.push(args);
@@ -52,9 +58,13 @@ mock.module("../lib/transport/sse.js", {
   },
 });
 
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
     mutateContractSnapshot: async (_path, _logger, fn) => {
+      fn({ assignee: null, status: "running" });
+      return { contract: { id: "mock-contract", assignee: null, status: "running" } };
+    },
+    mutateContractById: async (_id, _logger, fn) => {
       fn({ assignee: null, status: "running" });
       return { contract: { id: "mock-contract", assignee: null, status: "running" } };
     },
@@ -67,7 +77,7 @@ mock.module("../lib/contracts.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-runtime-state.js", {
+mock.module("../lib/routing/dispatch/dispatch-runtime-state.js", {
   namedExports: {
     listDispatchTargetIds: () => [...dispatchTargetStateMap.keys()],
     hasDispatchTarget: (agentId) => dispatchTargetStateMap.has(agentId),
@@ -203,7 +213,7 @@ mock.module("../lib/store/tracker-store.js", {
   },
 });
 
-mock.module("../lib/role-spec-registry.js", {
+mock.module("../lib/prompt/role-spec-registry.js", {
   namedExports: {
     getRoleSummary: () => "planner summary",
   },
@@ -212,7 +222,7 @@ mock.module("../lib/role-spec-registry.js", {
 const {
   dispatchRouteExecutionContract,
   onAgentDone,
-} = await import("../lib/routing/dispatch-graph-policy.js");
+} = await import("../lib/routing/dispatch/dispatch-graph-policy.js");
 
 const logger = { info() {}, warn() {}, error() {} };
 const api = {};

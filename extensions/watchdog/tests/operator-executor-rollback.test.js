@@ -10,14 +10,14 @@ import assert from "node:assert/strict";
 import {
   getAdminSurfaceOperationHandler,
   hasAdminSurfaceOperationHandler,
-} from "../lib/admin/admin-surface-operations.js";
+} from "../lib/admin/operations/admin-surface-operations.js";
 // Keep the real sibling exports (projectStructureAfter etc. are imported by other modules in the
 // executor's dependency graph) — we only override capture/restore. mock.module replaces ALL exports.
 import * as realSnapshot from "../lib/control-plane/structure-snapshot.js";
 
 let callCount = 0;
 let throwOnCall = 0; // 1-based index of the executeAdminSurfaceOperation call that throws (0 = never)
-mock.module("../lib/admin/admin-surface-operations.js", {
+mock.module("../lib/admin/operations/admin-surface-operations.js", {
   namedExports: {
     hasAdminSurfaceOperationHandler,
     getAdminSurfaceOperationHandler,
@@ -45,7 +45,7 @@ mock.module("../lib/control-plane/structure-snapshot.js", {
 const { executeOperatorExecutablePlan } = await import("../lib/operator/operator-executor.js");
 
 // graph.edge.add is risk:safe/changeset (C2 doesn't block) + verify-exempt. Use REAL core agents so
-// the feasibility pre-flight passes (planner/worker/researcher1/reviewer1 are stable live agents).
+// the feasibility pre-flight passes (planner/worker/worker2 are stable live agents).
 const edge = (from, to) => ({ surfaceId: "graph.edge.add", title: "e", summary: "e", payload: { from, to } });
 
 test("E1: mid-plan throw rolls back + returns ok:false with failedStepIndex (no throw)", async () => {
@@ -53,7 +53,7 @@ test("E1: mid-plan throw rolls back + returns ok:false with failedStepIndex (no 
   const out = await executeOperatorExecutablePlan({
     plan: {
       intent: "platform_mutation", summary: "3-edge",
-      steps: [edge("planner", "worker"), edge("worker", "researcher1"), edge("researcher1", "reviewer1")],
+      steps: [edge("planner", "worker"), edge("worker", "worker2"), edge("worker2", "planner")],
     },
   });
   assert.equal(out.ok, false);
@@ -69,7 +69,7 @@ test("E1: mid-plan throw rolls back + returns ok:false with failedStepIndex (no 
 test("E1: all-steps-succeed → ok:true, no failedStepIndex / rollback", async () => {
   callCount = 0; throwOnCall = 0;
   const out = await executeOperatorExecutablePlan({
-    plan: { intent: "platform_mutation", summary: "2-edge", steps: [edge("planner", "worker"), edge("worker", "researcher1")] },
+    plan: { intent: "platform_mutation", summary: "2-edge", steps: [edge("planner", "worker"), edge("worker", "worker2")] },
   });
   assert.equal(out.ok, true);
   assert.equal(out.results.length, 2);

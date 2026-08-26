@@ -48,27 +48,9 @@ test("规则③: stable + frozen(conclude) → skill_precipitation(safe)", () =>
   assert.equal(precip.riskLevel, "safe");
 });
 
-test("规则④(#47): harness 模块失败 → harness_authoring(guarded) + 失败模块证据", () => {
-  const proposals = operatorAutoPropose({
-    now: NOW,
-    profiles: [{
-      automationId: "auto-h",
-      profileLifecycle: { trustLevel: "provisional", status: "active", successStreak: 1, failureStreak: 0 },
-      harness: { failedModuleCount: 2, failedModules: ["mod-x", "mod-y"] },
-    }],
-  });
-  const ha = proposals.find((p) => p.category === "harness_authoring");
-  assert.ok(ha, "harness 模块失败应产 harness_authoring 提案");
-  assert.equal(ha.riskLevel, "guarded");
-  assert.equal(ha.confidence, "high"); // 2 个失败 ≥2 → high
-  assert.equal(ha.suggestedPayload.harnessNeedsReshape, true);
-  assert.ok(ha.proof.some((p) => p.kind === "failedModules"));
-  // 生成层: 提案带具体推荐的 harness moduleRefs(非空, 全在 catalog 形如 harness:*)
-  assert.ok(Array.isArray(ha.suggestedPayload.suggestedModuleRefs) && ha.suggestedPayload.suggestedModuleRefs.length >= 4);
-  assert.ok(ha.suggestedPayload.suggestedModuleRefs.every((id) => /^harness:/.test(id)));
-});
+// （规则④ harness 重塑提案已随 harness 全退役删除，v226 / 2026-08-23。）
 
-test("无信号不造提案: experimental/低 streak/无 snapshot/harness 0 失败 → 空", () => {
+test("无信号不造提案: experimental/低 streak/无 snapshot → 空", () => {
   const proposals = operatorAutoPropose({
     now: NOW,
     profiles: [{ automationId: "auto-q", profileLifecycle: { trustLevel: "experimental", status: "active", successStreak: 1, failureStreak: 0 } }],

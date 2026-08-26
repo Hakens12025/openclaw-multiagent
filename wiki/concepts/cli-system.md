@@ -28,8 +28,8 @@
 |--------|---------|---------|
 | `inspect` | `cli-surface-inspector.js`（`inspectCliSystemSurface`） | 观测读取唯一碰 store 入口；operator + HTTP read-route 都经它 |
 | `observe` | 声明式，**无需独立 dispatch** | 其中的观测读经 inspect surface；实时推送本身是 transport |
-| `apply` | `lib/admin/admin-surface-operations.js`（`executeAdminSurfaceOperation`，统一变更执行器） | 所有变更必经它；executor 是 operator 专用守卫通道叠在其上 |
-| `verify` | 经 admin-operations 执行 | **0 旁路**；harness gate/reviewer 判定是 verify owner 自驱 |
+| `apply` | `lib/admin/operations/admin-surface-operations.js`（`executeAdminSurfaceOperation`，统一变更执行器） | 所有变更必经它；executor 是 operator 专用守卫通道叠在其上 |
+| `verify` | 经 admin-operations 执行 | **0 旁路**；harness gate/评审判定是 verify owner 自驱 |
 
 ### inspect：观测读取唯一碰 store 的入口
 
@@ -52,8 +52,8 @@ HTTP routes 直调 admin-operations = 合法（同一变更原语的另一 calle
 | 类别 | 处理 | 例 |
 |------|------|----|
 | **观测读**（read-for-observation） | = 旁路，**必经 inspect surface** | operator snapshot、HTTP read-route、SSE 里的观测读 |
-| **engine 控制流自取/自写真值** | 合法直读 | automation / loop / ingress / schedule / admin 执行器 / dispatch-reconcile |
-| **truth-assembler** | 合法直读（组装 registry） | `lib/capability/capability-registry.js` |
+| **engine 控制流自取/自写真值** | 合法直读 | automation / ingress / schedule / admin 执行器 / dispatch-reconcile |
+| **truth-assembler** | 合法直读（组装 registry） | `lib/management/capability-registry.js` |
 | **协议边界 / transport** | 合法直读 | a2a（协议）、broadcast / SSE push / `getSseClientCount`（transport） |
 | **纯算法** | 合法直读 | `detectCycles` |
 
@@ -63,8 +63,9 @@ v109-stable 起，surface 注册/编目时**非静默拒绝**不合规项：
 
 - `lib/cli-system/cli-surface-schema.js` 的 `validateCliSurface`：必填 `id` / `family`∈{hook,observe,inspect,apply,verify} / `source` / `status`。
 - 编目落在 `lib/cli-system/cli-surface-catalog.js`，统一 registry 在 `lib/cli-system/cli-surface-registry.js`。
-- 当前静态 catalog 的 `inspect.*` 共 **26 个**（`lib/cli-system/cli-surface-catalog.js`；活跃 family 视图含 admin 投影合计 **44** inspect surface）：v109 的 14 个（agent_graph / agent_joins / automation_runtime(+_summary) / change_sets / delivery_tickets / graph_loops / guidance_drift / harness_runs / loop_sessions / pending_signals / schedules / test_runs / work_items），v110 +2（active_loop_session / runtime_state），v111 +3（`tracking_states` / `recent_task_history` / `capability_registry`），v112 +4（`agent_workflows` / `agent_sessions` / `session_transcript` / `session_system_prompt`），v112 之后再 +3（`inspect.profile_lifecycle` / `inspect.agent_groups` / `inspect.structure_preview`）。
-- **apply / verify 族已编目，不是缺 catalog**：surface 落在 `lib/admin/catalog/apply-rest.js`（`stage:'apply'`/`'verify'`）+ `agents-apply.js`，经 `cli-surface-registry.js` 的 `normalizeAdminSurface` 归一进 CLI family —— family **从 `stage` 字段派生**（不是因为缺 catalog 而归 inspect）。约 **38 个携带 `operatorExecutable:true`**（apply-rest 28 + agents-apply 10）。operator 落地**不再走 admin-surface 旁路**：executor（`cli-surface-executor.js`）硬要求 `operatorExecutable=true`，而这些 surface 真实存在。[四关节自治闭环](self-governance-loop.md) 的**死链 (b) 已闭**。
+- 当前静态 catalog 的 `inspect.*` 共 **36 个**（2026-08-19 实测 `lib/cli-system/cli-surface-catalog.js`；本文不复刻清单——以文件为准）。
+  历史沿革：v109 起编目，v110/v111/v112 逐批扩充；**2026-08-18 回路退役删掉 3 个**（`inspect.graph_loops` / `inspect.loop_sessions` / `inspect.active_loop_session`），同期 archive/knowledge 两族新增若干。surface 总量的 live 下界钉在 `SURFACE_REGISTRY_FLOORS`（`health` 的 `inspect.surface-registry` 检查），改动 surface 族必须同批更新它。
+- **apply / verify 族已编目，不是缺 catalog**：surface 落在 `lib/admin/catalog/apply-rest.js`（`stage:'apply'`/`'verify'`）+ `agents-apply.js`，经 `cli-surface-registry.js` 的 `normalizeAdminSurface` 归一进 CLI family —— family **从 `stage` 字段派生**（不是因为缺 catalog 而归 inspect）。携带 `operatorExecutable:true` 的 surface 见 `lib/admin/catalog/`（2026-08-09 抽样：apply-rest 40 + agents-apply 10 = 50）。operator 落地**不再走 admin-surface 旁路**：executor（`cli-surface-executor.js`）硬要求 `operatorExecutable=true`，而这些 surface 真实存在。[四关节自治闭环](self-governance-loop.md) 的**死链 (b) 已闭**。
 
 ### capability-registry 刻意不收口
 

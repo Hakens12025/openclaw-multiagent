@@ -16,12 +16,12 @@ import {
   selectAgentKnowledgeBases,
   mergeAgentKbResults,
   searchAgentKnowledge,
-} from "../lib/operator/knowledge-base.js";
-import { addKnowledgeBaseSource, removeKnowledgeBase } from "../lib/operator/knowledge-base-registry.js";
-import { buildKbIndex } from "../lib/operator/knowledge-base.js";
+} from "../lib/knowledge/knowledge-base.js";
+import { addKnowledgeBaseSource, removeKnowledgeBase } from "../lib/knowledge/knowledge-base-registry.js";
+import { buildKbIndex } from "../lib/knowledge/knowledge-base.js";
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 import { knowledgeBaseIndexFile } from "../lib/control-plane/control-plane-paths.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try { await embedText("probe", {}); ollamaUp = true; } catch { ollamaUp = false; }

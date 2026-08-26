@@ -1,5 +1,7 @@
 # wake 提示词数据驱动接入 role-spec
 
+> ⚠️ **一个载体已消失（标注于 2026-08-09）**：正文多处提到的 `lib/soul-template-builder.js`（6 个 per-role SOUL 模板生成器）**已被删除** —— role 内容随 role→IDENTITY 拆分迁走，SOUL 回归纯用户人格，见 [role/SOUL/wake 解耦](./role-soul-wake-decoupling.md)。本决策的结论（wake 提示词按 role-spec 数据驱动）不变。以下正文保留当时原貌。
+
 > 系统派工(wake)提示词从 role-spec 派生 per-role 个性,消除「6 role 实际只有 2 种 wake 提示词」的真值分裂。
 
 **状态:已实施(ACCEPTED,2026-05-31)** — 用户批准方案 A,并定下:wake 全英文 + SOUL 也英文 + (b) 保留 bullet 结构。已落地并通过完整串行门(1544/0),已编译 [SOUL & Identity](../concepts/soul-identity.md) 概念页。
@@ -19,7 +21,7 @@
 
 - **两套提示词,载体不同**
   - SOUL.md(`lib/soul-template-builder.js`,6 个 per-role 模板)→ 写进 agent workspace,**仅用户直连时生效**。
-  - contract-session-override(`lib/contract-session-prompt-override.js` 的 `buildContractSessionSystemPrompt`)→ 经 `hooks/before-prompt-build.js` 在 `before_prompt_build` **系统派工时替换 SOUL**(index.js 注册)。
+  - contract-session-override(`lib/prompt/contract-session-prompt-override.js` 的 `buildContractSessionSystemPrompt`)→ 经 `hooks/before-prompt-build.js` 在 `before_prompt_build` **系统派工时替换 SOUL**(index.js 注册)。
   - 选择逻辑:`lib/agent/agent-session-system-prompt.js`(`isDispatch ? agentAwake : soul`)。
 - **wake 时 6 role 只有 2 种提示词**:`buildOutputDirectives(role)` 只判断 `role === PLANNER`,其余 5 个 role 在 wake 时拿到**逐字相同**的提示词。
 - **per-role 个性活在 SOUL,但 SOUL 在 wake 时被替换**:`role-spec` 的丰富设计经 `getRoleSoulProfile` 只喂给 SOUL 模板,系统派工时整体失效。
@@ -51,9 +53,9 @@ role-spec-registry  (唯一英文源)
 
 ## 实施结果(2026-05-31)
 
-- `lib/role-spec-registry.js`:6 role 全英文 + 新增 `outputDirectives` + `renderRolePersonaLines`(共享渲染)+ 删 `getDispatchInstruction`/`dispatchInstruction`/`joinDispatchInstruction`。
+- `lib/prompt/role-spec-registry.js`:6 role 全英文 + 新增 `outputDirectives` + `renderRolePersonaLines`(共享渲染)+ 删 `getDispatchInstruction`/`dispatchInstruction`/`joinDispatchInstruction`。
 - `lib/soul-template-builder.js`:6 个 SOUL 模板全英文化(只改语言,结构不动)+ 复用 `renderRolePersonaLines`。
-- `lib/contract-session-prompt-override.js`:`buildContractSessionSystemPrompt` 注入 `## Role`(summary + persona 行)+ `getRoleOutputDirectives` 替代 `buildOutputDirectives`(已删)+ `upstreamPackages` 读取入骨架。
+- `lib/prompt/contract-session-prompt-override.js`:`buildContractSessionSystemPrompt` 注入 `## Role`(summary + persona 行)+ `getRoleOutputDirectives` 替代 `buildOutputDirectives`(已删)+ `upstreamPackages` 读取入骨架。
 - 测试:7 个测试的中文断言改英文等价 + 2 个 mock 测试删无效遗留 `getDispatchInstruction` mock。
 - 验证:完整串行门 **1544/0**。wake 每 role 性格分化(executor=工程师 / reviewer=审查者 / planner=规划者);planner 产简报 + `[STAGE]`,其余产交付物。
 - **范围注记(范围 1)**:只注入人格/质量/准则。executor 与 reviewer 的产出 bullet 仍相同(都 "Write the user-facing deliverable artifact"),差异在 `## Role` 段。reviewer 的 `[BLOCKING]` 输出格式块仍只在 SOUL(用户直连),未进 wake——若要进 wake 需把格式块迁进 role-spec(范围 2,未做)。
@@ -65,4 +67,4 @@ role-spec-registry  (唯一英文源)
 
 ## 出处
 
-讨论日期: 2026-05-31。调研代码真值:`lib/contract-session-prompt-override.js`、`lib/role-spec-registry.js`、`lib/soul-template-builder.js`、`lib/agent/agent-session-system-prompt.js`、`hooks/before-prompt-build.js`;消费链 grep 确认 `getDispatchInstruction` 改前生产零消费。
+讨论日期: 2026-05-31。调研代码真值:`lib/prompt/contract-session-prompt-override.js`、`lib/prompt/role-spec-registry.js`、`lib/soul-template-builder.js`、`lib/agent/agent-session-system-prompt.js`、`hooks/before-prompt-build.js`;消费链 grep 确认 `getDispatchInstruction` 改前生产零消费。

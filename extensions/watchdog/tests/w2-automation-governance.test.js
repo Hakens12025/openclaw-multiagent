@@ -1,8 +1,8 @@
 /**
  * W2 TDD tests for automation-governance bugs:
  * 1. buildEditArgs missing --json flag
- * 2. reconcileAutomationRuntimeStates missing automationId check in concluded-loopRuntime recovery
- * 3. null harness result defense in finalizeAutomationRound (nextHarnessRun falls back to prefinalizedHarness)
+ * 2. reconcileAutomationRuntimeStates recovering a terminal round that belongs to another automation
+ * (原 Bug 3 null harness defense 已随 harness 全退役删除——finalizeAutomationRound 不再产 HarnessRun，v226)
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -64,83 +64,65 @@ test("buildEditArgs (edit branch) omits --json (cron edit does not support it)",
 });
 
 // ============================================================
-// Bug 2: reconcileAutomationRuntimeStates must check automationId
-// The bug: lines 534-540 check pipelineId+concluded but NOT automationId.
-// startAutomationRound lines 106-112 has the guard; reconcile does not.
-// We test by inspecting the source: the concluded-recovery if-block must
-// include resolveAutomationIdFromContext(...) === spec.id on the SAME condition.
+// Bug 2: reconcileAutomationRuntimeStates must not recover a terminal round
+// that belongs to a *different* automation.
+//
+// The original W2 bug lived in a second recovery leg that matched a concluded
+// loop runtime by `runtime.activePipelineId` alone, with no automationId guard,
+// so automation A could finalize a round minted by automation B. That leg was
+// deleted with the loop-runtime retirement (2026-08-18): its own first gate,
+// `resolveAutomationIdFromContext(loopRuntime.automationContext)`, was constantly
+// null because loop runtimes never carry an automationContext, so it never ran in
+// production.
+//
+// The surviving path (automation-reconcile.js, the `runtimeContract` block) makes
+// the W2 bug class structurally impossible rather than guarded: it resolves the
+// candidate through `runtime.activeContractId` -> `contractIndex.byId`, i.e. the
+// contract *this* automation's own runtime state recorded. There is no cross-
+// automation lookup key left to mismatch. This test locks that structure in:
+// the recovery must key off activeContract*Id* + byId and call the contract-level
+// finalizer, never a foreign identity.
 // ============================================================
 import { readFile } from "node:fs/promises";
 
-test("reconcileAutomationRuntimeStates concluded-loopRuntime recovery includes automationId guard", async () => {
-  const executorPath = new URL(
+test("reconcileAutomationRuntimeStates recovers terminal rounds through its own activeContractId, not a foreign identity", async () => {
+  const reconcilePath = new URL(
     "../lib/automation/automation-reconcile.js",
     import.meta.url,
   ).pathname;
 
-  const source = await readFile(executorPath, "utf8");
+  const source = await readFile(reconcilePath, "utf8");
 
-  // Locate the reconcile function
   const reconcileStart = source.indexOf("export async function reconcileAutomationRuntimeStates");
   assert.ok(reconcileStart >= 0, "reconcileAutomationRuntimeStates must exist");
 
   const reconcileBody = source.slice(reconcileStart);
 
-  // Find the pipelineId-concludedStage recovery block
-  // It looks like: normalizeString(runtime?.activePipelineId) ... "concluded"
-  const pipelineIdCheckIdx = reconcileBody.indexOf("activePipelineId");
-  assert.ok(pipelineIdCheckIdx >= 0, "reconcile must reference activePipelineId");
-
-  const concludedCheckIdx = reconcileBody.indexOf('"concluded"', pipelineIdCheckIdx);
-  assert.ok(concludedCheckIdx >= 0, 'reconcile must check === "concluded"');
-
-  // After the fix: resolveAutomationIdFromContext must appear WITHIN the same if-condition
-  // i.e., between the activePipelineId check and the closing ) of the if condition.
-  // The if-block ends with ")" followed by "{". Find the closing paren of the condition.
-  const ifBlockStart = reconcileBody.lastIndexOf("if (", concludedCheckIdx);
-  assert.ok(ifBlockStart >= 0, "there must be an if-block containing the concluded check");
-
-  // Find the close of the if-condition: look for ") {" or ")\n  {" after concludedCheckIdx
-  const ifBodyStart = reconcileBody.indexOf(") {", concludedCheckIdx);
-  assert.ok(ifBodyStart >= 0, "the if condition must close before the block body");
-
-  const ifCondition = reconcileBody.slice(ifBlockStart, ifBodyStart + 2);
-
+  // The recovery candidate must be resolved from this automation's own runtime state.
+  const lookupIdx = reconcileBody.indexOf("contractIndex.byId.get(runtime.activeContractId)");
   assert.ok(
-    ifCondition.includes("resolveAutomationIdFromContext"),
-    "the concluded-recovery if-condition must include resolveAutomationIdFromContext for automationId guard:\n"
-    + `Actual condition: ${ifCondition}`,
+    lookupIdx >= 0,
+    "recovery candidate must be resolved via contractIndex.byId.get(runtime.activeContractId)"
+    + " — that self-reference is what makes a cross-automation mismatch impossible",
+  );
+
+  // ...and it must be handed to the contract-level finalizer.
+  const terminalCheckIdx = reconcileBody.indexOf("isTerminalContractStatus", lookupIdx);
+  assert.ok(terminalCheckIdx >= 0, "recovery must gate on isTerminalContractStatus");
+
+  const finalizerIdx = reconcileBody.indexOf("handleAutomationContractTerminal", terminalCheckIdx);
+  assert.ok(
+    finalizerIdx >= 0,
+    "recovery must call handleAutomationContractTerminal after the terminal-status gate",
+  );
+
+  // No recovery leg may key off a loop/pipeline identity again.
+  // Strip `//` comments first: the retirement rationale legitimately names the
+  // deleted `activePipelineId` leg in prose, and this guard is about live code.
+  const reconcileCode = reconcileBody.replace(/^\s*\/\/.*$/gmu, "");
+  assert.ok(
+    !reconcileCode.includes("activePipelineId") && !reconcileCode.includes("activeLoopId"),
+    "reconcile must not reintroduce a pipeline/loop-identity recovery leg (that was the W2 bug shape)",
   );
 });
 
-// ============================================================
-// Bug 3: null harness defense
-// When finalizeHarnessRunModules returns null, nextHarnessRun must fall
-// back to prefinalizedHarness, not be null.
-// We test by inspecting the source for the fallback pattern.
-// ============================================================
-
-test("finalizeAutomationRound uses prefinalizedHarness as fallback when evaluatedHarness is null (source guard present)", async () => {
-  const executorPath = new URL(
-    "../lib/automation/automation-finalize.js",
-    import.meta.url,
-  ).pathname;
-
-  const source = await readFile(executorPath, "utf8");
-
-  // Find finalizeAutomationRound body
-  const fnStart = source.indexOf("async function finalizeAutomationRound");
-  assert.ok(fnStart >= 0, "finalizeAutomationRound must exist");
-
-  const fnBody = source.slice(fnStart, fnStart + 3000);
-
-  // After the fix, nextHarnessRun must include prefinalizedHarness as a fallback.
-  // Valid patterns: "|| prefinalizedHarness" or "?? prefinalizedHarness"
-  const hasFallback = fnBody.includes("|| prefinalizedHarness")
-    || fnBody.includes("?? prefinalizedHarness");
-
-  assert.ok(
-    hasFallback,
-    "finalizeAutomationRound must fall back to prefinalizedHarness when evaluatedHarness is null",
-  );
-});

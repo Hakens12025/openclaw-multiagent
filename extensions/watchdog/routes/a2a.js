@@ -4,9 +4,9 @@ import { cfg } from "../lib/state.js";
 import {
   readContractCompletionArtifact,
   readContractSnapshotById,
-} from "../lib/contracts.js";
+} from "../lib/contract/contracts.js";
 import { dispatchAcceptIngressMessage } from "../lib/ingress/dispatch-entry.js";
-import { loadCapabilityRegistry } from "../lib/capability/capability-registry.js";
+import { loadCapabilityRegistry } from "../lib/management/capability-registry.js";
 import {
   PENDING_SIGNAL_KINDS,
   registerPendingSignal,
@@ -24,9 +24,13 @@ function resolveA2AIngressKind(source) {
   return PENDING_SIGNAL_KINDS.CHANNEL_INGRESS_WEBUI;
 }
 
+// 单前台(备忘录156 §三方向B):渠道来源没有专属 gateway agent 时,pending 信号
+// 归 webui 前台(controller)——与 ingress owner 解析链同构。
 function resolveA2ASignalAgentId(source) {
   const gatewaySource = source === "qqbot" || source === "qq" ? "qq" : "webui";
-  return buildGatewayReplyTarget(gatewaySource)?.agentId || null;
+  return buildGatewayReplyTarget(gatewaySource)?.agentId
+    || buildGatewayReplyTarget("webui")?.agentId
+    || null;
 }
 
 export function formatA2ATaskSendResponse(result, createdAt = Date.now()) {
@@ -139,7 +143,7 @@ export function register(api, logger) {
         res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Task not found" })); return true;
       }
 
-      const STATUS_MAP = { draft: "submitted", pending: "submitted", running: "working", awaiting_input: "input-required", completed: "completed", failed: "failed", abandoned: "failed" };
+      const STATUS_MAP = { draft: "submitted", pending: "submitted", running: "working", completed: "completed", failed: "failed", abandoned: "failed" };
       let artifact = null;
       if (contract.status === "completed") {
         artifact = await readContractCompletionArtifact(taskId, contract);

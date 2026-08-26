@@ -6,9 +6,9 @@
 
 | 协议族 | 方向 | 职责 | 主要模块 |
 |---|---|---|---|
-| `dispatch` | runtime -> agent | 外部入口建单、graph 授权、shared contract / direct request 投递 | `extensions/watchdog/lib/ingress/dispatch-entry.js`, `extensions/watchdog/lib/ingress/dispatch-execution-contract-entry.js`, `extensions/watchdog/lib/routing/dispatch-transport.js`, `extensions/watchdog/lib/routing/dispatch-graph-policy.js` |
-| `system_action` | agent -> runtime | agent 主动请求平台协作：create_task / assign_task / request_review / wake_agent / loop | `extensions/watchdog/lib/system-action/system-action-consumer.js`, `extensions/watchdog/lib/system-action/system-action-runtime.js` |
-| `delivery` | result -> user/agent/session | terminal 回用户，或 system_action 子流程回发起 agent / session | `extensions/watchdog/lib/routing/delivery-*.js` |
+| `dispatch` | runtime -> agent | 外部入口建单、pipeline 边解首跳 + 投递图边授权、shared contract / direct request 投递 | `extensions/watchdog/lib/ingress/dispatch-entry.js`, `extensions/watchdog/lib/ingress/dispatch-execution-contract-entry.js`, `extensions/watchdog/lib/routing/dispatch/dispatch-transport.js`, `extensions/watchdog/lib/routing/dispatch/dispatch-graph-policy.js` |
+| `system_action` | agent -> runtime | agent 主动请求平台协作：create_task / assign_task / wake_agent | `extensions/watchdog/lib/system-action/system-action-consumer.js`, `extensions/watchdog/lib/system-action/system-action-runtime.js` |
+| `delivery` | result -> user/agent/session | terminal 回用户，或 system_action 子流程回发起 agent / session | `extensions/watchdog/lib/routing/delivery/` |
 | `wake` | runtime -> session | 仅负责 heartbeat / wake transport，不承载业务语义 | `extensions/watchdog/lib/transport/runtime-wake-transport.js` |
 
 补充说明：
@@ -37,7 +37,7 @@
 ## 演化
 
 - `v66-stable`: 外部入口 dispatch 与内部 graph 路由开始分层。
-- `v69-stable`: 进一步收敛，loop-session 真值源确立，Path B 删除。
+- `v69-stable`: 进一步收敛，loop-session 真值源确立，Path B 删除。（loop-session 本身已于 2026-08-18 随回路退役删除。）
 - 2026-04-02 ~ 2026-04-08：超级 session 讨论把三层架构重新定死。
 - 2026-04-12：命名与 owner 再统一，`runtime-bridge` 历史残留彻底收编进 `delivery`，协议注册表固定为 `extensions/watchdog/protocol-registry.js`，第二批文件级 rename 也已完成。
 

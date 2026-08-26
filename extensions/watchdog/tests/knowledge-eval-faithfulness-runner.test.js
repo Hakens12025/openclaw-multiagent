@@ -12,10 +12,10 @@ import {
   saveKnowledgeEvalSet,
   deleteKnowledgeEvalSet,
   normalizeKnowledgeEvalSet,
-} from "../lib/operator/knowledge-eval-registry.js";
-import { runKnowledgeFaithfulness, listKnowledgeEvalRuns } from "../lib/operator/knowledge-eval-runner.js";
+} from "../lib/knowledge/knowledge-eval-registry.js";
+import { runKnowledgeFaithfulness, listKnowledgeEvalRuns } from "../lib/knowledge/knowledge-eval-runner.js";
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
 
 const fakeJudge = {
   faithfulness: async () => ({ supported: true }),

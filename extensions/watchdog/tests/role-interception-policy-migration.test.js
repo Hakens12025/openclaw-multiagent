@@ -7,7 +7,6 @@ import {
   canAgentReceiveRework,
   registerRuntimeAgents,
 } from "../lib/agent/agent-identity.js";
-import { normalizeReviewerDecision } from "../lib/routing/runtime-mailbox-outbox-reviewer-verdict.js";
 import { runtimeAgentConfigs } from "../lib/state.js";
 
 // P6-Phase1 (收窄版): 把 3 个真·role 劫持点迁到 policy（行为等价 + 可配置）。
@@ -51,22 +50,6 @@ test("canReceiveRework is configurable via outputPolicy.canReceiveRework", () =>
   });
 });
 
-test("reviewer reworkTarget falls back when target cannot receive rework (default), keeps eligible target", () => {
-  withAgents([
-    { id: "spec-exec", binding: { roleRef: "executor", policies: { specialized: true } } },
-    { id: "plain-exec", binding: { roleRef: "executor" } },
-    { id: "agent-x", binding: { roleRef: "agent" } },
-  ], () => {
-    // eligible (specialized executor) -> kept
-    const kept = normalizeReviewerDecision({ verdict: "reject", rework_target: "spec-exec" });
-    assert.equal(kept.reworkTarget, "spec-exec");
-    // ineligible (generic agent) -> falls back to preferred executor (spec-exec is the only specialized one)
-    const fellBack = normalizeReviewerDecision({ verdict: "reject", rework_target: "agent-x" });
-    assert.notEqual(fellBack.reworkTarget, "agent-x", "ineligible target must not survive");
-    assert.equal(fellBack.reworkTarget, "spec-exec", "falls back to preferred executor");
-  });
-});
-
 // ── #3 heartbeat actionable-work policy defaults ──────────────────────────────
 
 test("requiresContract default equals old (role===EXECUTOR||RESEARCHER)", () => {
@@ -106,7 +89,7 @@ test("heartbeat policies are configurable via inboxPolicy", () => {
 
 test("dead matchAgent field is removed from the mailbox handler registry", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(
-    new URL("../lib/routing/runtime-mailbox-handler-registry.js", import.meta.url),
+    new URL("../lib/routing/mailbox/runtime-mailbox-handler-registry.js", import.meta.url),
     "utf8",
   ));
   assert.doesNotMatch(source, /matchAgent\s*:/, "matchAgent dead field must be gone");

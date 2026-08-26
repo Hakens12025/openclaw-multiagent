@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildContractSessionSystemPrompt,
   shouldOverrideContractSessionPrompt,
-} from "../lib/contract-session-prompt-override.js";
+} from "../lib/prompt/contract-session-prompt-override.js";
 
 const NEGATIVE_PROMPT_PATTERNS = [
   /\bdo not\b/iu,
@@ -70,9 +70,11 @@ test("contract session prompt override keeps minimal runtime guidance + role per
     assert.match(prompt, /Use the current wake message for wake metadata: contract id and output path\./);
     assert.match(prompt, /First read `inbox\/contract\.json` as the contract truth\./);
     assert.doesNotMatch(prompt, /Use the current wake message as the task source\./);
-    assert.match(prompt, /Write the user-facing deliverable artifact\./);
+    // 双面交付(2026-08-18):消息面缺省 + 文件面按需,两句都要在场。
+    assert.match(prompt, /Reply with the finished answer in your own message/);
+    assert.match(prompt, /file artifact .* write it under `outbox\/`/);
     assert.match(prompt, /Write `outbox\/runtime_result\.json` for runtime status metadata\./);
-    assert.match(prompt, /Runtime consumes status metadata; the user-facing answer lives in the artifact\./);
+    assert.match(prompt, /Runtime consumes status metadata; your reply carries the user-facing answer/);
     assert.doesNotMatch(prompt, /protocol acknowledgement/);
     assert.doesNotMatch(prompt, /completion statement/);
     assert.doesNotMatch(prompt, /Sensitive external actions require human confirmation/);
@@ -106,7 +108,7 @@ test("contract session prompt override gives planner a brief + stage directive (
   assert.match(prompt, /\[STAGE\]/, "planner 简报含 [STAGE] 阶段计划");
   assert.match(prompt, /executor reads your brief/i, "明确执行节点据简报产成品");
   // planner 不应拿到「直接产用户交付物」指令（那是它越界产报告的根因）
-  assert.doesNotMatch(prompt, /Write the user-facing deliverable artifact\./);
+  assert.doesNotMatch(prompt, /Reply with the finished answer in your own message/);
   // ④role persona is inlined (English); the ⑥wake output directives stay English/positive.
   assert.match(prompt, /## Role/, "planner persona inlined at the front");
   assertNoNegativePromptCopy(prompt);
@@ -120,7 +122,8 @@ test("contract session prompt override tells executors to read upstream packages
     sessionKey: "agent:worker:contract:TC-9",
   });
   assert.match(prompt, /upstreamPackages/, "executor 应被指示先读上游产物包");
-  assert.match(prompt, /Write the user-facing deliverable artifact\./, "executor 仍产用户交付物");
+  assert.match(prompt, /Reply with the finished answer in your own message/, "executor 交付缺省走消息面");
+  assert.match(prompt, /file artifact .* write it under `outbox\/`/, "任务要文件工件时文件面在场");
   assertNoNegativePromptCopy(prompt);
 });
 

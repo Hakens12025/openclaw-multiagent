@@ -13,25 +13,14 @@ const execFileAsync = promisify(execFile);
 
 const PRODUCTION_SOURCE_ROOTS = Object.freeze([
   "lib",
+  "ui",
   "hooks",
   "routes",
 ]);
 
 const PRODUCTION_SOURCE_FILES = Object.freeze([
-  "runtime-mailbox.js",
-  "protocol-registry.js",
   "test-runner.js",
-  "dashboard.js",
-  "dashboard-runtime-graph.js",
-  "dashboard-contract-card.js",
-  "dashboard-contract-lane.js",
-  "dashboard-contract-flow-animator.js",
-  "dashboard-agent-card.js",
-  "dashboard-agents.js",
-  "dashboard-operator.js",
-  "dashboard-harness.js",
-  "dashboard-work-items.js",
-  "dashboard-work-items-state.js",
+  // runtime-mailbox.js moved to lib/routing/ (reorg Phase 5) — now covered by the "lib" root walk above
 ]);
 
 async function listSourceFiles(dir) {
@@ -69,11 +58,11 @@ test("production code no longer imports retired agent-bootstrap compatibility sh
   const files = [
     new URL("../routes/api.js", import.meta.url),
     new URL("../lib/agent/agent-enrollment.js", import.meta.url),
-    new URL("../lib/agent/agent-admin-agent-operations.js", import.meta.url),
-    new URL("../lib/agent/agent-admin-profile.js", import.meta.url),
+    new URL("../lib/agent/admin/agent-admin-agent-operations.js", import.meta.url),
+    new URL("../lib/agent/admin/agent-admin-profile.js", import.meta.url),
     new URL("../lib/agent/agent-enrollment-guidance.js", import.meta.url),
     new URL("../lib/agent/agent-enrollment-discovery.js", import.meta.url),
-    new URL("../lib/admin/admin-surface-graph-operations.js", import.meta.url),
+    new URL("../lib/admin/operations/admin-surface-graph-operations.js", import.meta.url),
     new URL("../lib/effective-profile-composer.js", import.meta.url),
   ];
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../lib/managed-doc-markers.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../lib/prompt/managed-doc-markers.js";
 
 // 六层模型重构: soul-template-builder.js 已整体删除(④role 改 renderRolePersonaBlock + IDENTITY 载体)。
 

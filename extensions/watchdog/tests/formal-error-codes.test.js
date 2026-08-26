@@ -60,10 +60,23 @@ test("getErrorCode：已注册返回条目，未注册/非字符串返回 null",
   assert.equal(getErrorCode(42), null);
 });
 
-test("约定的 skip 码已注册（E-KNOWLEDGE-SKIP / E-LOOP-SKIP）", () => {
-  assert.ok(getErrorCode("E-KNOWLEDGE-SKIP"));
-  assert.ok(getErrorCode("E-LOOP-SKIP"));
+test("约定的 skip 码已注册（E-KNOWLEDGE-SKIP / E-MODEL-SKIP / E-OPERATOR-SKIP）", () => {
+  for (const id of ["E-KNOWLEDGE-SKIP", "E-MODEL-SKIP", "E-OPERATOR-SKIP"]) {
+    assert.ok(getErrorCode(id), `${id} must stay registered`);
+  }
   assert.match(getErrorCode("E-KNOWLEDGE-SKIP").hint, /ollama/);
+});
+
+test("退役的 harness 码族已从注册表移除（v226 harness 全退役）", () => {
+  for (const id of ["E-HARNESS-001", "E-HARNESS-002", "E-HARNESS-003", "E-HARNESS-004", "E-HARNESS-005", "E-HARNESS-006", "E-HARNESS-SKIP"]) {
+    assert.equal(getErrorCode(id), null, `${id} must stay deleted`);
+  }
+});
+
+test("退役的 loop 码族已从注册表移除（B9 回路退役）", () => {
+  for (const id of ["E-LOOP-001", "E-LOOP-002", "E-LOOP-005", "E-LOOP-007", "E-LOOP-SKIP", "E-GRAPH-005"]) {
+    assert.equal(getErrorCode(id), null, `${id} must stay deleted`);
+  }
 });
 
 test("runner 内部码族存在（E-RUNNER-*：crash/timeout/gateway 不可达）", () => {

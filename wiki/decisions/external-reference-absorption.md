@@ -10,7 +10,7 @@
 
 ## 原因
 
-**DeerFlow** 擅长执行但无法替代 OpenClaw 的平台目标：contract、loop、operator、schedule、automation、delivery、platform truth。
+**DeerFlow** 擅长执行但无法替代 OpenClaw 的平台目标：contract、graph、operator、schedule、automation、delivery、platform truth。
 
 **AutoGen Studio** 的 team-centric 模型与 OpenClaw 的 graph-first truth 模型不匹配 — 前者以团队配置为核心，后者以拓扑图为核心。
 
@@ -37,7 +37,7 @@
 
 ## 从 oh-my-pi 吸收 (2026-06)
 
-oh-my-pi（Pi 的单 agent 编码分叉，与 OpenClaw 是反向分叉）的去 cargo-cult 借鉴见 [oh-my-pi 借鉴](oh-my-pi-borrow-2026-06.md)：TIER-1 provider 兜底链已落地（v161）；最高杠杆教训 = 把"Harness Problem"对准自己（度量而非声明 harness 能力）。SKIP 环检测拒绝（与我们 loop 原语相反）等。
+oh-my-pi（Pi 的单 agent 编码分叉，与 OpenClaw 是反向分叉）的去 cargo-cult 借鉴见 [oh-my-pi 借鉴](oh-my-pi-borrow-2026-06.md)：TIER-1 provider 兜底链已落地（v161）；最高杠杆教训 = 把"Harness Problem"对准自己（度量而非声明 harness 能力）。SKIP 环检测拒绝（与我们保留并识别环的做法相反）等。
 
 ## 影响
 

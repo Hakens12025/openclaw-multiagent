@@ -44,7 +44,15 @@ async function acquireDirectoryLock(lockName, {
         continue;
       }
       if ((Date.now() - startedAt) >= timeoutMs) {
-        throw new Error(`test lock "${normalizedLockName}" timed out after ${timeoutMs}ms`);
+        // 锁等待超时必须带 owner 身份:2026-08-16 死锁案在 600s 静默超时里躲了一整天,
+        // 报错里有 owner pid 十秒就能定位。
+        let ownerNote = "";
+        try {
+          const raw = await readFile(join(lockDir, LOCK_OWNER_FILENAME), "utf8");
+          const owner = JSON.parse(raw);
+          ownerNote = ` (held by pid ${owner?.pid} since ${new Date(owner?.createdAt || 0).toISOString()})`;
+        } catch {}
+        throw new Error(`test lock "${normalizedLockName}" timed out after ${timeoutMs}ms${ownerNote}`);
       }
       await sleep(pollMs);
     }
@@ -117,8 +125,37 @@ export async function runContractorInboxTestSerial(callback, options = {}) {
   return withTestLock("contractor-inbox", callback, options);
 }
 
+const GLOBAL_TEST_ENVIRONMENT_LOCK_NAME = "global-test-environment";
+
+async function currentGlobalTestEnvironmentLockOwnerPid() {
+  try {
+    const raw = await readFile(
+      join(TEST_LOCK_ROOT, GLOBAL_TEST_ENVIRONMENT_LOCK_NAME, LOCK_OWNER_FILENAME),
+      "utf8",
+    );
+    const pid = Number(JSON.parse(raw)?.pid);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+// 跨进程可重入(2026-08-16 死锁修缮):网关 formal run 在整个 run 期间持有本锁,
+// 而它 spawn 的 npm test 单测扫里有 19 个文件会再抢同一把锁——owner 存活不收割,
+// 等待上限 60 分钟 > unit suite 600s 预算 ⇒ unit.npm-test 必超时。持锁进程把
+// 自己的 pid 经 OPENCLAW_TEST_ENV_LOCK_OWNER_PID 传给子进程;子进程核对凭据与
+// 磁盘 owner 一致时直接透传执行——run 级锁已提供这些单测要的全局串行性
+// (npm 扫 --test-concurrency=1 单飞),子进程再抢只会自死锁。凭据不符/锁不在
+// (非 formal-run 派生的普通手跑)→ 照常抢锁。
 export async function runGlobalTestEnvironmentSerial(callback, options = {}) {
-  return withTestLock("global-test-environment", callback, {
+  const inheritedOwnerPid = Number(process.env.OPENCLAW_TEST_ENV_LOCK_OWNER_PID || "");
+  if (Number.isFinite(inheritedOwnerPid) && inheritedOwnerPid > 0) {
+    const ownerPid = await currentGlobalTestEnvironmentLockOwnerPid();
+    if (ownerPid === inheritedOwnerPid) {
+      return callback();
+    }
+  }
+  return withTestLock(GLOBAL_TEST_ENVIRONMENT_LOCK_NAME, callback, {
     timeoutMs: GLOBAL_TEST_ENVIRONMENT_LOCK_TIMEOUT_MS,
     pollMs: 100,
     ...options,

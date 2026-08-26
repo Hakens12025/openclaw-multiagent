@@ -5,13 +5,12 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { recordErrorPattern } from "../lib/error-ledger.js";
-import { loadConversation, recordRound } from "../lib/conversations.js";
 import {
   attachAdminChangeSetVerification,
   getAdminChangeSetDetails,
   recordAdminChangeSetExecution,
   saveAdminChangeSetDraft,
-} from "../lib/admin/admin-change-sets.js";
+} from "../lib/admin/change-sets/admin-change-sets.js";
 import { CONTROL_PLANE_PATHS } from "../lib/control-plane/control-plane-paths.js";
 
 const OC = join(homedir(), ".openclaw");
@@ -47,32 +46,6 @@ test("error ledger preserves sibling error records under concurrent writes", asy
   const after = JSON.parse(await readFile(ERROR_LEDGER_FILE, "utf8"));
   assert.equal(getPatternCount(after, "timeout"), beforeTimeout + 1);
   assert.equal(getPatternCount(after, "file_not_found"), beforeFileNotFound + 1);
-});
-
-test("conversation rounds preserve sibling records under concurrent writes", async () => {
-  const conversationId = `qq:conversation-race-${Date.now()}`;
-
-  await Promise.all([
-    recordRound(conversationId, {
-      contractId: "TC-CONV-A",
-      taskSummary: "task A",
-      resultSummary: "result A",
-      artifacts: [],
-      replyTo: { channel: "qqbot", target: "conversation-race" },
-    }),
-    recordRound(conversationId, {
-      contractId: "TC-CONV-B",
-      taskSummary: "task B",
-      resultSummary: "result B",
-      artifacts: [],
-      replyTo: { channel: "qqbot", target: "conversation-race" },
-    }),
-  ]);
-
-  const state = await loadConversation(conversationId);
-  const contractIds = new Set((state?.recentRounds || []).map((entry) => entry.contractId));
-  assert.equal(contractIds.has("TC-CONV-A"), true);
-  assert.equal(contractIds.has("TC-CONV-B"), true);
 });
 
 test("admin change set draft save resolves capability registry through canonical path", async () => {

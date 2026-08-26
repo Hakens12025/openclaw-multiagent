@@ -89,7 +89,7 @@ curl -x http://127.0.0.1:8080 https://api.sgroup.qq.com/gateway \
 cat ~/.openclaw/openclaw.json | python3 -m json.tool | grep -A5 bindings
 ```
 
-应看到 `qqbot` → `agent-for-kksl` 的绑定。
+应看到 `qqbot` → `controller` 的绑定（单前台：controller 是唯一前台 agent）。
 
 ---
 
@@ -155,7 +155,7 @@ lsof -i :8080 | grep LISTEN && echo "隧道正常" || echo "隧道异常"
 |------|------|
 | `~/.openclaw/ssh-tunnel.sh` | SSH 隧道脚本（含 -R 18791 和 -L 8080） |
 | `~/.zshrc` | openclaw 启动函数，注入 HTTPS_PROXY |
-| `~/.openclaw/openclaw.json` | 主配置（bindings: qqbot → agent-for-kksl） |
+| `~/.openclaw/openclaw.json` | 主配置（bindings: qqbot → controller） |
 | `~/.openclaw/extensions/qqbot/src/api.ts` | HTTP 请求代理（undici ProxyAgent） |
 | `~/.openclaw/extensions/qqbot/src/gateway.ts` | WebSocket 代理（HttpsProxyAgent） |
 

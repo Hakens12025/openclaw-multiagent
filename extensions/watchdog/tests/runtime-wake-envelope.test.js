@@ -100,8 +100,8 @@ test("heartbeat_poll and generic need only base shape", () => {
 
 test("listRequiredFieldsForSemantic and isKnownWakeSemanticType agree with schema", () => {
   assert.deepEqual(listRequiredFieldsForSemantic(WAKE_SEMANTIC_TYPE.EXECUTION_CONTRACT), ["contractId"]);
-  assert.deepEqual(listRequiredFieldsForSemantic(WAKE_SEMANTIC_TYPE.REQUEST_REVIEW_DISPATCH).sort(),
-    ["deliveryTicketId", "sourceAgentId"]);
+  assert.deepEqual(listRequiredFieldsForSemantic(WAKE_SEMANTIC_TYPE.TERMINAL_DELIVERY_READY).sort(),
+    ["contractId", "deliveryId"]);
   assert.equal(isKnownWakeSemanticType(WAKE_SEMANTIC_TYPE.GENERIC), true);
   assert.equal(isKnownWakeSemanticType("unknown_type"), false);
 });

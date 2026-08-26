@@ -9,8 +9,8 @@ import {
   buildInitialTaskStageRuntime,
   applyTaskStageCompletion,
   applyTaskStageRevision,
-  materializeTaskStageTruth,
-} from "../lib/task-stage-plan.js";
+} from "../lib/stage/task-stage-plan.js";
+import { materializeTaskStageTruth } from "../lib/stage/task-stage-truth.js";
 
 test("buildInitialTaskStagePlan returns a definition-only canonical plan", () => {
   const plan = buildInitialTaskStagePlan({
@@ -132,201 +132,6 @@ test("applyTaskStageRevision enforces maxRevisions", () => {
   );
 });
 
-test("materializeTaskStageTruth advances exactly one stage from artifact witness without semantic self-report", async () => {
-  const artifactDir = await mkdtemp(join(tmpdir(), "openclaw-stage-witness-artifact-"));
-  const artifactPath = join(artifactDir, "result.md");
-  const stagePlan = buildInitialTaskStagePlan({
-    contractId: "TC-stage-witness-artifact",
-    stages: [
-      {
-        label: "收集证据",
-        witness: [{ kind: "artifact_exists", pathRef: "primary_output", nonEmpty: true }],
-      },
-      {
-        label: "形成结论",
-        witness: [{ kind: "review_verdict", expected: "pass" }],
-      },
-    ],
-  });
-  const initialRuntime = buildInitialTaskStageRuntime({ stagePlan });
-
-  try {
-    await writeFile(artifactPath, "# result\n", "utf8");
-
-    const truth = materializeTaskStageTruth({
-      contractId: "TC-stage-witness-artifact",
-      stagePlan,
-      stageRuntime: initialRuntime,
-      executionObservation: {
-        collected: true,
-        contractId: "TC-stage-witness-artifact",
-        primaryOutputPath: artifactPath,
-        artifactPaths: [artifactPath],
-      },
-    });
-
-    assert.deepEqual(truth.stageRuntime?.completedStageIds, ["stage-1"]);
-    assert.equal(truth.stageRuntime?.currentStageId, "stage-2");
-  } finally {
-    await rm(artifactDir, { recursive: true, force: true });
-  }
-});
-
-test("materializeTaskStageTruth advances exactly one stage from review witness without semantic self-report", () => {
-  const stagePlan = buildInitialTaskStagePlan({
-    contractId: "TC-stage-witness-review",
-    stages: [
-      {
-        label: "代码审查",
-        witness: [{ kind: "review_verdict", expected: "pass" }],
-      },
-      {
-        label: "形成结论",
-        witness: [{ kind: "artifact_exists", pathRef: "primary_output", nonEmpty: true }],
-      },
-    ],
-  });
-  const initialRuntime = buildInitialTaskStageRuntime({ stagePlan });
-
-  const truth = materializeTaskStageTruth({
-    contractId: "TC-stage-witness-review",
-    stagePlan,
-    stageRuntime: initialRuntime,
-    executionObservation: {
-      collected: true,
-      contractId: "TC-stage-witness-review",
-      reviewerResult: {
-        verdict: "pass",
-      },
-    },
-  });
-
-  assert.deepEqual(truth.stageRuntime?.completedStageIds, ["stage-1"]);
-  assert.equal(truth.stageRuntime?.currentStageId, "stage-2");
-});
-
-test("materializeTaskStageTruth advances exactly one stage from system-owned artifact observation without explicit witness", async () => {
-  const artifactDir = await mkdtemp(join(tmpdir(), "openclaw-stage-system-observer-"));
-  const artifactPath = join(artifactDir, "result.md");
-  const stagePlan = buildInitialTaskStagePlan({
-    contractId: "TC-stage-system-observer-artifact",
-    stages: ["收集证据", "形成结论"],
-  });
-  const initialRuntime = buildInitialTaskStageRuntime({ stagePlan });
-
-  try {
-    await writeFile(artifactPath, "# result\n", "utf8");
-
-    const truth = materializeTaskStageTruth({
-      contractId: "TC-stage-system-observer-artifact",
-      stagePlan,
-      stageRuntime: initialRuntime,
-      executionObservation: {
-        collected: true,
-        contractId: "TC-stage-system-observer-artifact",
-        primaryOutputPath: artifactPath,
-        artifactPaths: [artifactPath],
-      },
-    });
-
-    assert.deepEqual(truth.stageRuntime?.completedStageIds, ["stage-1"]);
-    assert.equal(truth.stageRuntime?.currentStageId, "stage-2");
-  } finally {
-    await rm(artifactDir, { recursive: true, force: true });
-  }
-});
-
-test("materializeTaskStageTruth does not advance from semantic self-report alone when witness is unsatisfied", () => {
-  const stagePlan = buildInitialTaskStagePlan({
-    contractId: "TC-stage-witness-no-self-report",
-    stages: [
-      {
-        label: "收集证据",
-        witness: [{ kind: "artifact_exists", pathRef: "primary_output", nonEmpty: true }],
-      },
-      {
-        label: "形成结论",
-      },
-    ],
-  });
-  const initialRuntime = buildInitialTaskStageRuntime({ stagePlan });
-
-  const truth = materializeTaskStageTruth({
-    contractId: "TC-stage-witness-no-self-report",
-    stagePlan,
-    stageRuntime: initialRuntime,
-    stageRunResult: {
-      status: "completed",
-      semanticStageId: "stage-1",
-      semanticStageAction: "complete",
-    },
-  });
-
-  assert.deepEqual(truth.stageRuntime?.completedStageIds, []);
-  assert.equal(truth.stageRuntime?.currentStageId, "stage-1");
-});
-
-test("materializeTaskStageTruth does not let later-stage witness skip the current stage", () => {
-  const stagePlan = buildInitialTaskStagePlan({
-    contractId: "TC-stage-witness-no-skip",
-    stages: [
-      {
-        label: "收集证据",
-        witness: [{ kind: "artifact_exists", pathRef: "primary_output", nonEmpty: true }],
-      },
-      {
-        label: "代码审查",
-        witness: [{ kind: "review_verdict", expected: "pass" }],
-      },
-    ],
-  });
-  const initialRuntime = buildInitialTaskStageRuntime({ stagePlan });
-
-  const truth = materializeTaskStageTruth({
-    contractId: "TC-stage-witness-no-skip",
-    stagePlan,
-    stageRuntime: initialRuntime,
-    executionObservation: {
-      collected: true,
-      contractId: "TC-stage-witness-no-skip",
-      reviewerResult: {
-        verdict: "pass",
-      },
-    },
-  });
-
-  assert.deepEqual(truth.stageRuntime?.completedStageIds, []);
-  assert.equal(truth.stageRuntime?.currentStageId, "stage-1");
-});
-
-test("materializeTaskStageTruth does not apply stagePlanRevision from self-report alone without runtime witness", () => {
-  const stagePlan = buildInitialTaskStagePlan({
-    contractId: "TC-stage-revision-no-witness",
-    stages: ["收集证据", "形成结论"],
-  });
-  const initialRuntime = buildInitialTaskStageRuntime({ stagePlan });
-
-  const truth = materializeTaskStageTruth({
-    contractId: "TC-stage-revision-no-witness",
-    stagePlan,
-    stageRuntime: initialRuntime,
-    stageRunResult: {
-      status: "completed",
-      stagePlanRevision: {
-        reason: "rewrite without runtime evidence",
-        stages: ["改写历史", "形成结论"],
-      },
-    },
-  });
-
-  assert.deepEqual(
-    truth.stagePlan?.stages?.map((entry) => entry.label),
-    ["收集证据", "形成结论"],
-  );
-  assert.deepEqual(truth.stageRuntime?.completedStageIds, []);
-  assert.equal(truth.stageRuntime?.currentStageId, "stage-1");
-});
-
 test("materializeTaskStageTruth marks all planned stages completed when contract reaches terminal completed", () => {
   const stagePlan = buildInitialTaskStagePlan({
     contractId: "TC-stage-terminal-completed",
@@ -357,4 +162,40 @@ test("materializeTaskStageTruth marks all planned stages completed when contract
     ["stage-1", "stage-2", "stage-3"],
   );
   assert.equal(truth.stageRuntime?.currentStageId, null);
+});
+
+// ── 判决面重做(2026-08-10):witness 证人引擎(323 行,按产物/写盘证据反推阶段完成)
+// 已整体删除。阶段进度是**记录**:agent 自报走到哪,平台转述。质量核对归 lib/judgment
+// 对甲方期望做,不再逆向"从证据猜阶段"。以下锁自报推进的两条边界。──────────────
+
+test("阶段推进按自报:本轮报 completed 即推进当前阶段(恰好一步)", () => {
+  const contractId = "TC-DECLARED-ADVANCE";
+  const stagePlan = buildInitialTaskStagePlan({ contractId, stages: ["调研", "写作", "复核"] });
+  const stageRuntime = buildInitialTaskStageRuntime({ stagePlan });
+  const truth = materializeTaskStageTruth({
+    contractId,
+    stagePlan,
+    stageRuntime,
+    stageRunResult: { version: 1, status: "completed", summary: "调研完成" },
+  });
+  assert.equal(truth.stageRuntime.completedStageIds.length, 1);
+  assert.equal(truth.stageRuntime.currentStageId, stagePlan.stages[1].id);
+});
+
+test("自报指名了别的阶段不推进当前阶段(防跨阶段冒领)", () => {
+  const contractId = "TC-DECLARED-WRONG-STAGE";
+  const stagePlan = buildInitialTaskStagePlan({ contractId, stages: ["调研", "写作"] });
+  const stageRuntime = buildInitialTaskStageRuntime({ stagePlan });
+  const truth = materializeTaskStageTruth({
+    contractId,
+    stagePlan,
+    stageRuntime,
+    stageRunResult: {
+      version: 1,
+      status: "completed",
+      semanticStageId: stagePlan.stages[1].id, // 报的是第二阶段,当前还在第一
+    },
+  });
+  assert.equal(truth.stageRuntime.completedStageIds.length, 0);
+  assert.equal(truth.stageRuntime.currentStageId, stagePlan.stages[0].id);
 });

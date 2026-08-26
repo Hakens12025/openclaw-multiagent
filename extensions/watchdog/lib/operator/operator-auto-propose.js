@@ -11,7 +11,6 @@
 // riskLevel 对接 #40 右栏 tierOf（safe/guarded/structural/destructive → T1-4）。
 
 import { normalizeString } from "../core/normalize.js";
-import { recommendHarnessModules } from "./operator-harness-recommend.js";
 
 const PROMOTE_SUCCESS_THRESHOLD = 3;
 const RETIRE_FAILURE_THRESHOLD = 2;
@@ -84,36 +83,7 @@ export function operatorAutoPropose({ profiles = [], now = Date.now() } = {}) {
       });
     }
 
-    // 规则④harness 重塑(#47 提案层): harness 模块失败 → 建议重塑/调参 harness 模块组合。
-    // 注: 这是 suggest-only 提案层(operator 标记 harness 需重做 + 给失败证据); operator-brain
-    // 据失败信号自动派生新 moduleRefs(harness 生成层)+ harness-as-skill 是更深的后续(待静/动开关定)。
-    const harness = entry?.harness && typeof entry.harness === "object" ? entry.harness : null;
-    const failedModuleCount = Number.isFinite(harness?.failedModuleCount) ? harness.failedModuleCount : 0;
-    if (failedModuleCount > 0) {
-      const failedModules = Array.isArray(harness?.failedModules) ? harness.failedModules.filter(Boolean) : [];
-      // 生成层(#47): 据失败信号 + 模块库 派生具体 harness 定义(混合静/动)。operator 只产 module 粒度。
-      const reco = recommendHarnessModules({
-        failedModules,
-        pastSuccessfulCombos: Array.isArray(harness?.pastSuccessfulCombos) ? harness.pastSuccessfulCombos : [],
-      });
-      proposals.push({
-        proposalId: buildProposalId(automationId, "harness", now),
-        automationId,
-        category: "harness_authoring",
-        riskLevel: "guarded",
-        reason: `自治回路 harness 有 ${failedModuleCount} 个模块失败${failedModules.length ? `（${failedModules.join(", ")}）` : ""}；建议改用 harness 模块组合 [${reco.moduleRefs.join(", ")}]。${reco.rationale}`,
-        confidence: failedModuleCount >= 2 ? "high" : "medium",
-        proof: [
-          { kind: "failedHarnessModuleCount", value: failedModuleCount },
-          ...(failedModules.length ? [{ kind: "failedModules", value: failedModules }] : []),
-          { kind: "recommendedSource", value: reco.source },
-        ],
-        suggestedSurface: "automations.update",
-        suggestedPayload: { automationId, harnessNeedsReshape: true, suggestedModuleRefs: reco.moduleRefs },
-        origin: "operator-auto",
-        generatedAt: now,
-      });
-    }
+    // （规则④ harness 重塑提案已随 harness 全退役删除，v226 / 2026-08-23。）
 
     // 规则③技能沉淀：stable + frozen(conclude) → 建议把收敛成果沉淀为可复用 skill。
     if (frozen && trustLevel === "stable") {

@@ -16,7 +16,7 @@ import {
   clearRecentOperationGuards,
   esc,
   isPathWithin,
-} from "../lib/state-file-utils.js";
+} from "../lib/state/state-file-utils.js";
 
 let tempDir;
 

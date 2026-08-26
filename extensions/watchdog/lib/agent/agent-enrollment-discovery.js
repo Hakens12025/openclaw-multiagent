@@ -3,8 +3,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { readJsonFile } from "../state-file-utils.js";
-import { loadConfig } from "./agent-admin-store.js";
+import { readJsonFile } from "../state/state-file-utils.js";
+import { loadConfig } from "./admin/agent-admin-store.js";
 import {
   normalizeStoredAgentModelRef,
 } from "./agent-binding-store.js";
@@ -16,9 +16,9 @@ import {
   loadAgentCardProjection,
 } from "../effective-profile-composer.js";
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
-import { defaultAgentWorkspace } from "../state-agent-helpers.js";
-import { HOME, OC } from "../state-paths.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../managed-doc-markers.js";
+import { defaultAgentWorkspace } from "../state/state-agent-helpers.js";
+import { HOME, OC } from "../state/state-paths.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../prompt/managed-doc-markers.js";
 
 const GUIDANCE_FILES = Object.freeze([
   "IDENTITY.md",
@@ -47,7 +47,6 @@ export { GUIDANCE_FILES, OPTIONAL_GUIDANCE_FILES, EDITABLE_GUIDANCE_FILES };
 const EXECUTION_LAYER_ROLES = new Set([
   AGENT_ROLE.EXECUTOR,
   AGENT_ROLE.RESEARCHER,
-  AGENT_ROLE.REVIEWER,
   AGENT_ROLE.PLANNER,
 ]);
 

@@ -13,20 +13,20 @@ import {
   normalizeCliRunTarget,
   resolveCliRunExitCode,
   waitForCliRunCompletion,
-} from "../lib/test-runner-cli-client.js";
+} from "../lib/formal-runtime/test-runner-cli-client.js";
 
 test("findCliPreset resolves presets from live surface payload", () => {
   const preset = findCliPreset({
     presets: [
       { id: "health", label: "系统健康体检", suite: "health" },
-      { id: "dispatch", label: "链路单点", suite: "dispatch", family: "live" },
+      { id: "single", label: "链路单点", suite: "single", family: "live" },
     ],
-  }, "dispatch");
+  }, "single");
 
   assert.ok(preset);
-  assert.equal(preset.id, "dispatch");
+  assert.equal(preset.id, "single");
   assert.equal(preset.family, "live");
-  assert.equal(findCliPreset({ presets: [] }, "dispatch"), null);
+  assert.equal(findCliPreset({ presets: [] }, "single"), null);
 });
 
 test("normalizeCliRunTarget defaults to the health preset when nothing requested", () => {
@@ -43,7 +43,7 @@ test("normalizeCliRunTarget resolves ad hoc case runs without forcing a preset",
 
 test("normalizeCliRunTarget rejects dual preset and case truth", () => {
   assert.throws(
-    () => normalizeCliRunTarget({ presetId: "dispatch", caseId: "answer-direct" }),
+    () => normalizeCliRunTarget({ presetId: "single", caseId: "answer-direct" }),
     /either --preset or --case/i,
   );
 });
@@ -111,14 +111,14 @@ test("formatCliPresetTable renders live payload rows with case ids", () => {
         label: "系统健康体检",
         description: "零 LLM 体检",
       },
-      { id: "loop", suite: "loop", cleanMode: "session-clean", caseIds: [], description: "回路收敛" },
+      { id: "collab", suite: "collab", cleanMode: "session-clean", caseIds: [], description: "系统动作探针" },
     ],
   });
 
   assert.match(table, /PRESET\s+SUITE\s+CLEANMODE\s+DESCRIPTION/);
   assert.match(table, /health\s+health\s+none\s+系统健康体检 — 零 LLM 体检/);
   assert.match(table, /cases: health-node,health-gateway/);
-  assert.match(table, /loop\s+loop\s+session-clean\s+回路收敛/);
+  assert.match(table, /collab\s+collab\s+session-clean\s+系统动作探针/);
   assert.equal(formatCliPresetTable({ presets: [] }), "(no presets exposed by gateway)");
 });
 
@@ -128,41 +128,41 @@ test("resolveCliRunExitCode returns 2 for blocked-only runs", () => {
   assert.equal(resolveCliRunExitCode({ failedCases: 0, blockedCases: 0 }), 0);
 });
 
-test("estimateCliRunTimeoutMs uses per-suite budgets (health fast, loop slow, full per-segment)", () => {
+test("estimateCliRunTimeoutMs uses per-suite budgets (health fast, pipeline slow, full per-segment)", () => {
   const healthTimeout = estimateCliRunTimeoutMs({
     suite: "health",
     caseIds: ["health-node", "health-gateway"],
     resetBetweenCases: false,
   });
-  const loopTimeout = estimateCliRunTimeoutMs({ suite: "loop", caseIds: [], resetBetweenCases: false });
+  const pipelineTimeout = estimateCliRunTimeoutMs({ suite: "pipeline", caseIds: [], resetBetweenCases: false });
   const fullTimeout = estimateCliRunTimeoutMs({
     suite: "full",
-    caseIds: ["health", "dispatch", "pipeline", "loop", "system-action", "operator", "knowledge"],
+    caseIds: ["health", "model", "single", "pipeline", "collab", "operator", "knowledge"],
     resetBetweenCases: false,
   });
 
   // health: 2 段 × 120s + 120s finalization = 360s（仍 >= 最小 300s）
   assert.equal(healthTimeout, 360000);
-  // loop: 无 caseIds → 1 段 × 600s + 120s
-  assert.equal(loopTimeout, 720000);
+  // pipeline: 无 caseIds → 1 段 × 480s + 120s
+  assert.equal(pipelineTimeout, 600000);
   // full: 7 段 × 600s + 120s — 必须显著大于单段
   assert.equal(fullTimeout, 7 * 600000 + 120000);
-  assert.ok(fullTimeout > loopTimeout);
-  assert.ok(loopTimeout > healthTimeout);
+  assert.ok(fullTimeout > pipelineTimeout);
+  assert.ok(pipelineTimeout > healthTimeout);
 });
 
 test("estimateCliRunTimeoutMs adds reset allowance and respects the 300s floor", () => {
   const withReset = estimateCliRunTimeoutMs({
-    suite: "system-action",
-    caseIds: ["create-task", "assign-task", "request-review"],
+    suite: "collab",
+    caseIds: ["l1-assign-toolface", "l1-review-toolface", "l3-marker-review", "create-task-denied"],
     resetBetweenCases: true,
   });
   const withoutReset = estimateCliRunTimeoutMs({
-    suite: "system-action",
-    caseIds: ["create-task", "assign-task", "request-review"],
+    suite: "collab",
+    caseIds: ["l1-assign-toolface", "l1-review-toolface", "l3-marker-review", "create-task-denied"],
     resetBetweenCases: false,
   });
-  assert.equal(withReset - withoutReset, 2 * 45000);
+  assert.equal(withReset - withoutReset, 3 * 45000);
 
   // 未知 suite 退默认预算；任何结果不得低于 300s 地板
   const floor = estimateCliRunTimeoutMs({ suite: "health", caseIds: ["solo"], resetBetweenCases: false });

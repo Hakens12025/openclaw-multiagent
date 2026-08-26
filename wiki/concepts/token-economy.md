@@ -12,10 +12,10 @@
 - Framework 自动加载：AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, memory/*.md
 
 **控制手段：**
-- Workspace 只放必要文件（SOUL + HEARTBEAT + USER.md）
+- Workspace 只放必要文件（IDENTITY + HEARTBEAT，SOUL 为用户自有）
 - AGENTS.md 保持最小化（防止 framework 重建开销）
 - 不在 workspace 放通用指南或教程
-- 执行类 Agent 只注入 SOUL + HEARTBEAT，不注入全部导航文件
+- 执行层三角色（planner/executor/researcher）只拿 IDENTITY + HEARTBEAT，不注入任何导航文件
 
 **Context Injection 问题（备忘录97）：**
 - 发现 ~2000+ tokens 的注入淹没了 SOUL → planner 跳过了计划编写

@@ -250,9 +250,9 @@ test("handleBeforeStartIngress ignores typed internal wake envelopes instead of 
       agents: {
         list: [
           {
-            id: "test-reviewer",
+            id: "test-worker",
             binding: {
-              roleRef: "reviewer",
+              roleRef: "executor",
               workspace: { configured: tmpDir },
             },
           },
@@ -266,33 +266,27 @@ test("handleBeforeStartIngress ignores typed internal wake envelopes instead of 
     for (const wakeEnvelope of [
       buildRuntimeWakeEnvelope({
         semanticType: WAKE_SEMANTIC_TYPE.SYSTEM_ACTION_WAKE_AGENT,
-        targetAgentId: "test-reviewer",
+        targetAgentId: "test-worker",
         sourceAgentId: "worker-a",
         actionType: "wake_agent",
       }),
       buildRuntimeWakeEnvelope({
-        semanticType: WAKE_SEMANTIC_TYPE.REQUEST_REVIEW_DISPATCH,
-        targetAgentId: "test-reviewer",
-        sourceAgentId: "worker-a",
-        deliveryTicketId: "DT-review-1",
-      }),
-      buildRuntimeWakeEnvelope({
         semanticType: WAKE_SEMANTIC_TYPE.TERMINAL_DELIVERY_READY,
-        targetAgentId: "test-reviewer",
+        targetAgentId: "test-worker",
         deliveryId: "DL-123",
         contractId: "TC-123",
       }),
       buildRuntimeWakeEnvelope({
         semanticType: WAKE_SEMANTIC_TYPE.SYSTEM_ACTION_DELIVERY_RESUME,
-        targetAgentId: "test-reviewer",
+        targetAgentId: "test-worker",
         deliveryTicketId: "DT-delivery-1",
       }),
     ]) {
       await rm(join(inboxDir, "contract.json"), { force: true }).catch(() => {});
       await handleBeforeStartIngress({
         event: { prompt: wakeEnvelope.renderText, wakeEnvelope },
-        agentId: "test-reviewer",
-        sessionKey: "agent:test-reviewer:hook:test",
+        agentId: "test-worker",
+        sessionKey: "agent:test-worker:hook:test",
         api: { runtime: { system: { requestHeartbeatNow() {} } } },
         logger,
       });

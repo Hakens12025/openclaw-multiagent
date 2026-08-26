@@ -1,5 +1,5 @@
 import { getAgentRole } from "../lib/agent/agent-identity.js";
-import { buildContractSessionSystemPrompt } from "../lib/contract-session-prompt-override.js";
+import { buildContractSessionSystemPrompt } from "../lib/prompt/contract-session-prompt-override.js";
 
 export function register(api, logger) {
   api.on("before_prompt_build", async (_event, ctx) => {

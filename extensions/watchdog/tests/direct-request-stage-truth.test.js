@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { createDirectRequestEnvelope } from "../lib/protocol-primitives.js";
-import { buildInitialTaskStagePlan } from "../lib/task-stage-plan.js";
+import { createDirectRequestEnvelope } from "../lib/protocol/protocol-primitives.js";
+import { buildInitialTaskStagePlan } from "../lib/stage/task-stage-plan.js";
 
 test("createDirectRequestEnvelope does not invent implicit stage truth when none is provided", () => {
   const contract = createDirectRequestEnvelope({

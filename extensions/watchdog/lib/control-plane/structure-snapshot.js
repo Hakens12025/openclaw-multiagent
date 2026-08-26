@@ -1,5 +1,5 @@
 // structure-snapshot.js — ⑤ Operator control plane: the rollback foundation.
-// Captures + restores + verifies the 4 structural truths (graph / loop registry /
+// Captures + restores + verifies the 3 structural truths (graph /
 // agent bindings = full config / automation specs) as a content-addressed snapshot.
 // Reuses the existing atomic writers verbatim — builds no new config/graph/automation writer.
 //
@@ -12,8 +12,7 @@ import { readFile } from "node:fs/promises";
 
 import { loadGraph } from "../agent/agent-graph.js";
 import { saveGraph } from "../agent/agent-graph-mutations.js";
-import { loadGraphLoopRegistry, saveGraphLoopRegistry, composeLoopSpecFromAgents } from "../loop/graph-loop-registry.js";
-import { loadConfig, saveConfig } from "../agent/agent-admin-store.js";
+import { loadConfig, saveConfig } from "../agent/admin/agent-admin-store.js";
 import { listAutomationSpecs, writeAutomationStore } from "../automation/automation-registry.js";
 import { atomicWriteFile, withLock } from "../state.js";
 import { CONTROL_PLANE_PATHS } from "./control-plane-paths.js";
@@ -42,13 +41,12 @@ function hashTruths(truths) {
 }
 
 async function readTruths() {
-  const [graph, loopRegistry, config, automations] = await Promise.all([
+  const [graph, config, automations] = await Promise.all([
     loadGraph(),
-    loadGraphLoopRegistry(),
     loadConfig(),
     listAutomationSpecs(),
   ]);
-  return { graph, loopRegistry, config, automations };
+  return { graph, config, automations };
 }
 
 async function readRegistry() {
@@ -120,7 +118,7 @@ export async function verifyAgainstSnapshot(snapshotId) {
 }
 
 // Rollback = restore-from-saved-state (NOT inverse-op undo — structural changes have no
-// general inverse). Re-writes the 4 truths via existing writers in a fixed, documented order.
+// general inverse). Re-writes the 3 truths via existing writers in a fixed, documented order.
 export async function restoreStructureSnapshot(snapshotId, { expectHash = null } = {}) {
   return withLock(LOCK, async () => {
     const snap = await getStructureSnapshot(snapshotId);
@@ -134,20 +132,19 @@ export async function restoreStructureSnapshot(snapshotId, { expectHash = null }
       }
     }
 
-    // Fixed order: bindings(saveConfig) → graph → loops → automations. Each inner writer is
+    // Fixed order: bindings(saveConfig) → graph → automations. Each inner writer is
     // itself atomic+locked, so no file is ever half-written.
     await saveConfig(snap.truths.config);
-    await saveGraph(snap.truths.graph);
-    await saveGraphLoopRegistry(snap.truths.loopRegistry);
+    await saveGraph(snap.truths.graph, { writer: `structure-snapshot:restore:${snap.id}` });
     await writeAutomationStore(snap.truths.automations);
 
-    // No silent partial success: verify the live hash matches the snapshot after writing all 4.
+    // No silent partial success: verify the live hash matches the snapshot after writing all 3.
     const liveHash = hashTruths(await readTruths());
     const drifted = liveHash !== snap.contentHash;
     return {
       ok: !drifted,
       id: snap.id,
-      restored: { graph: true, loops: true, bindings: true, automations: true },
+      restored: { graph: true, bindings: true, automations: true },
       drift: drifted ? { liveHash, snapshotHash: snap.contentHash } : null,
     };
   });
@@ -155,7 +152,7 @@ export async function restoreStructureSnapshot(snapshotId, { expectHash = null }
 
 // ── Reverse use of the snapshot mechanism: project the post-apply structure WITHOUT
 // mutating live state, so the UI can preview "what the system becomes". Pure computation.
-// v1 covers structural surfaces (graph loop/edges); others fall back to no structural diff.
+// v1 covers structural surfaces (graph edges/group + agents); others fall back to no structural diff.
 function diffEdges(before, after) {
   const key = (e) => `${e.from}→${e.to}`;
   const beforeSet = new Set((before || []).map(key));
@@ -187,27 +184,7 @@ export async function projectStructureAfter({ surfaceId, payload } = {}) {
   const sid = norm(surfaceId);
   const p = payload && typeof payload === "object" ? payload : {};
 
-  if (sid === "graph.loop.compose") {
-    structural = true;
-    const agents = Array.isArray(p.agents) ? p.agents.filter(Boolean)
-      : (typeof p.agentsText === "string" ? p.agentsText.split("\n").map((s) => s.trim()).filter(Boolean) : []);
-    if (agents.length >= 2) {
-      // project the closed-cycle edges + the LoopSpec (reuse the same pure spec builder as real apply)
-      const edges = projected.graph.edges || (projected.graph.edges = []);
-      for (let i = 0; i < agents.length; i += 1) {
-        const from = agents[i], to = agents[(i + 1) % agents.length];
-        if (!edges.some((e) => e.from === from && e.to === to)) edges.push({ from, to });
-      }
-      const spec = composeLoopSpecFromAgents(agents, {
-        loopId: p.loopId, label: p.label, entryAgentId: p.entryAgentId,
-        continueSignal: p.continueSignal, concludeSignal: p.concludeSignal,
-        maxRounds: p.maxRounds, maxExperiments: p.maxExperiments,
-      });
-      const loops = projected.loopRegistry.loops || (projected.loopRegistry.loops = []);
-      const idx = loops.findIndex((l) => l.id === spec.id);
-      if (idx >= 0) loops[idx] = spec; else loops.push(spec);
-    }
-  } else if (sid === "graph.edge.add" && norm(p.from) && norm(p.to)) {
+  if (sid === "graph.edge.add" && norm(p.from) && norm(p.to)) {
     structural = true;
     const edges = projected.graph.edges || (projected.graph.edges = []);
     if (!edges.some((e) => e.from === p.from && e.to === p.to)) edges.push({ from: p.from, to: p.to });
@@ -248,8 +225,8 @@ export async function projectStructureAfter({ surfaceId, payload } = {}) {
     structural,
     edgeDiff: structural ? diffEdges(current.graph.edges, projected.graph.edges) : null,
     agentDiff,
-    current: { edges: current.graph.edges, loops: current.loopRegistry.loops },
-    projected: { edges: projected.graph.edges, loops: projected.loopRegistry.loops },
-    note: structural ? null : "此 surface 暂无结构投影,仅 payload diff(v1 覆盖 graph 边/loop/group + agents 增删改)。",
+    current: { edges: current.graph.edges },
+    projected: { edges: projected.graph.edges },
+    note: structural ? null : "此 surface 暂无结构投影,仅 payload diff(v1 覆盖 graph 边/group + agents 增删改)。",
   };
 }

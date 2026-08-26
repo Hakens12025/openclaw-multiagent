@@ -7,11 +7,6 @@ export const UNSUPPORTED_VERIFICATION_SURFACES = new Set([
   "agents.defaults.skills",
   "graph.edge.add",
   "graph.edge.delete",
-  "graph.loop.compose",
-  "graph.loop.repair",
-  "runtime.loop.start",
-  "runtime.loop.interrupt",
-  "runtime.loop.resume",
   "runtime.reset",
   "test_runs.start",
   "test.inject",
@@ -70,15 +65,6 @@ export const SURFACE_DEFAULT_PAYLOADS = Object.freeze({
     from: "",
     to: "",
   },
-  "graph.loop.compose": {
-    agents: [],
-  },
-  "graph.loop.repair": {},
-  "runtime.loop.start": {
-    requestedTask: "",
-  },
-  "runtime.loop.interrupt": {},
-  "runtime.loop.resume": {},
   "test.inject": {
     message: "",
     source: "webui",

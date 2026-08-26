@@ -7,17 +7,24 @@ import { readFile } from "node:fs/promises";
 import { join, resolve, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 
-import { validateHarnessComposition } from "../../harness/harness-composition.js";
 import { getManagedGuidanceFilesForRole } from "../../agent/agent-enrollment-discovery.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../../managed-doc-markers.js";
+import { TRACE_SENTINELS } from "../../evidence/trace-event-schema.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../../prompt/managed-doc-markers.js";
 import { isReservedControlLayerAgentId } from "../../agent/agent-plane-policy.js";
+import { readTopLevelTools } from "../../agent/agent-binding-store-read.js";
+import { uniqueTools } from "../../core/normalize.js";
 
-// ── 下界快照（2026-06-10 实测 120/52/60/3；只会增长，缩水=有人删了 surface）────
+// ── 下界快照（只会增长，缩水=有人删了 surface）─────────────────────────────────
+// 2026-06-10 实测 120/52/60/3。2026-08-18 回路退役（B4/B5 删掉 graph.loop.* /
+// runtime.loop.start / inspect.loop_sessions 等整族 surface）后重新实测 116。
+// 2026-08-23 harness 全退役（备忘录149 batch0：inspect.harness_runs /
+// inspect.harness_catalog 两个 runtime_inspect surface 摘除）后重新实测 114：
+// total 114 · operatorExecutable 44 · executable 93 · inspect 52 · apply 54。
 export const SURFACE_REGISTRY_FLOORS = Object.freeze({
-  total: 120,
-  operatorExecutable: 50,
-  executable: 99,
-  byFamily: Object.freeze({ hook: 2, observe: 3, inspect: 52, apply: 60, verify: 3 }),
+  total: 114,
+  operatorExecutable: 44,
+  executable: 93,
+  byFamily: Object.freeze({ hook: 2, observe: 3, inspect: 52, apply: 54, verify: 3 }),
   runtimeInspectSources: 34,
 });
 
@@ -58,43 +65,9 @@ export function evaluateGraphIntegrity({ graph, agents, isReservedAgentId = isRe
     if (!configuredIds.has(edge.to)) unknownEndpoints.push(`${edge.from}→${edge.to} (to)`);
   }
 
-  // runtime 平面 = 非保留（operator/viz-master 等 control-plane agent 不进传送带，不算孤儿）。
-  const runtimeAgents = agentList.filter((a) => !isReservedAgentId(a.id));
-  const entryIds = runtimeAgents
-    .filter((a) => {
-      const role = typeof a.role === "string" ? a.role.toLowerCase() : "";
-      return role === "bridge" || a.gateway === true || Boolean(a.ingressSource);
-    })
-    .map((a) => a.id);
-
-  // BFS：从所有 entry 出发沿有向边可达的集合。
-  const adjacency = new Map();
-  for (const edge of edges) {
-    if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
-    adjacency.get(edge.from).push(edge.to);
-  }
-  const reached = new Set(entryIds);
-  const queue = [...entryIds];
-  while (queue.length > 0) {
-    const node = queue.shift();
-    for (const next of adjacency.get(node) || []) {
-      if (!reached.has(next)) {
-        reached.add(next);
-        queue.push(next);
-      }
-    }
-  }
-
-  const orphanIds = runtimeAgents
-    .filter((a) => !reached.has(a.id))
-    .map((a) => a.id);
-
   return {
     edgeCount: edges.length,
     unknownEndpoints,
-    entryIds,
-    runtimeAgentIds: runtimeAgents.map((a) => a.id),
-    orphanIds,
   };
 }
 
@@ -147,30 +120,6 @@ export async function scanWorkspaceManagedMarkers({ agents, home = homedir() } =
   return { perAgent, missingTotal, customTotal, soulViolations };
 }
 
-// ── harness 组装校验表（期望码集与 harness-composition.js 真实语义对齐）────────
-export const COMPOSITION_SANITY_TABLE = Object.freeze([
-  { refs: [], expect: [] },
-  { refs: ["harness:gate.test"], expect: ["no_guard", "gate_without_collector"] },
-  { refs: ["harness:collector.artifact"], expect: ["no_gate", "no_guard"] },
-  {
-    refs: ["harness:normalizer.eval_input", "harness:gate.schema", "harness:guard.budget"],
-    expect: ["gate_without_collector", "eval_input_without_artifact_collector"],
-  },
-  { refs: ["harness:guard.budget", "harness:collector.artifact", "harness:gate.test"], expect: [] },
-]);
-
-export function evaluateCompositionSanityTable(table = COMPOSITION_SANITY_TABLE) {
-  const failures = [];
-  for (const row of table) {
-    const got = validateHarnessComposition(row.refs).problems.map((p) => p.code).sort();
-    const want = [...row.expect].sort();
-    if (JSON.stringify(got) !== JSON.stringify(want)) {
-      failures.push(`refs=[${row.refs.join(",")}] expected [${want.join(",")}] got [${got.join(",")}]`);
-    }
-  }
-  return { failures };
-}
-
 // ── 配置文件形状（解析失败要成为 CheckResult 而非 throw，故不复用 infra.loadConfig）─
 export function evaluateConfigShape(cfg) {
   const problems = [];
@@ -183,4 +132,70 @@ export function evaluateConfigShape(cfg) {
     problems.push("gateway.auth.token missing");
   }
   return { problems, agentCount: ids.length };
+}
+
+// ── 证据链抽样策略（spec §3：证据不足反复出现 = 系统健康信号，盯桥不盯 agent）────
+// 样本不足只判 pass——账本少说明系统没跑够，升格 fail 必须建立在足量近期样本上。
+export const EVIDENCE_LEDGER_POLICY = Object.freeze({
+  sampleLimit: 20,               // 最多抽最近 N 个样本
+  minSamples: 4,                 // 低于此样本量只记录、免于判定
+  maxIncompleteRatio: 0.5,       // incomplete/sampled 达到此比例 → 证据桥可疑
+  possiblyLiveWindowMs: 5 * 60_000, // 最后事件 ts 落在此窗口内的会话视为可能仍在写入，接线层剔除
+});
+
+// ── 纯求值：会话账本抽样完整率（samples: [{ name, records }]，records 为
+//    records DB trace_event 的 payload 序列）──────────────────────────────────
+// 完整性判定 = 哨兵 + seq 连续（文件账退役批:哈希链已随文件层退役，完整性
+// 由 (sessionKey,seq) 唯一索引 + 本判定守）。
+export function evaluateTraceLedgerSample(samples = [], policy = EVIDENCE_LEDGER_POLICY) {
+  const list = Array.isArray(samples) ? samples : [];
+  const incomplete = [];
+  for (const sample of list) {
+    const reason = firstTraceIncompletenessReason(sample?.records);
+    if (reason) incomplete.push(`${sample?.name || "unknown"}(${reason})`);
+  }
+  const sampled = list.length;
+  const ratio = sampled > 0 ? incomplete.length / sampled : 0;
+  const sufficient = sampled >= policy.minSamples;
+  return {
+    sampled,
+    incompleteCount: incomplete.length,
+    incomplete,
+    ratio,
+    sufficient,
+    exceeded: sufficient && ratio >= policy.maxIncompleteRatio,
+  };
+}
+
+function firstTraceIncompletenessReason(records) {
+  if (!Array.isArray(records) || records.length === 0) return "empty trace";
+  for (let i = 0; i < records.length; i++) {
+    if (!Number.isInteger(records[i]?.seq) || records[i].seq !== i) return `seq gap at ${i}`;
+  }
+  if (records[0]?.kind !== TRACE_SENTINELS.OPEN) return "missing open sentinel";
+  if (records[records.length - 1]?.kind !== TRACE_SENTINELS.CLOSE) return "missing close sentinel";
+  return null;
+}
+
+// ── P4 协作工具面挂载(授权真值=collaboration-intent-policy;caller 负责
+//    预过滤 control-plane 保留 agent 并从策略构造 requiredByRole)──────────────
+export function evaluateCollabToolMounting({ agents, requiredByRole }) {
+  const problems = [];
+  let covered = 0;
+  for (const agent of Array.isArray(agents) ? agents : []) {
+    const required = requiredByRole?.[agent?.role] || [];
+    if (required.length === 0) continue;
+    const named = new Set([
+      ...readTopLevelTools(agent),
+      ...uniqueTools(Array.isArray(agent?.tools?.alsoAllow) ? agent.tools.alsoAllow : []),
+    ]);
+    const blanket = named.has("watchdog") || named.has("group:plugins");
+    const missing = blanket ? [] : required.filter((tool) => !named.has(tool));
+    if (missing.length > 0) {
+      problems.push(`${agent.id}(${agent.role}): missing ${missing.join(",")}`);
+    } else {
+      covered += 1;
+    }
+  }
+  return { problems, covered };
 }

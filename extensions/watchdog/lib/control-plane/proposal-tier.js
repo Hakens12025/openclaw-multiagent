@@ -56,18 +56,12 @@ function canonicalize(value) {
 export function describeProposalEffect(surfaceId, payload = {}) {
   const sid = norm(surfaceId);
   const p = payload && typeof payload === "object" ? payload : {};
-  const agents = Array.isArray(p.agents) ? p.agents
-    : (typeof p.agentsText === "string" ? p.agentsText.split("\n").map((s) => s.trim()).filter(Boolean) : []);
 
   switch (sid) {
     case "graph.edge.add":
-      return `新增授权边：${norm(p.from)} → ${norm(p.to)}（${norm(p.from)} 之后可投递给 ${norm(p.to)}）`;
+      return `新增管线边：${norm(p.from)} → ${norm(p.to)}（${norm(p.from)} 之后可投递给 ${norm(p.to)}）`;
     case "graph.edge.delete":
-      return `删除授权边：${norm(p.from)} → ${norm(p.to)}`;
-    case "graph.loop.compose":
-      return `把 ${agents.join(" → ")} 连成闭环 loop${p.entryAgentId ? `（入口 ${norm(p.entryAgentId)}` : ""}${p.maxRounds ? `，maxRounds=${p.maxRounds}` : ""}${p.entryAgentId || p.maxRounds ? "）" : ""}`;
-    case "graph.loop.repair":
-      return `修复 loop ${norm(p.loopId) || "(当前)"} 的缺失边，使其结构重新可用`;
+      return `删除管线边：${norm(p.from)} → ${norm(p.to)}`;
     case "agents.model":
       return `把 ${norm(p.agentId)} 的模型改为 ${norm(p.model)}`;
     case "agents.heartbeat":
@@ -84,10 +78,6 @@ export function describeProposalEffect(surfaceId, payload = {}) {
       return `删除 agent ${norm(p.agentId) || norm(p.id)}（不可逆，先拍快照）`;
     case "automations.delete":
       return `删除 automation ${norm(p.automationId)}`;
-    case "runtime.loop.interrupt":
-      return `中断运行中的 loop ${norm(p.loopId) || "(当前)"}`;
-    case "runtime.loop.resume":
-      return `恢复 loop ${norm(p.loopId) || "(当前)"}`;
     case "runtime.reset":
       return `重置运行时状态（清 session/queue 等，不可逆）`;
     default:

@@ -39,22 +39,22 @@ mock.module("/Users/hakens/.openclaw/extensions/qqbot/dist/src/api.js", {
   },
 });
 
-const { getQQTarget, qqNotify, hasQQPassiveReplyTarget } = await import("../lib/channel-notify.js");
-const { normalizeReplyTarget } = await import("../lib/coordination-primitives.js");
+const { getQQTarget, qqNotify, hasQQPassiveReplyTarget } = await import("../lib/transport/channel-notify.js");
+const { normalizeReplyTarget } = await import("../lib/routing/coordination-primitives.js");
 
 test("normalizeReplyTarget preserves QQ passive reply message id fields", () => {
   assert.deepEqual(
     normalizeReplyTarget({
-      agentId: "agent-for-kksl",
-      sessionKey: "agent:agent-for-kksl:main",
+      agentId: "controller",
+      sessionKey: "agent:controller:main",
       channel: "qqbot",
       target: "openid-1",
       messageId: "msg-1",
       replyToId: "msg-2",
     }),
     {
-      agentId: "agent-for-kksl",
-      sessionKey: "agent:agent-for-kksl:main",
+      agentId: "controller",
+      sessionKey: "agent:controller:main",
       channel: "qqbot",
       target: "openid-1",
       messageId: "msg-1",
@@ -128,7 +128,7 @@ test("qqNotify rejects synthetic QQ targets before calling outbound transport", 
 
   const result = await qqNotify({
     channel: "qqbot",
-    target: "c2c:kksl-test",
+    target: "c2c:synthetic-test",
     messageId: "synthetic-msg",
     accountId: "default",
   }, "完成");

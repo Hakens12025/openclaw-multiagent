@@ -5,7 +5,7 @@ import {
   clearSystemActionDeliveryTicketStore,
   registerSystemActionDeliveryTicket,
   resolveSystemActionDeliveryTicketRoute,
-} from "../lib/routing/delivery-system-action-ticket.js";
+} from "../lib/routing/delivery/delivery-system-action-ticket.js";
 import {
   clearAllPendingSignals,
   hasPendingSignal,

@@ -2,18 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { unlink } from "node:fs/promises";
 
-import { getContractPath, persistContractById, readContractSnapshotById } from "../lib/contracts.js";
+import { getContractPath, persistContractById, readContractSnapshotById } from "../lib/contract/contracts.js";
 import { CONTRACT_STATUS, TRACKING_STATUS } from "../lib/core/runtime-status.js";
 import { dispatchOutgoingStateMap, dispatchTargetStateMap, runtimeAgentConfigs, taskHistory } from "../lib/state.js";
-import { clearAllSessions, HARD_STOP_REASON, isSessionHardStopped, markSessionHardStopped } from "../lib/loop/loop-detection.js";
-import { resolveLoopEpochKey } from "../lib/loop/loop-epoch-key.js";
-import { reconcileDispatchRuntimeTruth } from "../lib/routing/dispatch-runtime-reconcile.js";
+import { clearAllSessions, HARD_STOP_REASON, isSessionHardStopped, markSessionHardStopped } from "../lib/runtime/execution-hard-stop-registry.js";
+import { resolveSessionEpochKey } from "../lib/runtime/session-epoch-key.js";
+import { reconcileDispatchRuntimeTruth } from "../lib/routing/dispatch/dispatch-runtime-reconcile.js";
 import {
   clearTrackingStore,
   getTrackingState,
   rememberTrackingState,
 } from "../lib/store/tracker-store.js";
-import { terminalizeContractForTestRunner } from "../lib/test-runner-terminalize.js";
+import { terminalizeContractForTestRunner } from "../lib/formal-runtime/test-runner-terminalize.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 
 const logger = {
@@ -78,7 +78,7 @@ test("test-runner terminalize closes running tracker before dispatch reconcile c
     queue: [],
   });
   rememberTrackingState(sessionKey, trackingState);
-  markSessionHardStopped(resolveLoopEpochKey(trackingState), HARD_STOP_REASON.MANUAL);
+  markSessionHardStopped(resolveSessionEpochKey(trackingState), HARD_STOP_REASON.MANUAL);
 
   try {
     const result = await terminalizeContractForTestRunner({
@@ -95,7 +95,7 @@ test("test-runner terminalize closes running tracker before dispatch reconcile c
     assert.equal(result.ok, true);
     assert.equal(result.trackingCleanup.removed, 1);
     assert.equal(getTrackingState(sessionKey), null);
-    assert.equal(isSessionHardStopped(resolveLoopEpochKey(trackingState)), false);
+    assert.equal(isSessionHardStopped(resolveSessionEpochKey(trackingState)), false);
 
     const persisted = await readContractSnapshotById(contractId);
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);

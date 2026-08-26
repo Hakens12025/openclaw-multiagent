@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // GroupSession = 运行层（追踪组内成员完成状态：aggregate 等齐 / race 先得取消）。
-// 类比 loop-session-store：复用 atomicWriteFile + withLock，独立文件 + 独立 lock，
-// 与 loop-session-store 完全独立存储（不融合）。spec(装配层) 在 agent-group-spec.js。
+// 复用 atomicWriteFile + withLock，独立文件 + 独立 lock。spec(装配层) 在 agent-group-spec.js。
 //
 // 这些纯逻辑判定（等齐 / 先得 / 拓扑剪枝判定）以纯函数导出，便于无 IO 单测。
 
@@ -42,7 +41,7 @@ test("normalizeGroupSessionEntry rejects entries without id/groupId or <1 member
   assert.equal(normalizeGroupSessionEntry({ id: "x", groupId: "g", members: [] }), null, "no members");
 });
 
-test("normalizeGroupSessionEntry carries loopSessionId pointer (loop nesting, orthogonal)", () => {
+test("normalizeGroupSessionEntry keeps the round counter and drops the retired loop back-pointer", () => {
   const entry = normalizeGroupSessionEntry({
     id: "GS-2",
     groupId: "g",
@@ -50,8 +49,8 @@ test("normalizeGroupSessionEntry carries loopSessionId pointer (loop nesting, or
     loopSessionId: "LS-99",
     round: 2,
   });
-  assert.equal(entry.loopSessionId, "LS-99");
   assert.equal(entry.round, 2);
+  assert.equal("loopSessionId" in entry, false);
 });
 
 // ── aggregate: 等齐判定 ────────────────────────────────────────────────────────
@@ -98,6 +97,9 @@ test("groupSessionFitsTopology rejects sessions referencing pruned members/group
   assert.equal(groupSessionFitsTopology(entry, { agentIds: new Set(["a", "b"]), groupIds: new Set(["g"]) }), true);
   assert.equal(groupSessionFitsTopology(entry, { agentIds: new Set(["a"]), groupIds: new Set(["g"]) }), false, "member b pruned");
   assert.equal(groupSessionFitsTopology(entry, { agentIds: new Set(["a", "b"]), groupIds: new Set([]) }), false, "group g pruned");
+  // groupIds:null = 组维不参与判定(agent 删除级联只按成员剪枝——组无独立注册表)
+  assert.equal(groupSessionFitsTopology(entry, { agentIds: new Set(["a", "b"]), groupIds: null }), true, "group dimension opted out");
+  assert.equal(groupSessionFitsTopology(entry, { agentIds: new Set(["a"]), groupIds: null }), false, "member b pruned even with group opt-out");
 });
 
 // ── store round-trip (real IO, isolated tmp dir via env override) ──────────────

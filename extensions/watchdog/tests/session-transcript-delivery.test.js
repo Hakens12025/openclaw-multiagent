@@ -7,7 +7,8 @@
  *   3. 叶子但产出件缺失 → isTerminal:true + available:false + content:null
  *   4. 大产出件 → content 截断到 40000 + truncated:true
  *   5. graph 读失败（mock loadGraph 抛错）→ delivery:{isTerminal:false} 不抛
- *   6. live 产出件被清 → 回退 workflow-trace 快照；皆无 → available:false
+ *   6. 读序 = 树封包 outbox-<cid>/seal.primary > 树快照 delivery-<cid>.md > live
+ *      control-plane/output/<cid>.md（经 contract-index 找家）；皆无 → available:false
  *
  * 叶子判定走真实 graph（loadGraph）：graph 中不存在的 agentId 必然无出边 = 叶子，
  * 用它做叶子用例，不污染真实拓扑；非叶子用真实 graph 里有出边的节点（运行时断言）。
@@ -23,6 +24,7 @@ import { join } from "node:path";
 import { readSessionTranscript } from "../lib/agent/agent-session-transcript.js";
 import { compactHomePath } from "../lib/agent/agent-enrollment-discovery.js";
 import { loadGraph, getEdgesFrom } from "../lib/agent/agent-graph.js";
+import { recordContractHome, resolveThreadsRoot } from "../lib/archive/thread-tree-store.js";
 
 const OC_ROOT = join(homedir(), ".openclaw");
 const OUTPUT_DIR = join(OC_ROOT, "control-plane", "output");
@@ -131,6 +133,7 @@ test("delivery：graph 读取抛错 → delivery:{isTerminal:false} 不抛（try
     namedExports: {
       loadGraph: () => { throw new Error("boom: graph unreadable"); },
       getEdgesFrom: () => [],
+      getPipelineEdgesFrom: () => [],
     },
   });
   try {
@@ -142,45 +145,80 @@ test("delivery：graph 读取抛错 → delivery:{isTerminal:false} 不抛（try
   }
 });
 
-// ── 6. live 产出件被清 → 回退 workflow-trace 快照 ──────────────────────────────
+// ── 6. live 产出件被清 → 回退树内快照 participants/<agent>/delivery-<cid>.md ────
 
-const TRACE_DIR = join(OC_ROOT, "control-plane", "workflow-trace");
+function lineageFor(contractId) {
+  return { threadId: `t-deliv-${contractId.slice(-8)}`, runId: `r-${contractId.slice(-8)}` };
+}
 
-async function writeTraceOutput(contractId, body) {
-  const dir = join(TRACE_DIR, contractId);
+// 树内产出快照：participants/<agent>/delivery-<cid>.md（写者 = agent_end snapshotOutputToRunTree）
+// + contract-index 登记（读侧经 resolveContractHome 找家）
+async function writeTreeDeliverySnapshot(lineage, contractId, agentId, body) {
+  await recordContractHome(contractId, lineage);
+  const dir = join(resolveThreadsRoot(), lineage.threadId, "runs", lineage.runId, "participants", agentId);
   await mkdir(dir, { recursive: true });
-  const p = join(dir, "output.md");
+  const p = join(dir, `delivery-${contractId}.md`);
   await writeFile(p, body, "utf8");
   return p;
 }
 
-test("delivery：live 产出件在 → 优先读 live（outputPath 指向 output 目录）", async () => {
-  const contractId = `tc-livefirst-${Date.now()}`;
+async function cleanupTree(lineage) {
+  await rm(join(resolveThreadsRoot(), lineage.threadId), { recursive: true, force: true });
+}
+
+test("delivery：读序 = 树封包 seal.primary > 树快照 > live 镜像", async () => {
+  const contractId = `tc-sealfirst-${Date.now()}`;
+  const lineage = lineageFor(contractId);
   const livePath = await writeOutput(contractId, "LIVE 内容");
-  const tracePath = await writeTraceOutput(contractId, "TRACE 内容");
+  await writeTreeDeliverySnapshot(lineage, contractId, LEAF_AGENT, "TREE 快照内容");
+  // 树 outbox 封包:participants/<agent>/outbox-<cid>/{seal.json, final.md}
+  const outboxDir = join(resolveThreadsRoot(), lineage.threadId, "runs", lineage.runId, "participants", LEAF_AGENT, `outbox-${contractId}`);
+  await mkdir(outboxDir, { recursive: true });
+  await writeFile(join(outboxDir, "final.md"), "SEAL 正本内容", "utf8");
+  await writeFile(join(outboxDir, "seal.json"), JSON.stringify({
+    contractId, collectedAt: Date.now(), primary: "final.md", files: ["final.md"], declaredStatus: "completed",
+  }), "utf8");
   try {
     const tr = await readSessionTranscript(LEAF_AGENT, "any-sid", { contractId });
     assert.equal(tr.delivery.available, true);
-    assert.equal(tr.delivery.content, "LIVE 内容", "live 在时应优先读 live");
-    assert.ok(tr.delivery.outputPath.includes("/control-plane/output/"), "outputPath 应指向 live output 目录");
+    assert.equal(tr.delivery.content, "SEAL 正本内容", "封包在场时 seal.primary 是第一读序");
+    assert.ok(tr.delivery.outputPath.includes(`outbox-${contractId}`), "outputPath 应指向树 outbox 封包正本");
   } finally {
     await rm(livePath, { force: true });
-    await rm(join(TRACE_DIR, contractId), { recursive: true, force: true });
+    await cleanupTree(lineage);
   }
 });
 
-test("delivery：live 被清 → 回退 workflow-trace 快照（outputPath 指向 trace）", async () => {
-  const contractId = `tc-fallback-${Date.now()}`;
-  const tracePath = await writeTraceOutput(contractId, "快照里的最终件");
+test("delivery：无封包时 树快照 先于 live 镜像", async () => {
+  const contractId = `tc-snapfirst-${Date.now()}`;
+  const lineage = lineageFor(contractId);
+  const livePath = await writeOutput(contractId, "LIVE 内容");
+  const snapshotPath = await writeTreeDeliverySnapshot(lineage, contractId, LEAF_AGENT, "TREE 快照内容");
   try {
-    // 不写 live output，只有快照
+    const tr = await readSessionTranscript(LEAF_AGENT, "any-sid", { contractId });
+    assert.equal(tr.delivery.available, true);
+    assert.equal(tr.delivery.content, "TREE 快照内容", "快照先于 live 镜像遗产");
+    assert.equal(tr.delivery.outputPath, compactHomePath(snapshotPath));
+  } finally {
+    await rm(livePath, { force: true });
+    await cleanupTree(lineage);
+  }
+});
+
+test("delivery：live 被清 → 回退树内快照（outputPath 指向 participants delivery 快照）", async () => {
+  const contractId = `tc-fallback-${Date.now()}`;
+  const lineage = lineageFor(contractId);
+  // 写在另一个参与者名下：agent 名不定，读面应扫 home 下各参与者目录找
+  const snapshotPath = await writeTreeDeliverySnapshot(lineage, contractId, "__other_producer__", "快照里的最终件");
+  try {
+    // 不写 live output，只有树内快照
     const tr = await readSessionTranscript(LEAF_AGENT, "any-sid", { contractId });
     assert.equal(tr.delivery.isTerminal, true);
-    assert.equal(tr.delivery.available, true, "live 缺应回退快照命中");
+    assert.equal(tr.delivery.available, true, "live 缺应回退树内快照命中");
     assert.equal(tr.delivery.content, "快照里的最终件");
-    assert.equal(tr.delivery.outputPath, compactHomePath(tracePath), "outputPath 应指向 workflow-trace 快照（~ 压缩）");
+    assert.equal(tr.delivery.outputPath, compactHomePath(snapshotPath), "outputPath 应指向树内 delivery 快照");
   } finally {
-    await rm(join(TRACE_DIR, contractId), { recursive: true, force: true });
+    await cleanupTree(lineage);
   }
 });
 

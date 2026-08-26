@@ -56,14 +56,14 @@ test("buildToolTimelineEvent classifies path guard write failures", () => {
   assert.equal(event.summary, "写入失败: output");
 });
 
-test("buildToolTimelineEvent classifies loop hard-stop blocks", () => {
+test("buildToolTimelineEvent classifies execution hard-stop blocks", () => {
   const event = buildToolTimelineEvent({
     index: 3,
     toolName: "Write",
     params: {
       path: "outbox/runtime_result.json",
     },
-    error: "[LOOP DETECTED] runtime 已完成本轮工具阶段；请用普通文本给出最终结果。",
+    error: "[EXECUTION HALTED] runtime 已完成本轮工具阶段;请用普通文本给出最终结果。",
     observedAt: 789,
   });
 
@@ -72,7 +72,7 @@ test("buildToolTimelineEvent classifies loop hard-stop blocks", () => {
   assert.match(event.summary, /写入失败/u);
 });
 
-test("appendToolTimelineEvent collapses repeated loop hard-stop blocks", () => {
+test("appendToolTimelineEvent collapses repeated execution hard-stop blocks", () => {
   const events = [];
   const first = buildToolTimelineEvent({
     index: 4,
@@ -80,7 +80,7 @@ test("appendToolTimelineEvent collapses repeated loop hard-stop blocks", () => {
     params: {
       path: "outbox/runtime_result.json",
     },
-    error: "[LOOP DETECTED] runtime 已完成本轮工具阶段；请用普通文本给出最终结果。",
+    error: "[EXECUTION HALTED] runtime 已完成本轮工具阶段;请用普通文本给出最终结果。",
     observedAt: 1000,
   });
   const second = buildToolTimelineEvent({
@@ -89,7 +89,7 @@ test("appendToolTimelineEvent collapses repeated loop hard-stop blocks", () => {
     params: {
       path: "outbox/runtime_result.json",
     },
-    error: "[LOOP DETECTED] runtime 已完成本轮工具阶段；请用普通文本给出最终结果。",
+    error: "[EXECUTION HALTED] runtime 已完成本轮工具阶段;请用普通文本给出最终结果。",
     observedAt: 1100,
   });
 

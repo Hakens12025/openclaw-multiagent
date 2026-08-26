@@ -4,18 +4,20 @@ import {
   cfg,
 } from "../lib/state.js";
 import { broadcast, getSseClientCount } from "../lib/transport/sse.js";
+import { bootLedger } from "../lib/core/boot-ledger.js";
 import { EVENT_TYPE } from "../lib/core/event-types.js";
 import { detectCycles } from "../lib/agent/agent-graph.js";
 import { getRuntimeAgentConfig, listRuntimeAgentIds } from "../lib/agent/agent-identity.js";
 import { getCliSystemSurface, inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
 import {
   buildOperatorPlan,
   executeOperatorPlan,
-} from "../lib/operator-runtime.js";
+} from "../lib/operator/operator-runtime.js";
 import {
   buildVizMasterPlan,
   executeVizMasterPlan,
+  verifyVizMasterPlan,
 } from "../lib/viz/viz-master-runtime.js";
 import { writeLocalAgentGuidanceContent } from "../lib/agent/agent-enrollment-guidance.js";
 import { syncAllRuntimeWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
@@ -23,7 +25,7 @@ import { register as registerAdminChangeSetRoutes } from "./admin-change-sets.js
 import { register as registerControlPlaneRoutes } from "./control-plane.js";
 import { register as registerOperatorCatalogRoutes } from "./operator-catalog.js";
 import { register as registerTestRunsRoutes } from "./test-runs.js";
-import { terminalizeContractForTestRunner } from "../lib/test-runner-terminalize.js";
+import { terminalizeContractForTestRunner } from "../lib/formal-runtime/test-runner-terminalize.js";
 import { revealFileInFinder } from "../lib/agent/agent-reveal-file.js";
 
 export function register(api, logger, deps) {
@@ -261,10 +263,13 @@ export function register(api, logger, deps) {
       const dispatchQueueEntries = Array.isArray(dispatchRuntimeSnapshot.queue)
         ? dispatchRuntimeSnapshot.queue
         : [];
+      // trackingSessions 保留:formal-runtime 判定面在读(health-gateway E-GW-005 形状断言 +
+      // suite-concurrent 并发探针 + infra 采样),是 live 内存态,树账替代不了轮询窗口。
       const state = {
         trackingSessions: runtimeState.trackingSessions,
-        historyCount: runtimeState.historyCount,
         sseClientCount: getSseClientCount(),
+        bootDeps: bootLedger.summary(), // RX-02:网关进程真实封账态,health gateway 层消费
+
         dispatchChainSize: runtimeState.dispatchChainSize,
         dispatchQueue: {
           entries: dispatchQueueEntries,
@@ -349,20 +354,12 @@ export function register(api, logger, deps) {
   });
   registerAdminSurfacePostRoute("/watchdog/graph/edge/add", "graph.edge.add");
   registerAdminSurfacePostRoute("/watchdog/graph/edge/delete", "graph.edge.delete");
-  registerAdminSurfacePostRoute("/watchdog/graph/loop/compose", "graph.loop.compose", {
-    mapPayload: (payload) => ({
-      ...payload,
-      agents: payload.agents ?? payload.agentsText,
-    }),
-  });
   registerAdminSurfacePostRoute("/watchdog/graph/group/compose", "graph.group.compose", {
     mapPayload: (payload) => ({
       ...payload,
       agents: payload.agents ?? payload.agentsText ?? payload.members,
     }),
   });
-  registerAdminSurfacePostRoute("/watchdog/graph/loop/delete", "graph.loop.delete");
-  registerAdminSurfacePostRoute("/watchdog/graph/loop/repair", "graph.loop.repair");
   registerAdminSurfacePostRoute("/watchdog/skills/create", "skills.create");
   registerAdminSurfacePostRoute("/watchdog/schedules/create", "schedules.create");
   registerAdminSurfacePostRoute("/watchdog/schedules/update", "schedules.update");
@@ -393,23 +390,6 @@ export function register(api, logger, deps) {
   registerAdminSurfacePostRoute("/watchdog/reset", "runtime.reset", {
     requireExplicitConfirm: true,
   });
-  registerAdminSurfacePostRoute("/watchdog/runtime/loop/start", "runtime.loop.start", {
-    mapPayload: (payload) => ({
-      ...payload,
-      loopId: payload.loopId,
-      startAgent: payload.startAgent,
-      requestedTask: payload.requestedTask,
-      requestedSource: payload.requestedSource,
-    }),
-  });
-  registerAdminSurfacePostRoute("/watchdog/runtime/loop/interrupt", "runtime.loop.interrupt");
-  registerAdminSurfacePostRoute("/watchdog/runtime/loop/resume", "runtime.loop.resume", {
-    mapPayload: (payload) => ({
-      ...payload,
-      loopId: payload.loopId,
-      startStage: payload.startStage,
-    }),
-  });
 
   // ── Knowledge bases ─────────────────────────────────────────────────────────
   registerAdminSurfacePostRoute("/watchdog/knowledge/add", "apply.knowledge_add");
@@ -426,6 +406,9 @@ export function register(api, logger, deps) {
   // ── Charts (非真值控制面,viz-master 拥有 chart 面) ─────────────────────────
   registerAdminSurfacePostRoute("/watchdog/charts/create", "apply.chart_create");
   registerAdminSurfacePostRoute("/watchdog/charts/move", "apply.chart_move");
+  registerAdminSurfacePostRoute("/watchdog/charts/delete", "apply.chart_delete", {
+    requireExplicitConfirm: true,
+  });
 
   // ── Runtime Operator ───────────────────────────────────────────────────────
   registerPostActionRoute("/watchdog/operator/plan", async (payload) => buildOperatorPlan({
@@ -462,6 +445,13 @@ export function register(api, logger, deps) {
     runtimeContext: buildAdminSurfaceRuntimeContext("viz-master.execute"),
   }));
 
+  // 防伪对照 accept stage: read+LLM only (3 synthetic controls through the same plan channel,
+  // code-judged) — ZERO writes, controls are never persisted.
+  registerPostActionRoute("/watchdog/viz/verify", async (payload) => verifyVizMasterPlan({
+    plan: payload.plan,
+    logger,
+  }));
+
   // ── Agent Graph ─────────────────────────────────────────────────────────────
 
   // GET /watchdog/graph — full graph with detected cycles
@@ -469,13 +459,10 @@ export function register(api, logger, deps) {
     path: "/watchdog/graph", auth: "plugin", match: "exact",
     handler: async (req, res) => {
       if (!checkAuth(req, res)) return true;
-      // graph / loops / loop-sessions / active-session 经 CLI-system inspect surface 读取，
-      // 不直读 store（收口旁路）。detectCycles 是纯拓扑算法，留在 route。
+      // graph 经 CLI-system inspect surface 读取，不直读 store（收口旁路）。
+      // detectCycles 是纯拓扑算法，留在 route —— cycles 是前端识环的唯一真值来源。
       const graph = await inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" });
       const cycles = detectCycles(graph);
-      const loops = await inspectCliSystemSurface({ surfaceId: "inspect.graph_loops", params: { graph } });
-      const loopSessions = await inspectCliSystemSurface({ surfaceId: "inspect.loop_sessions", params: { loops } });
-      const activeLoopSession = await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } });
       const nodes = listRuntimeAgentIds().map((id) => {
         const runtimeConfig = getRuntimeAgentConfig(id);
         return {
@@ -488,42 +475,6 @@ export function register(api, logger, deps) {
         nodes,
         edges: graph.edges,
         cycles,
-        loops,
-        loopSessions,
-        activeLoopSession,
-      });
-      return true;
-    },
-  });
-
-  // GET /watchdog/graph/loops — registered LoopSpec + detected cycles
-  api.registerHttpRoute({
-    path: "/watchdog/graph/loops", auth: "plugin", match: "exact",
-    handler: async (req, res) => {
-      if (!checkAuth(req, res)) return true;
-      // graph / loops / loop-sessions / active-session 经 CLI-system inspect surface 读取（收口旁路）。
-      const graph = await inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" });
-      const loops = await inspectCliSystemSurface({ surfaceId: "inspect.graph_loops", params: { graph } });
-      sendJson(res, 200, {
-        loops,
-        loopSessions: await inspectCliSystemSurface({ surfaceId: "inspect.loop_sessions", params: { loops } }),
-        activeLoopSession: await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } }),
-        cycles: detectCycles(graph),
-      });
-      return true;
-    },
-  });
-
-  api.registerHttpRoute({
-    path: "/watchdog/graph/loop-sessions", auth: "plugin", match: "exact",
-    handler: async (req, res) => {
-      if (!checkAuth(req, res)) return true;
-      // graph / loops / active-session / sessions 经 CLI-system inspect surface 读取（收口旁路）。
-      const graph = await inspectCliSystemSurface({ surfaceId: "inspect.agent_graph" });
-      const loops = await inspectCliSystemSurface({ surfaceId: "inspect.graph_loops", params: { graph } });
-      sendJson(res, 200, {
-        activeSession: await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } }),
-        sessions: await inspectCliSystemSurface({ surfaceId: "inspect.loop_sessions", params: { loops } }),
       });
       return true;
     },

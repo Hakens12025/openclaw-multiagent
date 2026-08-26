@@ -1,13 +1,14 @@
 import { detectCycles } from "../agent/agent-graph.js";
 import { AGENT_ROLE } from "../agent/agent-metadata.js";
-import { resolveModelRef, resolveOperatorBrainModel } from "../brain-model-resolver.js";
+import { resolveModelRef, resolveBrainModelChain } from "../llm/brain-model-resolver.js";
+import { broadcast } from "../transport/sse.js";
 import {
   listModelRegistry,
   listSkillRegistry,
   loadOpenClawConfig,
   readAgentDefaultsRegistry,
-} from "../capability/capability-registry.js";
-import { callOpenAICompatiblePlanner } from "../llm-planner.js";
+} from "../management/capability-registry.js";
+import { callOpenAICompatiblePlanner } from "../llm/llm-planner.js";
 import { EXECUTABLE_OPERATOR_PLAN_INTENTS } from "./operator-plan.js";
 import { normalizeRecord, normalizeString, uniqueStrings, compactText } from "../core/normalize.js";
 import { buildOperatorKnowledgeContext } from "./operator-knowledge.js";
@@ -120,27 +121,7 @@ function collectReferencedAgentIds({ currentPlan, conversation, knownAgentIds })
   return uniqueStrings(refs.filter(Boolean)).slice(-8);
 }
 
-function buildLoopPlanningHints({ loops, loopSessions }) {
-  const registeredLoops = Array.isArray(loops) ? loops : [];
-  const sessions = Array.isArray(loopSessions) ? loopSessions : [];
-  const findByStatus = (status) => sessions.find((s) => (normalizeString(s?.runtimeStatus || s?.status)?.toLowerCase()) === status) || null;
-  const activeSession = sessions.find((s) => s?.active === true) || null;
-  const brokenSession = findByStatus("broken");
-  const interruptedSession = findByStatus("interrupted");
-  const repairableLoops = registeredLoops.filter((loop) => Array.isArray(loop?.missingEdges) && loop.missingEdges.length > 0);
-  const singleLoop = registeredLoops.length === 1 ? registeredLoops[0] : null;
-
-  return {
-    activeLoopId: normalizeString(activeSession?.loopId) || null,
-    activeLoopStage: normalizeString(activeSession?.currentStage) || null,
-    repairCandidateLoopId: normalizeString(brokenSession?.loopId || (repairableLoops.length === 1 ? repairableLoops[0]?.id : null) || singleLoop?.id) || null,
-    resumeCandidateLoopId: normalizeString(interruptedSession?.loopId || brokenSession?.loopId || singleLoop?.id) || null,
-    resumeCandidateStage: normalizeString(interruptedSession?.currentStage || brokenSession?.currentStage) || null,
-    registeredLoopIds: registeredLoops.map((loop) => normalizeString(loop?.id)).filter(Boolean).slice(0, 8),
-  };
-}
-
-export function buildOperatorPlanningFocus({ agents = [], loops = [], loopSessions = [], conversation = [], currentPlan = null } = {}) {
+export function buildOperatorPlanningFocus({ agents = [], conversation = [], currentPlan = null } = {}) {
   const agentList = Array.isArray(agents) ? agents : [];
   const webuiGatewayAgent = agentList.find((agent) => {
     if (agent?.gateway !== true) return false;
@@ -158,14 +139,12 @@ export function buildOperatorPlanningFocus({ agents = [], loops = [], loopSessio
     },
     recentReferents: {
       agentIds: collectReferencedAgentIds({ currentPlan, conversation, knownAgentIds }),
-      loopId: normalizeString(currentPlan?.derived?.loopId) || null,
     },
     gatewayAgents: uniqueStrings(agentList.filter((a) => a?.gateway === true).map((a) => normalizeString(a?.id)).filter(Boolean)).slice(0, 8),
-    loopHints: buildLoopPlanningHints({ loops, loopSessions }),
   };
 }
 
-function buildBrainContext({ requestText, modelRef, agentDefaults, agents, skills, models, surfaces, graph, loops, loopSessions, knowledge, history, currentPlan, planningFocus, testReports, harnessRuns, automationRuntimes }) {
+function buildBrainContext({ requestText, modelRef, agentDefaults, agents, skills, models, surfaces, graph, knowledge, history, currentPlan, planningFocus, testReports, automationRuntimes }) {
   const edges = Array.isArray(graph?.edges) ? graph.edges : [];
   return {
     request: requestText,
@@ -182,11 +161,8 @@ function buildBrainContext({ requestText, modelRef, agentDefaults, agents, skill
         edgeCount: edges.length,
         cycles: detectCycles(graph),
         edges: edges.map((e) => ({ from: normalizeString(e?.from) || "unknown", to: normalizeString(e?.to) || "unknown", label: normalizeString(e?.label) || null })),
-        loops: (Array.isArray(loops) ? loops : []).map((l) => ({ id: normalizeString(l?.id) || "unknown", entryAgentId: normalizeString(l?.entryAgentId) || null, nodes: Array.isArray(l?.nodes) ? l.nodes : [], active: l?.active === true })),
-        loopSessions: (Array.isArray(loopSessions) ? loopSessions : []).map((s) => ({ id: normalizeString(s?.id) || "unknown", loopId: normalizeString(s?.loopId) || null, currentStage: normalizeString(s?.currentStage) || null, round: Number.isFinite(s?.round) ? s.round : null, runtimeStatus: normalizeString(s?.runtimeStatus) || normalizeString(s?.status) || null })),
       },
-      automationRuntimes: (Array.isArray(automationRuntimes) ? automationRuntimes : []).map((rt) => ({ automationId: rt?.automationId || null, status: rt?.status || null, currentRound: rt?.currentRound || 0, lastScore: rt?.lastScore ?? null, bestScore: rt?.bestScore ?? null, lastReviewerResult: rt?.lastReviewerResult || null, lastAutomationDecision: rt?.lastAutomationDecision || null })),
-      recentHarnessRuns: (Array.isArray(harnessRuns) ? harnessRuns : []).slice(0, 5).map((run) => ({ id: run?.id || null, automationId: run?.automationId || null, round: run?.round || null, status: run?.status || null, score: run?.score ?? null, verdict: run?.gateSummary?.verdict || run?.reviewerResult?.verdict || null, failedModules: run?.gateSummary?.failed || 0 })),
+      automationRuntimes: (Array.isArray(automationRuntimes) ? automationRuntimes : []).map((rt) => ({ automationId: rt?.automationId || null, status: rt?.status || null, currentRound: rt?.currentRound || 0, lastScore: rt?.lastScore ?? null, bestScore: rt?.bestScore ?? null, lastAutomationDecision: rt?.lastAutomationDecision || null })),
     },
     agents: agents.map(summarizeAgentForBrain),
     skills: skills.slice(0, OPERATOR_BRAIN_MAX_SKILLS).map(summarizeSkillForBrain),
@@ -206,8 +182,8 @@ function buildOperatorBrainSystemPrompt() {
     "Understand the user's request, then return a structured plan using provided cli-system surfaces or answer in advice_only mode with zero steps.",
     "Use context.agent/surface/schema ids exactly as provided.",
     "Plan only with executableSurfaces. For unsupported requests, use intent=advice_only with steps=[].",
-    "OpenClaw is a GENERAL multi-agent machine. A domain's missing capability (computation, backtesting, data parsing, a domain method) is something you BUILD, NOT a reason to refuse: grant the agent tools via agents.tools (e.g. bash to run calculations), author the domain method as a skill via skills.create, set role via agents.role, then compose the loop (graph.loop.compose). Composing makes the loop structurally active; you do NOT start it. Reserve advice_only for requests that genuinely cannot be expressed with ANY provided surface — never merely because a domain needs a specialized agent. Default to BUILDING a runnable structure (the human refines it later) over giving advice.",
-    "You DESIGN the control plane; you do NOT run the user's concrete one-off task. A composed loop being structurally active (its authorization edges / LoopSpec exist, not yet running) is the CORRECT end state of a build plan. End a build plan at the structure (agents.create / graph.edge.add / graph.loop.compose / graph.group.compose / harness via automations) + agent content (agents.role, agents.tools e.g. bash, agents.description, agents.constraints, domain method authored as a skill via skills.create then attached via agents.skills) + an inspect.structure_preview. Do NOT append runtime.loop.start carrying the user's concrete task as requestedTask: the one-off task is dispatched to the built structure SEPARATELY downstream by the user/ingress — for any structure it arrives in the entry agent's inbox; for a loop the user may explicitly trigger runtime.loop.start. Emit runtime.loop.start only when the user EXPLICITLY asks to run/resume an already-built loop now — never as the mandatory tail of a build.",
+    "OpenClaw is a GENERAL multi-agent machine. A domain's missing capability (computation, backtesting, data parsing, a domain method) is something you BUILD, NOT a reason to refuse: grant the agent tools via agents.tools (e.g. bash to run calculations), author the domain method as a skill via skills.create, set role via agents.role, then wire the structure with graph.edge.add. An ITERATIVE structure is just edges closed into a cycle (a -> b -> c -> a); the platform detects and highlights the cycle by itself — there is no separate loop object to register. Wiring the edges makes the structure active; you do NOT start it. Reserve advice_only for requests that genuinely cannot be expressed with ANY provided surface — never merely because a domain needs a specialized agent. Default to BUILDING a runnable structure (the human refines it later) over giving advice.",
+    "You DESIGN the control plane; you do NOT run the user's concrete one-off task. A wired structure sitting idle (its authorization edges exist, nothing running) is the CORRECT end state of a build plan. End a build plan at the structure (agents.create / graph.edge.add — close the edges into a cycle when the work is iterative / graph.group.compose for a parallel group) + agent content (agents.role, agents.tools e.g. bash, agents.description, agents.constraints, domain method authored as a skill via skills.create then attached via agents.skills) + an inspect.structure_preview. Do NOT append any step that runs the user's concrete task: the one-off task is dispatched to the built structure SEPARATELY downstream by the user/ingress — it arrives in the entry agent's inbox and the conveyor advances it hop by hop along the edges; a cyclic structure simply keeps going around.",
     "executableSurfaces include apply (write) and verify (test_runs.start / test.inject) surfaces. When you mutate the platform, you may append a verify step to confirm the change (inspect -> apply -> verify governance loop).",
     "VISUALIZATION / CHART requests (plot some data as a line/bar/pie chart) are NOT yours to build directly: do NOT emit apply.chart_create yourself. Instead summon the visualization master — a specialized meta-agent — with EXACTLY ONE step { surfaceId: \"meta.delegate\", title: \"...\", payload: { targetActor: \"viz-master\", request: \"<the chart intent + the actual data points to plot>\" } } and intent=platform_mutation. viz-master picks the chart type, derives the spec, and writes the chart; you only delegate. meta.delegate is a special non-surface step (it is NOT one of the executableSurfaces ids).",
     "Graph edges are directional. Proposed graph changes must appear as graph surface steps.",
@@ -255,6 +231,46 @@ export async function callPlannerWithSingleRetry(plannerArgs) {
   });
 }
 
+// Provider resilience (TIER-1, oh-my-pi borrow, 备忘录125): walk an ordered model chain, falling back
+// to the NEXT provider ONLY on a provider-class failure (quota / socket / timeout / http error). A
+// PLANNER_JSON_PARSE_FAILED is a CONTENT failure (the model answered but unparseably) — that is
+// callPlannerWithSingleRetry's job and must NOT trigger a cross-provider fallback, else we'd silently
+// re-run the same bad reasoning on a second provider and mislabel the failure class. Empty chain is a
+// caller error (resolve readiness first). Emits a structured `provider_fallback` SSE event so the
+// dashboard shows which provider actually served. `callPlanner` is injectable for tests. Shared by
+// operator-brain and viz-master-brain (both resolve a chain, both walk it here).
+export async function callPlannerWithModelFallback({
+  modelChain,
+  plannerArgs,
+  logger = null,
+  callPlanner = callPlannerWithSingleRetry,
+  onFallback = null,
+}) {
+  if (!Array.isArray(modelChain) || modelChain.length === 0) {
+    throw new Error("planner model chain is empty");
+  }
+  const fallbacksTried = [];
+  for (let i = 0; i < modelChain.length; i += 1) {
+    const model = modelChain[i];
+    try {
+      const plan = await callPlanner({ ...plannerArgs, model: model.modelId, baseUrl: model.baseUrl, apiKey: model.apiKey });
+      if (i > 0) {
+        const event = { primary: modelChain[0].fullRef, servedBy: model.fullRef, tried: fallbacksTried, ts: Date.now() };
+        broadcast("provider_fallback", event);
+        if (typeof onFallback === "function") onFallback(event);
+      }
+      return { plan, servedBy: model, fallbacksTried };
+    } catch (error) {
+      // Content/plan error → not a provider failure: stop, do not try another provider.
+      // Last provider in the chain → exhausted: rethrow.
+      if (error?.code === "PLANNER_JSON_PARSE_FAILED" || i === modelChain.length - 1) throw error;
+      fallbacksTried.push({ providerRef: model.fullRef, error: normalizeString(error?.message) || "provider error" });
+      logger?.warn?.(`[watchdog] brain provider ${model.fullRef} failed (${error?.message}); falling back to ${modelChain[i + 1].fullRef}`);
+    }
+  }
+  throw new Error("planner model chain exhausted");
+}
+
 export async function planWithOperatorBrain({ message, history = [], currentPlan = null, logger = null } = {}) {
   const requestText = normalizeText(message);
   if (!requestText) throw new Error("missing operator brain request text");
@@ -266,35 +282,36 @@ export async function planWithOperatorBrain({ message, history = [], currentPlan
     listSkillRegistry(),
     listModelRegistry(),
   ]);
-  const { agents, graph, loops, loopSessions, harnessRuns, testReports, automationRuntimes } = coreData;
+  const { agents, graph, testReports, automationRuntimes } = coreData;
 
-  const modelRef = resolveOperatorBrainModel(config);
-  if (!modelRef.providerId || !modelRef.modelId) throw new Error("operator brain could not resolve a planner model");
-  if (!modelRef.baseUrl || !modelRef.apiKey) throw new Error(`operator brain provider is not ready: ${modelRef.providerId}`);
+  const modelChain = resolveBrainModelChain(config);
+  if (modelChain.length === 0) throw new Error("operator brain could not resolve a ready planner model");
+  const modelRef = modelChain[0];
 
   const surfaces = listOperatorExecutableCliSystemSurfaces({ includeTemplates: true });
   const [knowledge, planningFocus] = await Promise.all([
-    buildOperatorKnowledgeContext({ requestText, agents, graph, loops, loopSessions, skills, surfaces }),
-    Promise.resolve(buildOperatorPlanningFocus({ agents, loops, loopSessions, conversation: history, currentPlan })),
+    buildOperatorKnowledgeContext({ requestText, agents, graph, skills, surfaces }),
+    Promise.resolve(buildOperatorPlanningFocus({ agents, conversation: history, currentPlan })),
   ]);
 
-  const context = buildBrainContext({ requestText, modelRef: modelRef.fullRef, agentDefaults, agents, skills, models, surfaces, graph, loops, loopSessions, knowledge, history, currentPlan, planningFocus, testReports, harnessRuns, automationRuntimes });
+  const context = buildBrainContext({ requestText, modelRef: modelRef.fullRef, agentDefaults, agents, skills, models, surfaces, graph, knowledge, history, currentPlan, planningFocus, testReports, automationRuntimes });
 
-  logger?.info?.(`[watchdog] operator-brain planning with ${modelRef.fullRef}`);
-  const rawPlan = await callPlannerWithSingleRetry({
-    model: modelRef.modelId,
-    baseUrl: modelRef.baseUrl,
-    apiKey: modelRef.apiKey,
-    systemPrompt: buildOperatorBrainSystemPrompt(),
-    userPrompt: ["Plan or answer based on this live platform context.", "If the request describes agents, a workflow, a loop, or a pipeline to build, you MUST emit build steps — agent content (agents.create + agents.role / agents.skills / agents.tools / agents.description) and structure (graph.edge.add / graph.loop.compose). That is a SUPPORTED build request: do NOT return advice_only with empty steps for it. Reuse existing agents/skills where they fit. Use advice_only ONLY when no provided surface can express the request.", JSON.stringify(context, null, 2)].join("\n\n"),
-    // Build-planning is heavy reasoning over a large live context (not a quick chat) and emits a
-    // multi-step plan — the default 45s aborts mid-generation on a loaded provider. Give it room;
-    // the dashboard shows a pending state while it plans.
-    timeoutMs: 120000,
-    // Reasoning models (e.g. glm-5.1) spend tokens on reasoning_content BEFORE emitting the plan
-    // in content; 4096 can leave the plan JSON empty/truncated. Budget for reasoning + the plan.
-    maxTokens: 8192,
+  logger?.info?.(`[watchdog] operator-brain planning with ${modelRef.fullRef}${modelChain.length > 1 ? ` (+${modelChain.length - 1} fallback)` : ""}`);
+  const { plan: rawPlan, servedBy } = await callPlannerWithModelFallback({
+    modelChain,
+    plannerArgs: {
+      systemPrompt: buildOperatorBrainSystemPrompt(),
+      userPrompt: ["Plan or answer based on this live platform context.", "If the request describes agents, a workflow, an iterative cycle, or a pipeline to build, you MUST emit build steps — agent content (agents.create + agents.role / agents.skills / agents.tools / agents.description) and structure (graph.edge.add, closed into a cycle when the work iterates). That is a SUPPORTED build request: do NOT return advice_only with empty steps for it. Reuse existing agents/skills where they fit. Use advice_only ONLY when no provided surface can express the request.", JSON.stringify(context, null, 2)].join("\n\n"),
+      // Build-planning is heavy reasoning over a large live context (not a quick chat) and emits a
+      // multi-step plan — the default 45s aborts mid-generation on a loaded provider. Give it room;
+      // the dashboard shows a pending state while it plans.
+      timeoutMs: 120000,
+      // Reasoning models (e.g. glm-5.1) spend tokens on reasoning_content BEFORE emitting the plan
+      // in content; 4096 can leave the plan JSON empty/truncated. Budget for reasoning + the plan.
+      maxTokens: 8192,
+    },
+    logger,
   });
 
-  return { ok: true, source: "operator_brain_llm", plannerModel: modelRef.fullRef, context, plan: normalizeRecord(rawPlan) };
+  return { ok: true, source: "operator_brain_llm", plannerModel: servedBy.fullRef, context, plan: normalizeRecord(rawPlan) };
 }

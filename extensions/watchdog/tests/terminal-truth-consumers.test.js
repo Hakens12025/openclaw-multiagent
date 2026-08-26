@@ -8,13 +8,8 @@ import {
   extractContractArtifact,
   extractContractScore,
   extractContractSummary,
-  extractLoopRuntimeArtifact,
-  extractLoopRuntimeScore,
-  extractLoopRuntimeSummary,
-  deriveLoopRuntimeTerminalStatus,
 } from "../lib/automation/automation-result-extractors.js";
-import { readContractCompletionArtifact } from "../lib/contracts.js";
-import { buildBaseEvidence } from "../lib/harness/harness-module-evidence.js";
+import { readContractCompletionArtifact } from "../lib/contract/contracts.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 
 test("automation result extractors prefer terminalOutcome over legacy terminal dialects", () => {
@@ -66,126 +61,16 @@ test("automation result extractors do not fall back to legacy workflowConclusion
   );
 });
 
-test("loop runtime result extractors prefer feedbackOutput over legacy workflowConclusion or researchConclusion", () => {
-  const loopRuntime = {
-    workflowConclusion: {
-      score: 91,
-      artifactPath: "/tmp/legacy-workflow.md",
-      summary: "legacy workflow summary",
-      status: "failed",
-    },
-    researchConclusion: {
-      score: 77,
-      artifactPath: "/tmp/legacy-research.md",
-      summary: "legacy research summary",
-      status: "completed",
-    },
-    feedbackOutput: {
-      score: 0.82,
-      feedback: "canonical loop runtime summary",
-      result: {
-        score: 0.83,
-        status: "cancelled",
-      },
-    },
-    conclusionArtifact: {
-      path: "/tmp/canonical-loop-runtime.md",
-    },
-  };
+// 回路运行时退役(2026-08-18)：原先此处还有两条 loopRuntime 版的同型用例
+// （extractLoopRuntime* / deriveLoopRuntimeTerminalStatus）。四个 extractor 的唯一调用方
+// handleAutomationLoopRuntimeTerminal 已整删，函数随之消失，用例同批移除。
+// 它们守的 workflowConclusion / researchConclusion 旧方言拒绝锁不留缺口 ——
+// 上面两条合约版用例守的是同一条锁，且合约是 automation 轮次终态的唯一真值面。
 
-  assert.equal(extractLoopRuntimeScore(loopRuntime), 0.83);
-  assert.equal(extractLoopRuntimeArtifact(loopRuntime), "/tmp/canonical-loop-runtime.md");
-  assert.equal(extractLoopRuntimeSummary(loopRuntime), "canonical loop runtime summary");
-  assert.equal(deriveLoopRuntimeTerminalStatus(loopRuntime), CONTRACT_STATUS.CANCELLED);
-});
-
-test("loop runtime result extractors do not fall back to legacy workflowConclusion or researchConclusion", () => {
-  const loopRuntime = {
-    workflowConclusion: {
-      score: 91,
-      artifactPath: "/tmp/legacy-workflow.md",
-      summary: "legacy workflow summary",
-      status: "failed",
-    },
-    researchConclusion: {
-      score: 77,
-      artifactPath: "/tmp/legacy-research.md",
-      summary: "legacy research summary",
-      status: "completed",
-    },
-    requestedTask: "loop runtime fallback should use requestedTask when canonical feedback is absent",
-  };
-
-  assert.equal(extractLoopRuntimeScore(loopRuntime), null);
-  assert.equal(extractLoopRuntimeArtifact(loopRuntime), null);
-  assert.equal(
-    extractLoopRuntimeSummary(loopRuntime),
-    "loop runtime fallback should use requestedTask when canonical feedback is absent",
-  );
-  assert.equal(deriveLoopRuntimeTerminalStatus(loopRuntime), CONTRACT_STATUS.COMPLETED);
-});
-
-test("harness base evidence prefers terminalOutcome over legacy workflow conclusion residue", () => {
-  const evidence = buildBaseEvidence({
-    startedAt: 100,
-  }, {
-    terminalOutcome: {
-      artifact: "/tmp/canonical-terminal.md",
-      testsPassed: false,
-      verdict: "fail",
-      reason: "canonical terminal failure",
-    },
-    workflowConclusion: {
-      artifactPath: "/tmp/legacy-workflow.md",
-      testsPassed: true,
-      verdict: "pass",
-      reason: "legacy workflow reason",
-    },
-    researchConclusion: {
-      artifactPath: "/tmp/legacy-research.md",
-      testsPassed: true,
-      verdict: "pass",
-      reason: "legacy research reason",
-    },
-  }, {
-    terminalStatus: CONTRACT_STATUS.FAILED,
-    finalizedAt: 300,
-  });
-
-  assert.equal(evidence.artifact.path, "/tmp/canonical-terminal.md");
-  assert.equal(evidence.artifact.source, "terminalOutcome.artifact");
-  assert.equal(evidence.testSignal.status, "failed");
-  assert.equal(evidence.testSignal.source, "terminalOutcome.testsPassed");
-  assert.equal(evidence.failureClass, "failed");
-});
-
-test("harness base evidence ignores legacy top-level stage residue when canonical executionObservation is absent", () => {
-  const evidence = buildBaseEvidence({
-    startedAt: 100,
-  }, {
-    terminalOutcome: {
-      artifact: "/tmp/canonical-terminal.md",
-      summary: "canonical terminal summary",
-    },
-    stageRunResult: {
-      status: "completed",
-      primaryArtifactPath: "/tmp/legacy-stage.md",
-      summary: "legacy stage summary",
-    },
-    stageCompletion: {
-      status: "completed",
-      feedback: "legacy stage feedback",
-    },
-  }, {
-    terminalStatus: CONTRACT_STATUS.COMPLETED,
-    finalizedAt: 300,
-  });
-
-  assert.equal(evidence.stageResult, null);
-  assert.equal(evidence.stageCompletion, null);
-  assert.equal(evidence.artifact.path, "/tmp/canonical-terminal.md");
-  assert.equal(evidence.artifact.source, "terminalOutcome.artifact");
-});
+// harness 模块证据派生（buildBaseEvidence）已随 harness 全退役整删（v226 / 2026-08-23）。
+// 它守的「terminalOutcome 优先于 workflowConclusion/researchConclusion/stage 残留」终态真值
+// 优先级锁不留缺口：上面的 automation extractor 两条用例与下面的 contract completion artifact
+// 两条用例守同一条锁，且这两处是终态真值在退役后系统里仅存的消费者。
 
 test("contract completion artifact reader prefers terminalOutcome artifact over legacy output fallback", async () => {
   const artifactDir = await mkdtemp(join(tmpdir(), "openclaw-terminal-artifact-reader-"));

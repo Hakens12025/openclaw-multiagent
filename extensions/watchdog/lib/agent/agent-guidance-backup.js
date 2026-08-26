@@ -7,7 +7,7 @@
 import { copyFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { OC } from "../state-paths.js";
+import { OC } from "../state/state-paths.js";
 
 export const GUIDANCE_BACKUP_DIR = ".guidance-backup";
 export const GUIDANCE_BACKUP_RETENTION = 10;

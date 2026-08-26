@@ -30,7 +30,10 @@ test("absolute write paths remain unchanged", () => {
   assert.equal(resolved, absolute);
 });
 
-test("contract-bound output alias resolves to contract.output instead of local workspace output", () => {
+test("local workspace output paths stay themselves — no alias remap to contract.output (seam H4e)", () => {
+  // The old alias remap returned contract.output here, awarding commit credit
+  // for bytes that never reached the truth file (the symlink was never
+  // provisioned in production). Paths now resolve honestly.
   const contractOutput = join(CONTROL_PLANE_PATHS.outputDir, "TC-early-check.md");
   const resolved = resolveToolWriteTargetPath({
     agentId: "contractor",
@@ -42,5 +45,6 @@ test("contract-bound output alias resolves to contract.output instead of local w
     },
   });
 
-  assert.equal(resolved, contractOutput);
+  assert.notEqual(resolved, contractOutput);
+  assert.match(resolved, /output\/TC-early-check\.md$/u);
 });

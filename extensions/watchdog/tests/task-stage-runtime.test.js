@@ -1,26 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:task-stage-runtime.test.js" });
 import { dispatchCreateExecutionContractEntry } from "../lib/ingress/dispatch-execution-contract-entry.js";
-import { getContractPath, listLifecycleWorkItems, persistContractSnapshot } from "../lib/contracts.js";
-import { createTrackingState, bindInboxContractEnvelope } from "../lib/session-bootstrap.js";
+import { getContractPath, listLifecycleWorkItems, persistContractById } from "../lib/contract/contracts.js";
+import { listTreeContractPaths } from "../lib/store/contract-store.js";
+import { createTrackingState, bindInboxContractEnvelope } from "../lib/session/session-bootstrap.js";
 import { buildProgressPayload } from "../lib/transport/sse.js";
 import {
   agentWorkspace,
-  CONTRACTS_DIR,
   dispatchTargetStateMap,
   runtimeAgentConfigs,
   taskHistory,
   apiRef,
   setApiRef,
 } from "../lib/state.js";
-import { normalizeStageRunResult } from "../lib/stage-results.js";
-import { applyTrackingStageProjection } from "../lib/stage-projection.js";
-import { listAgentEndMainStages } from "../lib/lifecycle/agent-end-lifecycle.js";
+import { normalizeStageRunResult } from "../lib/stage/stage-results.js";
+import { applyTrackingStageProjection } from "../lib/stage/stage-projection.js";
+import { listAgentEndMainStages } from "../lib/lifecycle/agent-end/lifecycle.js";
 import { clearTrackingStore, rememberTrackingState } from "../lib/store/tracker-store.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 import { dispatchAcceptIngressMessage } from "../lib/ingress/dispatch-entry.js";
@@ -33,12 +36,13 @@ const logger = {
 };
 
 async function cleanupContracts(prefix) {
+  // 正本落树内(threads/{t}/runs/{r}/contracts/),同前缀一并清理
   try {
-    const files = await readdir(CONTRACTS_DIR);
+    const treePaths = await listTreeContractPaths();
     await Promise.all(
-      files
-        .filter((name) => name.startsWith(prefix))
-        .map((name) => rm(join(CONTRACTS_DIR, name), { force: true })),
+      treePaths
+        .filter((contractPath) => basename(contractPath).startsWith(prefix))
+        .map((contractPath) => rm(contractPath, { force: true })),
     );
   } catch {}
 }
@@ -55,12 +59,14 @@ async function readPersistedContractForResult(result, message) {
 }
 
 async function listPersistedContractsByTask(task) {
-  await mkdir(CONTRACTS_DIR, { recursive: true });
-  const files = await readdir(CONTRACTS_DIR);
+  // 正本落树内(task 经 uniqueTask() 全局唯一,跨文件残留不会误配)。
+  const candidates = [];
+  for (const contractPath of await listTreeContractPaths()) {
+    candidates.push({ fileName: basename(contractPath), contractPath });
+  }
   const matches = [];
-  for (const fileName of files) {
+  for (const { fileName, contractPath } of candidates) {
     if (!fileName.startsWith("TC-") || !fileName.endsWith(".json")) continue;
-    const contractPath = join(CONTRACTS_DIR, fileName);
     try {
       const persisted = JSON.parse(await readFile(contractPath, "utf8"));
       if (persisted?.task === task) {
@@ -403,7 +409,8 @@ test("dispatchCreateExecutionContractEntry persists explicit dispatch owner and 
 
     assert.equal(result.contractId, persisted.id);
     assert.equal(result.targetAgent, "reviewer");
-    assert.equal(persisted.dispatchOwnerAgentId, "worker2");
+    // 账物分离 batch2:owner 不再写正本;assignee 落到对的首跳即证明 owner 解析正确。
+    assert.equal(persisted.dispatchOwnerAgentId, undefined);
     assert.equal(persisted.assignee, "reviewer");
 
     await rm(contractPath, { force: true });
@@ -465,15 +472,6 @@ test("dispatchAcceptIngressMessage rejects QQ ingress without live reply target"
       protected: true,
       skills: ["system-action"],
     });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
-    });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
       role: "planner",
@@ -494,8 +492,8 @@ test("dispatchAcceptIngressMessage rejects QQ ingress without live reply target"
       dispatchAcceptIngressMessage("给worker发个任务，研究一下react是啥", {
         source: "qq",
         replyTo: {
-          agentId: "agent-for-kksl",
-          sessionKey: "agent:agent-for-kksl:main",
+          agentId: "controller",
+          sessionKey: "agent:controller:main",
         },
         api: null,
         logger,
@@ -523,15 +521,6 @@ test("dispatchAcceptIngressMessage preserves QQ passive reply metadata on bridge
       protected: true,
       skills: ["system-action"],
     });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
-    });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
       role: "planner",
@@ -552,8 +541,8 @@ test("dispatchAcceptIngressMessage preserves QQ passive reply metadata on bridge
     const result = await dispatchAcceptIngressMessage(task, {
       source: "qq",
       replyTo: {
-        agentId: "agent-for-kksl",
-        sessionKey: "agent:agent-for-kksl:main",
+        agentId: "controller",
+        sessionKey: "agent:controller:main",
         channel: "qqbot",
         target: "c2c:openid-1",
         messageId: "qq-message-1",
@@ -599,15 +588,6 @@ test("dispatchAcceptIngressMessage rejects qqbot source without live reply targe
       protected: true,
       skills: ["system-action"],
     });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
-    });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
       role: "planner",
@@ -628,8 +608,8 @@ test("dispatchAcceptIngressMessage rejects qqbot source without live reply targe
       dispatchAcceptIngressMessage("qq ingress without explicit target", {
         source: "qq",
         replyTo: {
-          agentId: "agent-for-kksl",
-          sessionKey: "agent:agent-for-kksl:main",
+          agentId: "controller",
+          sessionKey: "agent:controller:main",
         },
         api: null,
         logger,
@@ -656,15 +636,6 @@ test("dispatchAcceptIngressMessage rejects qqbot alias without live reply target
       specialized: false,
       protected: true,
       skills: ["system-action"],
-    });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
     });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
@@ -712,15 +683,6 @@ test("dispatchAcceptIngressMessage rejects synthetic QQ reply targets before ter
       protected: true,
       skills: ["system-action"],
     });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
-    });
 
     await saveGraph({
       edges: [
@@ -732,10 +694,10 @@ test("dispatchAcceptIngressMessage rejects synthetic QQ reply targets before ter
       dispatchAcceptIngressMessage("qq visible synthetic target probe", {
         source: "qq",
         replyTo: {
-          agentId: "agent-for-kksl",
-          sessionKey: "agent:agent-for-kksl:main",
+          agentId: "controller",
+          sessionKey: "agent:controller:main",
           channel: "qqbot",
-          target: "c2c:kksl-test",
+          target: "c2c:synthetic-test",
           messageId: "synthetic-msg",
           replyToId: "synthetic-msg",
           accountId: "default",
@@ -766,15 +728,6 @@ test("dispatchAcceptIngressMessage preserves QQ group reply target prefix on bri
       protected: true,
       skills: ["system-action"],
     });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
-    });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
       role: "planner",
@@ -795,8 +748,8 @@ test("dispatchAcceptIngressMessage preserves QQ group reply target prefix on bri
     const result = await dispatchAcceptIngressMessage(task, {
       source: "qq",
       replyTo: {
-        agentId: "agent-for-kksl",
-        sessionKey: "agent:agent-for-kksl:main",
+        agentId: "controller",
+        sessionKey: "agent:controller:main",
         channel: "qqbot",
         target: "group:group-openid-1",
         messageId: "group-message-1",
@@ -902,7 +855,7 @@ test("dispatchCreateExecutionContractEntry falls back to runtime apiRef to wake 
   }
 }));
 
-test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller graph owner while preserving bridge reply target", async () => runGlobalTestEnvironmentSerial(async () => {
+test("dispatchAcceptIngressMessage routes a2a ingress through front-desk graph owner while preserving external reply target", async () => runGlobalTestEnvironmentSerial(async () => {
   const originalGraph = await loadGraph();
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
@@ -916,15 +869,6 @@ test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller 
       specialized: false,
       protected: true,
       skills: ["system-action"],
-    });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
     });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
@@ -946,8 +890,8 @@ test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller 
     const result = await dispatchAcceptIngressMessage(task, {
       source: "a2a",
       replyTo: {
-        agentId: "agent-for-kksl",
-        sessionKey: "agent:agent-for-kksl:main",
+        agentId: "worker",
+        sessionKey: "agent:worker:main",
       },
       ingressDirective: {},
       api: null,
@@ -962,8 +906,9 @@ test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller 
     assert.equal(result.contractId, persisted.id);
     assert.equal(persisted.task, task);
     assert.equal(result.targetAgent, "planner");
-    assert.equal(persisted.replyTo?.agentId, "agent-for-kksl");
-    assert.equal(persisted.dispatchOwnerAgentId, "controller");
+    assert.equal(persisted.replyTo?.agentId, "worker");
+    // 账物分离 batch2:owner 不再写正本;assignee 落到对的首跳即证明 owner 解析正确。
+    assert.equal(persisted.dispatchOwnerAgentId, undefined);
     assert.equal(persisted.assignee, "planner");
 
     await rm(contractPath, { force: true });
@@ -973,7 +918,7 @@ test("dispatchAcceptIngressMessage routes a2a bridge ingress through controller 
   }
 }));
 
-test("dispatchAcceptIngressMessage ignores external targetAgent on a2a bridge ingress and follows graph first hop", async () => runGlobalTestEnvironmentSerial(async () => {
+test("dispatchAcceptIngressMessage ignores external targetAgent on a2a ingress and follows graph first hop", async () => runGlobalTestEnvironmentSerial(async () => {
   const originalGraph = await loadGraph();
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
@@ -987,15 +932,6 @@ test("dispatchAcceptIngressMessage ignores external targetAgent on a2a bridge in
       specialized: false,
       protected: true,
       skills: ["system-action"],
-    });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
     });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
@@ -1026,8 +962,8 @@ test("dispatchAcceptIngressMessage ignores external targetAgent on a2a bridge in
     const result = await dispatchAcceptIngressMessage(task, {
       source: "a2a",
       replyTo: {
-        agentId: "agent-for-kksl",
-        sessionKey: "agent:agent-for-kksl:main",
+        agentId: "worker",
+        sessionKey: "agent:worker:main",
       },
       ingressDirective: {
         targetAgent: "worker",
@@ -1044,8 +980,9 @@ test("dispatchAcceptIngressMessage ignores external targetAgent on a2a bridge in
     assert.equal(result.contractId, persisted.id);
     assert.equal(persisted.task, task);
     assert.equal(result.targetAgent, "planner");
-    assert.equal(persisted.replyTo?.agentId, "agent-for-kksl");
-    assert.equal(persisted.dispatchOwnerAgentId, "controller");
+    assert.equal(persisted.replyTo?.agentId, "worker");
+    // 账物分离 batch2:owner 不再写正本;assignee 落到对的首跳即证明 owner 解析正确。
+    assert.equal(persisted.dispatchOwnerAgentId, undefined);
     assert.equal(persisted.assignee, "planner");
 
     await rm(contractPath, { force: true });
@@ -1128,7 +1065,8 @@ test("dispatchAcceptIngressMessage ignores external replyTo agent for a2a dispat
     assert.equal(persisted.task, task);
     assert.equal(result.targetAgent, "planner");
     assert.equal(persisted.replyTo?.agentId, "worker");
-    assert.equal(persisted.dispatchOwnerAgentId, "controller");
+    // 账物分离 batch2:owner 不再写正本;assignee 落到对的首跳即证明 owner 解析正确。
+    assert.equal(persisted.dispatchOwnerAgentId, undefined);
     assert.equal(persisted.assignee, "planner");
 
     await rm(contractPath, { force: true });
@@ -1138,7 +1076,7 @@ test("dispatchAcceptIngressMessage ignores external replyTo agent for a2a dispat
   }
 }));
 
-test("dispatchAcceptIngressMessage does not convert non-QQ bridge reply target into QQ transport", async () => runGlobalTestEnvironmentSerial(async () => {
+test("dispatchAcceptIngressMessage does not convert non-QQ reply target into QQ transport", async () => runGlobalTestEnvironmentSerial(async () => {
   const originalGraph = await loadGraph();
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
@@ -1152,15 +1090,6 @@ test("dispatchAcceptIngressMessage does not convert non-QQ bridge reply target i
       specialized: false,
       protected: true,
       skills: ["system-action"],
-    });
-    runtimeAgentConfigs.set("agent-for-kksl", {
-      id: "agent-for-kksl",
-      role: "bridge",
-      gateway: true,
-      ingressSource: "qq",
-      specialized: false,
-      protected: true,
-      skills: [],
     });
     runtimeAgentConfigs.set("planner", {
       id: "planner",
@@ -1182,8 +1111,8 @@ test("dispatchAcceptIngressMessage does not convert non-QQ bridge reply target i
     const result = await dispatchAcceptIngressMessage(task, {
       source: "a2a",
       replyTo: {
-        agentId: "agent-for-kksl",
-        sessionKey: "agent:agent-for-kksl:main",
+        agentId: "controller",
+        sessionKey: "agent:controller:main",
       },
       api: null,
       logger,
@@ -1196,7 +1125,7 @@ test("dispatchAcceptIngressMessage does not convert non-QQ bridge reply target i
 
     assert.equal(result.contractId, persisted.id);
     assert.equal(persisted.task, task);
-    assert.equal(persisted.replyTo?.agentId, "agent-for-kksl");
+    assert.equal(persisted.replyTo?.agentId, "controller");
     assert.equal(persisted.replyTo?.channel, undefined);
     assert.equal(persisted.replyTo?.target, undefined);
 
@@ -1402,7 +1331,7 @@ test("bindInboxContractEnvelope maps stageRuntime separately from definition-onl
 
 test("extract_output_markers preserves rich stage definitions while ignoring planner-written witness residue", async () => {
   const contractId = `TC-STAGE-MARKER-RICH-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const outputDir = join(agentWorkspace("controller"), "output");
   const outputPath = join(outputDir, `${contractId}.md`);
   const extractStage = listAgentEndMainStages().find((stage) => stage.id === "extract_output_markers");
@@ -1424,7 +1353,7 @@ test("extract_output_markers preserves rich stage definitions while ignoring pla
     "- Witness: 评审通过",
   ].join("\n"), "utf8");
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "preserve rich marker definitions",
     assignee: "worker",
@@ -1652,11 +1581,11 @@ test("listLifecycleWorkItems keeps fresher terminal snapshot status over stale r
   taskHistory.length = 0;
 
   const contractId = `TC-STAGE-RUNTIME-SNAPSHOT-WINS-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const createdAt = Date.now() - 2000;
   const snapshotUpdatedAt = Date.now();
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "terminal snapshot should stay authoritative over stale history",
     status: CONTRACT_STATUS.CANCELLED,
@@ -1690,72 +1619,6 @@ test("listLifecycleWorkItems keeps fresher terminal snapshot status over stale r
 
   taskHistory.length = 0;
   await cleanupContracts(contractId);
-});
-
-test("listLifecycleWorkItems preserves canonical stagePlan from finalized history payloads", async () => {
-  clearTrackingStore();
-  taskHistory.length = 0;
-
-  const trackingState = createTrackingState({
-    sessionKey: `agent:worker-d:lifecycle-history-stage-runtime:${Date.now()}`,
-    agentId: "worker-d",
-    parentSession: null,
-  });
-  trackingState.status = CONTRACT_STATUS.COMPLETED;
-  trackingState.contract = {
-    id: `TC-STAGE-RUNTIME-HISTORY-${Date.now()}`,
-    task: "history stage runtime truth",
-    status: CONTRACT_STATUS.COMPLETED,
-    stagePlan: {
-      version: 1,
-      stages: [
-        { id: "stage-1", label: "收集证据", semanticLabel: "收集证据", status: "completed" },
-        { id: "stage-2", label: "交叉比较", semanticLabel: "交叉比较", status: "active" },
-        { id: "stage-3", label: "形成结论", semanticLabel: "形成结论", status: "pending" },
-      ],
-      revisionPolicy: { maxRevisions: 2, maxStageDelta: 1 },
-    },
-    stageRuntime: {
-      version: 1,
-      currentStageId: "stage-2",
-      completedStageIds: ["stage-1"],
-      revisionCount: 0,
-      lastRevisionReason: null,
-    },
-    phases: ["legacy-stale-phase"],
-    total: 111,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  trackingState.stageProjection = {
-    source: "ui_activity_placeholder",
-    stagePlan: [],
-    completedStages: [],
-    currentStage: null,
-    currentStageLabel: null,
-    cursor: null,
-    pct: null,
-    done: null,
-    total: null,
-    round: null,
-    runtimeStatus: CONTRACT_STATUS.COMPLETED,
-  };
-
-  taskHistory.push({
-    ...buildProgressPayload(trackingState),
-    endMs: Date.now(),
-  });
-
-  const snapshots = await listLifecycleWorkItems();
-  const snapshot = snapshots.find((entry) => entry.id === trackingState.contract.id);
-  assert.ok(snapshot, "expected lifecycle snapshot for finalized history contract");
-  assert.equal(snapshot.stageRuntime.currentStageId, "stage-2");
-  assert.deepEqual(snapshot.stageRuntime.completedStageIds, ["stage-1"]);
-  assert.deepEqual(snapshot.phases, ["收集证据", "交叉比较", "形成结论"]);
-  assert.equal(snapshot.total, 3);
-
-  clearTrackingStore();
-  taskHistory.length = 0;
 });
 
 test("listLifecycleWorkItems does not promote stageProjection fallback into canonical stage truth", async () => {
@@ -1801,147 +1664,23 @@ test("listLifecycleWorkItems does not promote stageProjection fallback into cano
   taskHistory.length = 0;
 });
 
-test("listLifecycleWorkItems includes artifact-backed tracking work items with protocol stage truth", async () => {
+test("listLifecycleWorkItems ignores taskHistory entries (history merge retired, tree contracts are the source)", async () => {
   clearTrackingStore();
   taskHistory.length = 0;
 
-  const trackingState = createTrackingState({
-    sessionKey: `agent:reviewer:lifecycle-artifact:${Date.now()}`,
-    agentId: "reviewer",
-    parentSession: null,
-  });
-  trackingState.artifactContext = {
-    kind: "code_review",
-    path: "/tmp/reviewer/inbox/code_review.json",
-    protocol: {
-      transport: "code_review.json",
-      source: "request_review",
-      intentType: "request_review",
-    },
-    source: {
-      agentId: "worker-source",
-      sessionKey: "agent:worker-source:main",
-      contractId: "TC-LIFECYCLE-ARTIFACT-SOURCE",
-    },
-    request: {
-      instruction: "请审查当前实现并给出 verdict",
-      requestedAt: 1234567890,
-    },
-    replyTo: {
-      agentId: "worker-source",
-      sessionKey: "agent:worker-source:main",
-    },
-    upstreamReplyTo: {
-      agentId: "controller",
-      sessionKey: "agent:controller:main",
-    },
-    returnContext: {
-      sourceAgentId: "worker-source",
-      sourceSessionKey: "agent:worker-source:main",
-      intentType: "request_review",
-    },
-    coordination: {
-      ownerAgentId: "reviewer",
-    },
-    systemActionDeliveryTicket: {
-      id: "ticket-lifecycle-artifact-1",
-    },
-    operatorContext: {
-      conversationId: "conv-lifecycle-artifact",
-    },
-    domain: "generic",
-    runtimeDiagnostics: null,
-  };
-  applyTrackingStageProjection(trackingState);
-  rememberTrackingState(trackingState.sessionKey, trackingState);
-
-  const snapshots = await listLifecycleWorkItems();
-  const payload = buildProgressPayload(trackingState);
-  const snapshot = snapshots.find((entry) => entry.id === payload.workItemId);
-  assert.ok(snapshot, "expected lifecycle snapshot for artifact-backed tracking session");
-  assert.equal(snapshot.hasContract, false);
-  assert.equal(snapshot.workItemKind, "artifact_backed");
-  assert.equal(snapshot.taskType, "request_review");
-  assert.equal(snapshot.protocolEnvelope, "code_review");
-  assert.equal(snapshot.artifactKind, "code_review");
-  assert.equal(snapshot.artifactDomain, "generic");
-  assert.equal(snapshot.artifactSource?.contractId, "TC-LIFECYCLE-ARTIFACT-SOURCE");
-  assert.equal(snapshot.artifactRequest?.instruction, "请审查当前实现并给出 verdict");
-  assert.deepEqual(snapshot.phases, ["代码审查"]);
-  assert.equal(snapshot.total, 1);
-  assert.equal(snapshot.stageProjection?.currentStage, "code_review");
-  assert.equal(snapshot.stageProjection?.currentStageLabel, "代码审查");
-
-  clearTrackingStore();
-  taskHistory.length = 0;
-});
-
-test("listLifecycleWorkItems preserves artifact-backed history payloads after track_end", async () => {
-  clearTrackingStore();
-  taskHistory.length = 0;
-
-  const trackingState = createTrackingState({
-    sessionKey: `agent:reviewer:lifecycle-artifact-history:${Date.now()}`,
-    agentId: "reviewer",
-    parentSession: null,
-  });
-  trackingState.status = CONTRACT_STATUS.COMPLETED;
-  trackingState.artifactContext = {
-    kind: "code_review",
-    path: "/tmp/reviewer/inbox/code_review.json",
-    protocol: {
-      transport: "code_review.json",
-      source: "request_review",
-      intentType: "request_review",
-    },
-    source: {
-      agentId: "worker-source",
-      sessionKey: "agent:worker-source:main",
-      contractId: "TC-LIFECYCLE-ARTIFACT-HISTORY-SOURCE",
-    },
-    request: {
-      instruction: "请审查历史实现并给出 verdict",
-      requestedAt: 2234567890,
-    },
-    replyTo: {
-      agentId: "worker-source",
-      sessionKey: "agent:worker-source:main",
-    },
-    upstreamReplyTo: null,
-    returnContext: {
-      sourceAgentId: "worker-source",
-      sourceSessionKey: "agent:worker-source:main",
-      intentType: "request_review",
-    },
-    coordination: {
-      ownerAgentId: "reviewer",
-    },
-    systemActionDeliveryTicket: {
-      id: "ticket-lifecycle-artifact-history-1",
-    },
-    operatorContext: null,
-    domain: "generic",
-    runtimeDiagnostics: null,
-  };
-  applyTrackingStageProjection(trackingState);
+  const contractId = `TC-STAGE-RUNTIME-HISTORY-RETIRED-${Date.now()}`;
   taskHistory.push({
-    ...buildProgressPayload(trackingState),
+    sessionKey: `agent:worker-d:lifecycle-history-retired:${Date.now()}`,
+    contractId,
+    task: "history-only entry must stay invisible",
+    status: CONTRACT_STATUS.COMPLETED,
+    hasContract: true,
     endMs: Date.now(),
   });
 
   const snapshots = await listLifecycleWorkItems();
-  const payload = buildProgressPayload(trackingState);
-  const snapshot = snapshots.find((entry) => entry.id === payload.workItemId);
-  assert.ok(snapshot, "expected lifecycle snapshot for artifact-backed history item");
-  assert.equal(snapshot.source, "history");
-  assert.equal(snapshot.hasContract, false);
-  assert.equal(snapshot.workItemKind, "artifact_backed");
-  assert.equal(snapshot.status, CONTRACT_STATUS.COMPLETED);
-  assert.equal(snapshot.artifactKind, "code_review");
-  assert.deepEqual(snapshot.phases, ["代码审查"]);
-  assert.equal(snapshot.total, 1);
-  assert.equal(snapshot.pct, 100);
-  assert.equal(snapshot.stageProjection?.currentStageLabel, "已完成");
+  const snapshot = snapshots.find((entry) => entry.id === contractId);
+  assert.equal(snapshot, undefined, "内存 taskHistory 不再是 work_items 数据源");
 
   clearTrackingStore();
   taskHistory.length = 0;
@@ -2079,6 +1818,8 @@ test("applyTrackingStageProjection prefers canonical task-stage truth with runti
       collected: true,
       primaryOutputPath: "/runtime/contracts/terminal-observed-output.md",
       artifactPaths: ["/runtime/contracts/terminal-observed-output.md"],
+      // 判决面重做:阶段推进按自报,产物观测本身不再推进阶段。
+      stageRunResult: { version: 1, status: "completed", summary: "收集完成" },
     },
   };
 
@@ -2169,6 +1910,8 @@ test("applyTrackingStageProjection reaches 100% when runtime review witness clos
       reviewerResult: {
         verdict: "pass",
       },
+      // 判决面重做:评审结论是执行面产物(转述),不再当阶段证人;收尾阶段按自报关闭。
+      stageRunResult: { version: 1, status: "completed", summary: "结论成稿" },
     },
   };
 
@@ -2218,12 +1961,13 @@ test("applyTrackingStageProjection ignores invalid stagePlanRevision and keeps c
   const projection = applyTrackingStageProjection(trackingState);
 
   assert.equal(projection.source, "task_stage_truth");
+  // 坏修订被拒(计划保持原名);自报 completed 照常推进当前阶段——两件事独立。
   assert.deepEqual(projection.stagePlan, ["收集证据", "交叉比较", "形成结论"]);
-  assert.deepEqual(projection.completedStages, ["收集证据"]);
-  assert.equal(projection.currentStage, "stage-2");
-  assert.equal(projection.currentStageLabel, "交叉比较");
-  assert.equal(projection.cursor, "1/3");
-  assert.equal(projection.pct, 33);
+  assert.deepEqual(projection.completedStages, ["收集证据", "交叉比较"]);
+  assert.equal(projection.currentStage, "stage-3");
+  assert.equal(projection.currentStageLabel, "形成结论");
+  assert.equal(projection.cursor, "2/3");
+  assert.equal(projection.pct, 67);
 });
 
 test("applyTrackingStageProjection does not let runtime-backed completion-time revision rewrite newly completed history", () => {
@@ -2277,7 +2021,7 @@ test("applyTrackingStageProjection does not let runtime-backed completion-time r
   assert.equal(projection.pct, 50);
 });
 
-test("applyTrackingStageProjection keeps canonical task-stage truth authoritative over contract route stage", () => {
+test("applyTrackingStageProjection keeps canonical task-stage truth authoritative and never emits a round", () => {
   const trackingState = createTrackingState({
     sessionKey: `agent:worker-d:runtime-stage-precedence-${Date.now()}`,
     agentId: "worker-d",
@@ -2302,12 +2046,6 @@ test("applyTrackingStageProjection keeps canonical task-stage truth authoritativ
       revisionCount: 0,
       lastRevisionReason: null,
     },
-    pipelineStage: {
-      pipelineId: "pipe-stage-runtime-precedence",
-      loopSessionId: "LS-stage-runtime-precedence",
-      stage: "交叉比较",
-      round: 1,
-    },
   };
 
   const projection = applyTrackingStageProjection(trackingState);
@@ -2318,9 +2056,14 @@ test("applyTrackingStageProjection keeps canonical task-stage truth authoritativ
   assert.deepEqual(projection.completedStages, []);
   assert.equal(projection.cursor, "0/2");
   assert.equal(projection.pct, 0);
+  // 回路退役搬迁(B6):原住 loop-semantic-stage-projection.test.js 的唯一独有断言——
+  // 投影绝不把轮次当成阶段真值往外抛。B6b 起 contract.pipelineStage 路由段已整体移出
+  // schema,round 连来源都不复存在;硬写的 round:null 占位也已删,所以这里断言的是
+  // 「字段根本不出现」,而不是「字段存在但为 null」——后者会让占位悄悄复活而测试仍绿。
+  assert.equal('round' in projection, false);
 });
 
-test("applyTrackingStageProjection lets runtime observation truth override contract route stage", () => {
+test("applyTrackingStageProjection lets runtime observation truth advance the seeded canonical stage", () => {
   const trackingState = createTrackingState({
     sessionKey: `agent:worker-d:runtime-stage-semantic-override-${Date.now()}`,
     agentId: "worker-d",
@@ -2349,12 +2092,7 @@ test("applyTrackingStageProjection lets runtime observation truth override contr
       collected: true,
       primaryOutputPath: "/runtime/contracts/topology-override.md",
       artifactPaths: ["/runtime/contracts/topology-override.md"],
-    },
-    pipelineStage: {
-      pipelineId: "pipe-stage-runtime-semantic-override",
-      loopSessionId: "LS-stage-runtime-semantic-override",
-      stage: "收集证据",
-      round: 1,
+      stageRunResult: { version: 1, status: "completed", summary: "收集完成" },
     },
   };
 

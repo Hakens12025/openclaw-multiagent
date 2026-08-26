@@ -47,7 +47,7 @@ DRAFT 状态被消除，ingress 直接创建 PENDING 状态的任务。
 
 | 标记 | 用途 |
 |------|------|
-| `[ACTION]` | 标记执行动作 |
+| `[ACTION]` | 标记执行动作（v179 后已降为**降级路**:协作主路是 FC 工具调用，见[平台/Agent 解耦](./platform-agent-decoupling.md)） |
 | `[STAGE]` | 标记阶段转换 |
 | `[FINDING]` | 标记发现/结论 |
 
@@ -61,14 +61,14 @@ DRAFT 状态被消除，ingress 直接创建 PENDING 状态的任务。
 
 ### Contractor 硬编码问题（备忘录 86）
 
-Contractor 在 6 条链路中存在 **19+ 处硬编码引用**，是 [god-role-elimination](god-role-elimination.md) 的另一个清理目标。
+Contractor 的硬编码**已清零**（2026-08-09 实测 `rg -ni contractor lib -g '*.js'` = 5 行，全是注释与测试锁名，无 `if (agentId === "contractor")`）。当年在 6 条链路中有 19+ 处引用，是 [god-role-elimination](god-role-elimination.md) 的另一个清理目标。
 
 ## 为什么存在
 
 - 计划能力不应被锁定在单一 agent 角色上
 - DRAFT 状态增加了不必要的审批延迟
 - 文件级协议比内联标记更重、更脆弱
-- Contractor 的 19+ 硬编码引用使系统僵化
+- Contractor 的 19+ 硬编码引用曾使系统僵化（现已清零）
 
 ## 和谁交互
 

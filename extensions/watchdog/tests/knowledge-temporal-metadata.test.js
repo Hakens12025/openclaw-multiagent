@@ -13,16 +13,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { extractFrontMatter } from "../lib/core/markdown-sections.js";
-import { extractChunkMeta, buildChunkPlanForSources } from "../lib/operator/wiki-rag-store.js";
+import { extractChunkMeta, buildChunkPlanForSources } from "../lib/knowledge/wiki-rag-store.js";
 import {
   normalizeMetadataRules,
   configureKnowledgeBase,
   addKnowledgeBaseSource,
   removeKnowledgeBase,
-} from "../lib/operator/knowledge-base-registry.js";
-import { buildKbIndex, searchKb } from "../lib/operator/knowledge-base.js";
+} from "../lib/knowledge/knowledge-base-registry.js";
+import { buildKbIndex, searchKb } from "../lib/knowledge/knowledge-base.js";
 import { knowledgeBaseIndexFile } from "../lib/control-plane/control-plane-paths.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try { await embedText("probe", {}); ollamaUp = true; } catch { ollamaUp = false; }

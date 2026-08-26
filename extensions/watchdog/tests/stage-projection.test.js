@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyTrackingStageProjection } from "../lib/stage-projection.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
+import { applyTrackingStageProjection } from "../lib/stage/stage-projection.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
-import { materializeTaskStagePlan } from "../lib/task-stage-plan.js";
+import { materializeTaskStagePlan } from "../lib/stage/task-stage-plan.js";
 
 test("applyTrackingStageProjection renders planner-extracted stagePlan as real stage projection", () => {
   const trackingState = createTrackingState({

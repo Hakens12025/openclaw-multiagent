@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { assertOperatorPlanAgentFeasibility, collectOperatorPlanInfeasibilities, normalizeOperatorPlan } from "../lib/operator/operator-plan.js";
-import { listAgentRegistry } from "../lib/capability/capability-registry.js";
+import { listAgentRegistry } from "../lib/management/capability-registry.js";
 
 // E2 pre-flight feasibility: a STRUCTURE-creating step (edge/loop/group) referencing an agent that
 // neither already exists nor is created by an earlier step in the SAME plan must be rejected before

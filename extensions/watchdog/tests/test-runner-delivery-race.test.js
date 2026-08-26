@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeVerificationStatus } from "../lib/admin/admin-change-set-history.js";
+import { normalizeVerificationStatus } from "../lib/admin/change-sets/admin-change-set-history.js";
 
 test("test-run finalizing status remains a running verification state", () => {
   const record = {

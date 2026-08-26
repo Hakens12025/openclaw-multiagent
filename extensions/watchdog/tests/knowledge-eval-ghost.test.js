@@ -8,8 +8,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateWikiRagRecall } from "../lib/operator/wiki-rag-eval.js";
-import { normalizeKnowledgeEvalSet } from "../lib/operator/knowledge-eval-registry.js";
+import { evaluateWikiRagRecall } from "../lib/knowledge/wiki-rag-eval.js";
+import { normalizeKnowledgeEvalSet } from "../lib/knowledge/knowledge-eval-registry.js";
 
 // fake searchFn:按 query 返回固定路径;记录收到的 asOf。
 function fakeSearch(byQuery, captured = {}) {

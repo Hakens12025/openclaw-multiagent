@@ -65,10 +65,6 @@ test("summarizeAutomation ignores stale summary fields and reads canonical autom
       bestScore: 0.7,
       childAutomationIds: ["child-1"],
     },
-    harness: {
-      enabled: true,
-      moduleRefs: ["harness:gate.artifact"],
-    },
   });
 
   assert.equal(summary.objectiveSummary, "canonical objective");
@@ -80,7 +76,4 @@ test("summarizeAutomation ignores stale summary fields and reads canonical autom
   assert.equal(summary.currentRound, 2);
   assert.equal(summary.bestScore, 0.7);
   assert.equal(summary.childAutomationCount, 1);
-  assert.equal(summary.executionMode, "guarded");
-  assert.equal(summary.harnessEnabled, true);
-  assert.equal(summary.harnessProfileId, null);
 });

@@ -7,7 +7,7 @@
 - **CheckResult 四态模型**:每个检查产 `{id, subsystem, status: pass|fail|skip|blocked, code, evidence, hint, durationMs}`;fail/blocked/skip 必带注册表错误码(add 时校验,未注册即抛)。
 - **错误码单源注册表** `lib/formal-runtime/error-codes.js`(~91 码,`E-<SUBSYS>-<NNN>`):每码带 meaning + 排查 hint(指向具体文件/路由/真值源)。agent 读报告即可定位,无需监视进程。
 - **四层可测性**:TIER-0 NODE(进程内,零网关)→ TIER-1 GW(活网关确定性,零 LLM)→ TIER-2 LLM(真派工)→ TIER-3 EMBED(ollama 门控)。
-- **8 个新预设**:`health`(TIER-0+1 全量体检,~70 检查 5 秒,**新默认**)/ `dispatch`(最小派工,**verify 门由 "single" 切到它**)/ `pipeline` / `loop` / `system-action` / `operator` / `knowledge` / `full`。
+- **8 个新预设**:`health`(TIER-0+1 全量体检,~70 检查 5 秒,**新默认**)/ `dispatch`(最小派工,**verify 门由 "single" 切到它**)/ `pipeline` / `loop` / `system-action` / `operator` / `knowledge` / `full`。(后续 2026-08-12 重组改名并扩至 14;2026-08-18 回路退役删掉 `loop` 预设,现为 13 预设 / `full`=12 suite。清单以 `--list` live 为准。)
 - **报告 failures-first**:VERDICT 顶置 → 失败展开(code/evidence/hint)→ 子系统分节 pass 一行;`.txt` + `.json` 机器镜像双落盘,文件名 `devtool-<presetId>-<ts>` 不变。
 - **CLI**:`--list`/`--help` 新增,无参默认 health;`--suite/--filter/--clean` 维持硬报错。
 

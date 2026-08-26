@@ -3,7 +3,7 @@ export {
   changeDefaultAgentPrimaryModel,
   changeDefaultAgentHeartbeat,
   changeDefaultAgentSkills,
-} from "./agent-admin-default-operations.js";
+} from "./admin/agent-admin-default-operations.js";
 export {
   changeAgentTools,
   changeAgentPrimaryModel,
@@ -14,10 +14,10 @@ export {
   changeAgentSkills,
   changeAgentHeartbeat,
   changeAgentPolicies,
-} from "./agent-admin-agent-operations.js";
+} from "./admin/agent-admin-agent-operations.js";
 export {
   changeAgentName,
   changeAgentDescription,
   changeAgentCardFormats,
   changeAgentConstraints,
-} from "./agent-admin-card-operations.js";
+} from "./admin/agent-admin-card-operations.js";

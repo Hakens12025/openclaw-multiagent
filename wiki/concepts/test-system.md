@@ -9,9 +9,9 @@ OpenClaw 的测试基础设施，覆盖从单元到端到端的多层验证：
 **入口与预设（CheckResult 体系，2026-06-10 重写）：**
 - `test-runner.js` — 唯一集成测试入口，`/watchdog/test-runs/*` 的薄客户端
 - 默认预设：`node extensions/watchdog/test-runner.js`（= `health`，零 LLM 系统体检）
-- 8 个预设：`health/dispatch/pipeline/loop/system-action/operator/knowledge/full`
-  （真值在 `lib/formal-test-presets.js`，suite 驱动在 `lib/formal-runtime/checks/`）
-- 发现：`--list` 打印 live 预设表；`--help` 打印用法；单用例 `--case <id>`（仅 dispatch/pipeline）
+- 预设清单以 `test-runner.js --list` 的 live 输出为准（本页不复刻——复刻必然滞后）。真值在 `lib/formal-runtime/formal-test-presets.js`；2026-08-12 对照真值文件核得 **14 个预设**，`full` = 13 个 suite
+  （真值在 `lib/formal-runtime/formal-test-presets.js`，suite 驱动在 `lib/formal-runtime/checks/`）
+- 发现：`--list` 打印 live 预设表；`--help` 打印用法；单用例 `--case <id>`（仅 single/pipeline）
 - 旧 `--suite` / `--filter` / `--clean` 参数已退役，传入会 hard error
 
 **CheckResult 与错误码：**
@@ -49,7 +49,7 @@ OpenClaw 的测试基础设施，覆盖从单元到端到端的多层验证：
 | [Hard-Soft Path](hard-soft-path.md) | CheckResult 和错误码属于 hard-path 验证 |
 | [Harness](harness.md) | Harness 提供 Agent 级别的执行框架，test-runner 与其正交 |
 | [Dashboard](dashboard.md) | Devtools 面板提供测试发起 UI（按 live 预设表渲染按钮） |
-| [Operator](operator.md) | apply 后强制 verify 走 `test_runs.start`，共享 verify 预设 `dispatch` |
+| [Operator](operator.md) | apply 后强制 verify 走 `test_runs.start`，共享 verify 预设 `single` |
 
 ## 演化
 
@@ -62,6 +62,9 @@ OpenClaw 的测试基础设施，覆盖从单元到端到端的多层验证：
 6. 2026-06-10：CheckResult 重写 — 19 预设收敛为 8（health 为默认零 LLM 体检），
    错误码收口单一注册表，报告 failures-first + JSON 镜像；verify 门预设 `single`→`dispatch`
    （`lib/admin/admin-surface-registry.js`）；旧 suite/random/tsp 机器整体删除
+7. 2026-08：预设改名 — dispatch→single、system-action→collab、harness→automation-eval、
+   agent-group→group，providers 并入 model；新增 concurrent/model/unit；共 14 预设，
+   `full` = 13 suite；verify 门预设随之改回 `single`（E-* 错误码保持原标识符）
 
 ## 当前状态
 

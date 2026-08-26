@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { extractActionMarkers } from "../lib/action-marker-parser.js";
+import { extractActionMarkers } from "../lib/security/action-marker-parser.js";
 
 test("extractActionMarkers parses JSON create_task markers with rich params", () => {
   const markers = extractActionMarkers([
@@ -38,13 +38,13 @@ test("extractActionMarkers parses JSON assign_task markers with explicit target 
   assert.equal(typeof markers[0]?.protocol?.version, "number");
 });
 
-test("extractActionMarkers parses JSON request_review markers with artifact manifest", () => {
+test("extractActionMarkers parses JSON markers with artifact manifest params", () => {
   const markers = extractActionMarkers(
-    "[ACTION] {\"type\":\"request_review\",\"params\":{\"instruction\":\"请检查未定义变量\",\"artifactManifest\":[{\"path\":\"/tmp/review.js\",\"label\":\"review_probe\"}]}}",
+    "[ACTION] {\"type\":\"assign_task\",\"params\":{\"instruction\":\"请检查未定义变量\",\"artifactManifest\":[{\"path\":\"/tmp/review.js\",\"label\":\"review_probe\"}]}}",
   );
 
   assert.equal(markers.length, 1);
-  assert.equal(markers[0]?.type, "request_review");
+  assert.equal(markers[0]?.type, "assign_task");
   assert.deepEqual(markers[0]?.params, {
     instruction: "请检查未定义变量",
     artifactManifest: [
@@ -55,7 +55,7 @@ test("extractActionMarkers parses JSON request_review markers with artifact mani
     ],
   });
   assert.equal(markers[0]?.protocol?.transport, "system_action");
-  assert.equal(markers[0]?.protocol?.intentType, "request_review");
+  assert.equal(markers[0]?.protocol?.intentType, "assign_task");
   assert.equal(typeof markers[0]?.protocol?.version, "number");
 });
 

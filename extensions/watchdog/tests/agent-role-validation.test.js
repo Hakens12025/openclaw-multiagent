@@ -7,7 +7,7 @@ import {
   changeAgentRole,
   createAgentDefinition,
   deleteAgentDefinition,
-} from "../lib/agent/agent-admin-agent-operations.js";
+} from "../lib/agent/admin/agent-admin-agent-operations.js";
 import { joinLocalAgentDefinition } from "../lib/agent/agent-enrollment.js";
 import { isSupportedAgentRole } from "../lib/agent/agent-identity.js";
 
@@ -19,7 +19,7 @@ const logger = {
 
 test("isSupportedAgentRole accepts canonical roles only", () => {
   assert.equal(isSupportedAgentRole("planner"), true);
-  assert.equal(isSupportedAgentRole("reviewer"), true);
+  assert.equal(isSupportedAgentRole("reviewer"), false);
   assert.equal(isSupportedAgentRole("federated_reviewer"), false);
   assert.equal(isSupportedAgentRole(""), false);
 });

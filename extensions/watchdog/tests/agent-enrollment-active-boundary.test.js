@@ -20,7 +20,7 @@ test("active consumers import agent discovery and guidance from split modules in
     "utf8",
   );
   const adminSurfaceOperationsSource = await readFile(
-    fileUrl("../lib/admin/admin-surface-operations.js"),
+    fileUrl("../lib/admin/operations/admin-surface-operations.js"),
     "utf8",
   );
 
@@ -64,12 +64,12 @@ test("active consumers import agent discovery and guidance from split modules in
 
   assert.match(
     adminSurfaceOperationsSource,
-    /from "\.\.\/agent\/agent-enrollment-guidance\.js"/,
+    /from "(?:\.\.\/)+agent\/agent-enrollment-guidance\.js"/,
     "admin surface operations should import guidance takeover from the split guidance module",
   );
   assert.doesNotMatch(
     adminSurfaceOperationsSource,
-    /takeOverLocalAgentGuidance[\s\S]*from "\.\.\/agent\/agent-enrollment\.js"/,
+    /takeOverLocalAgentGuidance[\s\S]*from "(?:\.\.\/)+agent\/agent-enrollment\.js"/,
     "admin surface operations should not import guidance takeover through the enrollment compatibility shell",
   );
 });

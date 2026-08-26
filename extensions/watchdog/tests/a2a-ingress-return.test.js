@@ -14,14 +14,14 @@ mock.module("../lib/state.js", {
   },
 });
 
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
     readContractCompletionArtifact: async () => null,
     readContractSnapshotById: async () => null,
   },
 });
 
-mock.module("../lib/capability/capability-registry.js", {
+mock.module("../lib/management/capability-registry.js", {
   namedExports: {
     loadCapabilityRegistry: async () => ({ agents: [], skills: [] }),
   },
@@ -36,15 +36,16 @@ mock.module("../lib/ingress/dispatch-entry.js", {
   },
 });
 
+// 单前台拓扑:qq 渠道没有专属 gateway agent(解析落空),webui 前台是 controller。
 mock.module("../lib/agent/agent-identity.js", {
   namedExports: {
     isBridgeAgent: () => false,
     resolveGatewayAgentIdForSource: (source) => (
-      source === "qq" || source === "qqbot" ? "agent-for-kksl" : "controller"
+      source === "qq" || source === "qqbot" ? null : "controller"
     ),
     buildGatewayReplyTarget: (source) => {
       if (source === "qq") {
-        return { agentId: "agent-for-kksl", sessionKey: "agent:agent-for-kksl:main" };
+        return null;
       }
       return { agentId: "controller", sessionKey: "agent:controller:main" };
     },
@@ -106,7 +107,7 @@ function buildResponse() {
   };
 }
 
-test("a2a send marks source gateway as pending instead of payload reply agent", async () => {
+test("a2a send marks front-desk gateway as pending instead of payload reply agent", async () => {
   pendingSignals.length = 0;
   dispatchCalls.length = 0;
   const routes = buildRoutes();
@@ -135,8 +136,8 @@ test("a2a send marks source gateway as pending instead of payload reply agent", 
   assert.deepEqual(
     pendingSignals.map(({ op, agentId, sourceKind }) => ({ op, agentId, sourceKind })),
     [
-      { op: "register", agentId: "agent-for-kksl", sourceKind: "channel_ingress:qq" },
-      { op: "clear", agentId: "agent-for-kksl", sourceKind: "channel_ingress:qq" },
+      { op: "register", agentId: "controller", sourceKind: "channel_ingress:qq" },
+      { op: "clear", agentId: "controller", sourceKind: "channel_ingress:qq" },
     ],
   );
   assert.equal(dispatchCalls.length, 1);

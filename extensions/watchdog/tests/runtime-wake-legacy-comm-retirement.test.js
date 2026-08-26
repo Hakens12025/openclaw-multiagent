@@ -10,27 +10,27 @@ const CANONICAL_RUNTIME_WAKE_CONSUMERS = [
   // index.js 的 inactivity/timeout wake 已迁入 agent-timeout-sweep（可测模块）；
   // canonical 消费者随之迁移，index.js 不再直接调 runtime-wake。
   "../lib/lifecycle/agent-timeout-sweep.js",
-  "../lib/lifecycle/agent-end-transport.js",
+  "../lib/lifecycle/agent-end/transport.js",
   "../lib/lifecycle/crash-recovery.js",
-  "../lib/routing/delivery-system-action-transport.js",
-  "../lib/routing/delivery-terminal.js",
-  "../lib/routing/dispatch-transport.js",
-  "../lib/system-action/system-action-request-review.js",
+  "../lib/routing/delivery/delivery-system-action-transport.js",
+  "../lib/routing/delivery/delivery-terminal.js",
+  "../lib/routing/dispatch/dispatch-transport.js",
   "../lib/system-action/system-action-runtime.js",
   "../lib/transport/runtime-wake-envelope.js",
 ];
 
 const PRODUCTION_SOURCE_ROOTS = [
   "lib",
+  "ui",
   "hooks",
   "routes",
 ];
 
 const PRODUCTION_SOURCE_FILES = [
   "index.js",
-  "runtime-mailbox.js",
-  "protocol-registry.js",
   "test-runner.js",
+  // runtime-mailbox.js moved to lib/routing/ (reorg Phase 5) — now covered by the "lib" root walk above
+  // protocol-registry.js now covered by the "dashboard" root walk above (reorg Phase 1)
 ];
 
 async function listSourceFiles(dir) {

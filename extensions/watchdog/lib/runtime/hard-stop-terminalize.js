@@ -1,35 +1,37 @@
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-import { commitSemanticTerminalState } from "../terminal-commit.js";
+import { commitSemanticTerminalState } from "../routing/terminal-commit.js";
+import { wireClosed } from "../archive/run-event-wiring.js";
 import { finalizeAgentSession } from "../lifecycle/runtime-lifecycle.js";
-import { mergeRuntimeDiagnostics } from "../lifecycle/agent-end-contract-refresh.js";
-import { getSessionHardStopReason, HARD_STOP_REASON } from "../loop/loop-detection.js";
-import { resolveLoopEpochKey } from "../loop/loop-epoch-key.js";
+import { mergeRuntimeDiagnostics } from "../lifecycle/agent-end/contract-refresh.js";
+import { getSessionHardStopReason, HARD_STOP_REASON } from "../runtime/execution-hard-stop-registry.js";
+import { resolveSessionEpochKey } from "../runtime/session-epoch-key.js";
 import { getExecutionIncident } from "./execution-incident-store.js";
-import { normalizeTerminalOutcome, resolveTerminalOutcome } from "../terminal-outcome.js";
-import { evaluateTrace } from "../store/execution-trace-store.js";
-import { resolveRouteAfterAgentEndTarget } from "../routing/dispatch-graph-policy.js";
+import { normalizeTerminalOutcome, resolveTerminalOutcome } from "../contract/terminal-outcome.js";
+import { getSessionProgress } from "../evidence/session-progress-projection.js";
+import { resolveRouteAfterAgentEndTarget } from "../routing/dispatch/dispatch-graph-policy.js";
 
 const terminalizingSessions = new Set();
 
+// 硬停终态的 source 名。这是**执行硬停闸**(重复调用/工具预算/输出预算/人工终止)的
+// 署名,与图回路无关——旧名 "loop_runtime" 是回路运行时时代的遗留错名,2026-08-19 改正。
+// 该字段无枚举校验(唯一消费者是 delivery-terminal-runtime.js 的 SSE alert 透传),
+// 所以只能靠这一个导出常量当单一真值,生产端与断言端都引它。
+export const HARD_STOP_TERMINAL_SOURCE = "execution_hard_stop";
+
 function resolveHardStopReason(epochKey) {
-  return getSessionHardStopReason(epochKey) || HARD_STOP_REASON.LOOP_DETECTED;
+  return getSessionHardStopReason(epochKey) || HARD_STOP_REASON.UNSPECIFIED;
 }
 
-function buildHardStopTerminalOutcome(reason, outputPath) {
+// 硬停文案的唯一分表。agent_end 侧的 graph-route 硬停闸也引这里——
+// 同一个 reason 由两条收口路径给出两句不同结论,是过去平行拷贝踩过的坑。
+export function buildHardStopSummary(reason) {
   const summaryByReason = {
     [HARD_STOP_REASON.REPEAT_THRESHOLD]: "session terminated due to repeated identical tool calls before final output was committed",
     [HARD_STOP_REASON.MAX_TOOL_CALLS]: "session terminated because executionPolicy.maxToolCalls budget was exhausted",
+    [HARD_STOP_REASON.OUTPUT_BUDGET_EXHAUSTED]: "session terminated because the cumulative tool-output byte budget was exhausted",
     [HARD_STOP_REASON.MANUAL]: "session terminated by explicit operator intervention",
   };
-  return normalizeTerminalOutcome({
-    status: CONTRACT_STATUS.FAILED,
-    source: "loop_runtime",
-    reason,
-    summary: summaryByReason[reason] || `session hard-stopped (${reason}) before final output was committed`,
-    artifact: outputPath || null,
-  }, {
-    terminalStatus: CONTRACT_STATUS.FAILED,
-  });
+  return summaryByReason[reason] || `session hard-stopped (${reason}) before final output was committed`;
 }
 
 function mergeExecutionIncidentIntoOutcome(terminalOutcome, executionIncident) {
@@ -57,7 +59,7 @@ async function shouldDeferHardStopTerminalization({
   agentId,
   sessionKey,
 } = {}) {
-  const traceVerdict = evaluateTrace(sessionKey);
+  const traceVerdict = getSessionProgress(sessionKey);
   const route = await resolveRouteAfterAgentEndTarget(agentId, { status: "completed" });
   if (route?.routable && route?.target && traceVerdict?.outputCommitted === true) {
     return {
@@ -70,39 +72,6 @@ async function shouldDeferHardStopTerminalization({
     defer: false,
     reason: null,
   };
-}
-
-async function resolveAuthoritativeHardStopOutcome({
-  trackingState,
-  logger,
-} = {}) {
-  const executionObservation = trackingState?.contract?.executionObservation || null;
-  const resolvedOutcome = await resolveTerminalOutcome({
-    trackingState,
-    contractData: trackingState?.contract || null,
-    executionObservation,
-    logger,
-  });
-  const source = resolvedOutcome?.terminalOutcome?.source || null;
-  if (source === "runtime_result") {
-    return resolvedOutcome;
-  }
-  if (source === "completion_criteria") {
-    const terminalStatus = resolvedOutcome?.terminalOutcome?.status
-      || resolvedOutcome?.terminalStatus
-      || null;
-    if (terminalStatus !== CONTRACT_STATUS.COMPLETED) {
-      return resolvedOutcome;
-    }
-    const hasExplicitRuntimeResult = executionObservation?.explicitRuntimeResult === true
-      || Boolean(executionObservation?.stageRunResult);
-    const hasExplicitRequiredFiles = Array.isArray(trackingState?.contract?.completionCriteria?.requiredFiles)
-      && trackingState.contract.completionCriteria.requiredFiles.length > 0;
-    if (hasExplicitRuntimeResult || hasExplicitRequiredFiles) {
-      return resolvedOutcome;
-    }
-  }
-  return null;
 }
 
 export async function terminalizeHardStoppedRuntimeSession({
@@ -122,7 +91,7 @@ export async function terminalizeHardStoppedRuntimeSession({
     return { terminalized: false, reason: "already_completed" };
   }
 
-  const epochKey = resolveLoopEpochKey(trackingState) || sessionKey;
+  const epochKey = resolveSessionEpochKey(trackingState) || sessionKey;
   const lockKey = `${sessionKey}:${trackingState.contract.id}`;
   if (terminalizingSessions.has(lockKey)) {
     return { terminalized: false, reason: "terminalize_in_progress" };
@@ -143,22 +112,28 @@ export async function terminalizeHardStoppedRuntimeSession({
       epochKey,
       sessionKey,
     });
-    const authoritativeOutcome = await resolveAuthoritativeHardStopOutcome({
+    // 收口只有一条路:与 agent_end 相同的事实收口,带 halted 事实。
+    // 声明了 failed → 转述;声明了 completed/期望齐 → 采信;中断且没交代 → 失败。
+    const resolved = await resolveTerminalOutcome({
       trackingState,
+      contractData: trackingState.contract,
+      executionObservation: trackingState.contract.executionObservation || null,
       logger,
+      halted: true,
     });
-    const terminalOutcome = mergeExecutionIncidentIntoOutcome(
-      authoritativeOutcome?.terminalOutcome
-        || buildHardStopTerminalOutcome(hardStopReason, trackingState.contract.output || null),
-      executionIncident,
-    );
-    const terminalStatus = terminalOutcome?.status
-      || authoritativeOutcome?.terminalStatus
-      || CONTRACT_STATUS.FAILED;
+    const baseOutcome = normalizeTerminalOutcome({
+      ...resolved.terminalOutcome,
+      source: HARD_STOP_TERMINAL_SOURCE,
+      reason: resolved.terminalOutcome.reason || hardStopReason,
+      summary: resolved.terminalOutcome.summary
+        || buildHardStopSummary(hardStopReason),
+    }, { terminalStatus: resolved.terminalStatus });
+    const terminalOutcome = mergeExecutionIncidentIntoOutcome(baseOutcome, executionIncident);
+    const terminalStatus = terminalOutcome?.status || CONTRACT_STATUS.FAILED;
     const runtimeDiagnostics = mergeRuntimeDiagnostics(
       trackingState.contract.runtimeDiagnostics,
       {
-        loopHardStop: {
+        executionHardStop: {
           terminalized: true,
           reason: hardStopReason,
           epochKey,
@@ -179,6 +154,13 @@ export async function terminalizeHardStoppedRuntimeSession({
     if (!commitResult.committed) {
       return { terminalized: false, reason: commitResult.reason || "commit_failed" };
     }
+    // 审查③:硬停终态同样要在事件账落 closed(否则该约在真值里永远 open)。
+    void wireClosed({
+      contract: trackingState?.contract,
+      terminalStatus,
+      reason: hardStopReason,
+      logger,
+    });
 
     await finalizeAgentSession({
       agentId,

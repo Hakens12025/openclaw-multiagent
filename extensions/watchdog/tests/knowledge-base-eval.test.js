@@ -18,15 +18,15 @@ import {
   getKnowledgeEvalSet,
   listKnowledgeEvalSets,
   deleteKnowledgeEvalSet,
-} from "../lib/operator/knowledge-eval-registry.js";
-import { runKnowledgeEval, listKnowledgeEvalRuns } from "../lib/operator/knowledge-eval-runner.js";
+} from "../lib/knowledge/knowledge-eval-registry.js";
+import { runKnowledgeEval, listKnowledgeEvalRuns } from "../lib/knowledge/knowledge-eval-runner.js";
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-inspector.js";
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
-import { addKnowledgeBaseSource, removeKnowledgeBase } from "../lib/operator/knowledge-base-registry.js";
-import { buildKbIndex, searchKb } from "../lib/operator/knowledge-base.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
+import { addKnowledgeBaseSource, removeKnowledgeBase } from "../lib/knowledge/knowledge-base-registry.js";
+import { buildKbIndex, searchKb } from "../lib/knowledge/knowledge-base.js";
 import { knowledgeBaseIndexFile } from "../lib/control-plane/control-plane-paths.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try { await embedText("probe", {}); ollamaUp = true; } catch { ollamaUp = false; }

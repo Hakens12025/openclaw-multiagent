@@ -1,14 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  buildTaskStagePlanFromTask,
-  planTaskStages,
-} from "../lib/task-stage-planner.js";
-
-test("planTaskStages does not invent implicit stages", () => {
-  assert.equal(planTaskStages(), null);
-});
+import { buildTaskStagePlanFromTask } from "../lib/stage/task-stage-planner.js";
 
 test("buildTaskStagePlanFromTask returns null when no explicit stage truth is provided", () => {
   const stagePlan = buildTaskStagePlanFromTask({

@@ -1,11 +1,11 @@
-import { tracker } from "../state-collections.js";
+import { tracker } from "../state/state-collections.js";
 import { getTaskHistorySnapshot } from "./task-history-store.js";
 import {
   TRACKING_STATUS,
   isRunningTrackingStatus,
   isTerminalContractStatus,
 } from "../core/runtime-status.js";
-import { resolveTrackingWorkItem } from "../tracking-work-item.js";
+import { resolveTrackingWorkItem } from "../contract/tracking-work-item.js";
 import { normalizeContractIdentity } from "../core/normalize.js";
 import { getAgentIdentitySnapshot } from "../agent/agent-identity.js";
 
@@ -123,9 +123,6 @@ export function getTerminalTrackingSessionReason(sessionKey, now = Date.now()) {
   }
 
   const existing = getTrackingState(normalizedSessionKey);
-  if (existing?.lateCompletionLease?.active) {
-    return null;
-  }
   if (existing?.followUpLease?.active) {
     return null;
   }
@@ -173,18 +170,6 @@ export function hasConcurrentTrackingSessionForAgent(agentId, sessionKey) {
   for (const [trackedSessionKey, trackedState] of tracker.entries()) {
     if (normalizedSessionKey && trackedSessionKey === normalizedSessionKey) continue;
     if (trackedState?.agentId === normalizedAgentId) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export function hasRunningTrackingSessionForAgent(agentId) {
-  const normalizedAgentId = normalizeAgentId(agentId);
-  if (!normalizedAgentId) return false;
-
-  for (const trackedState of tracker.values()) {
-    if (trackedState?.agentId === normalizedAgentId && isRunningTrackingStatus(trackedState?.status)) {
       return true;
     }
   }
@@ -309,7 +294,6 @@ export function restoreResumableTrackingSessions(savedSessions, logger = null, n
       lastLabel: snapshot.lastLabel || `等待 ${followUpLease.workflow || "system_action delivery"}`,
       status: TRACKING_STATUS.WAITING_FOLLOWUP,
       contract: null,
-      artifactContext: null,
       ioObservation: null,
       stageProjection: null,
       cursor: null,

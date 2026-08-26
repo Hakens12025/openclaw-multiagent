@@ -29,7 +29,7 @@ import { validateCliSurface } from "../lib/cli-system/cli-surface-schema.js";
 // 直读源（仅供等价性对照，不在 operator 路径中使用）
 import { loadGraph } from "../lib/agent/agent-graph.js";
 import { getGuidanceDriftState } from "../lib/agent/agent-guidance-drift-state.js";
-import { summarizeSystemActionDeliveryTickets } from "../lib/routing/delivery-system-action-ticket.js";
+import { summarizeSystemActionDeliveryTickets } from "../lib/routing/delivery/delivery-system-action-ticket.js";
 import { summarizePendingSignalRegistry } from "../lib/runtime/pending-signal-registry.js";
 
 // ── ① 4 个 surface 存在且合规 ────────────────────────────────────────────────

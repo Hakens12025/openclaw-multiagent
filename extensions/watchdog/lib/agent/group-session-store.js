@@ -1,8 +1,7 @@
 // group-session-store.js — GroupSession（运行层）持久化追踪。
 //
-// 类比 loop-session-store.js：复用 atomicWriteFile + withLock，独立文件 +
-// 独立 lock key，与 loop-session-store 完全独立存储（不融合）。space×time 正交：
-// 本 store 追踪空间维度（组内成员完成状态），loop-session-store 追踪时间维度。
+// 复用 atomicWriteFile + withLock，独立文件 + 独立 lock key。追踪空间维度：
+// 一个 group 内各成员的完成状态。
 //
 // 不造新并发原语 / 不造新 transport：等齐/先得只是 GroupSession 状态判定（advisory），
 // 实际 dispatch 仍走既有 dispatch-graph-policy（dispatcher 感知不到 group）。
@@ -14,6 +13,7 @@ import { join } from "node:path";
 
 import { normalizeString } from "../core/normalize.js";
 import { OC, atomicWriteFile, withLock } from "../state.js";
+import { resolveOwnedStorePath } from "../control-plane/control-plane-paths.js";
 import {
   archiveGroupSession,
   buildDefaultGroupSessionState,
@@ -32,9 +32,10 @@ export {
 
 const GROUP_SESSION_LOCK_KEY = "group-session-state";
 
-// env 覆盖供测试隔离（默认与 loop-session 搭档落在 research-lab）。
+// 店根门卫单源(control-plane-paths §13):显式种子 > 测试进程沙箱 > 生产根(research-lab)。
+// 曾是第 8 家漏网店——门卫收编前测试隔离全靠单个测试文件自设 env。
 function groupSessionDir() {
-  return normalizeString(process.env.OPENCLAW_GROUP_SESSION_DIR) || join(OC, "research-lab");
+  return resolveOwnedStorePath("OPENCLAW_GROUP_SESSION_DIR", join(OC, "research-lab"), "group-session");
 }
 function groupSessionFile() {
   return join(groupSessionDir(), "group_session_state.json");
@@ -74,7 +75,6 @@ export async function startGroupSession({
   entryAgentId = null,
   outputMode = "aggregate",
   round = 1,
-  loopSessionId = null,
   metadata = null,
   now = Date.now(),
 } = {}) {
@@ -86,7 +86,6 @@ export async function startGroupSession({
     outputMode,
     status: "executing",
     round,
-    loopSessionId,
     metadata,
     createdAt: now,
     startedAt: now,
@@ -194,9 +193,12 @@ export async function listResolvedGroupSessions() {
   ].filter(Boolean);
 }
 
+// groupIds: null → 组维不参与判定（只按成员剪枝，见 groupSessionFitsTopology 注释）。
 export async function pruneGroupSessionsForTopology({ agentIds = [], groupIds = [] } = {}) {
   const validAgentIds = new Set((Array.isArray(agentIds) ? agentIds : []).map(normalizeString).filter(Boolean));
-  const validGroupIds = new Set((Array.isArray(groupIds) ? groupIds : []).map(normalizeString).filter(Boolean));
+  const validGroupIds = groupIds === null
+    ? null
+    : new Set((Array.isArray(groupIds) ? groupIds : []).map(normalizeString).filter(Boolean));
   const topology = { agentIds: validAgentIds, groupIds: validGroupIds };
 
   return withLock(GROUP_SESSION_LOCK_KEY, async () => {

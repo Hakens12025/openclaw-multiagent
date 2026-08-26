@@ -10,13 +10,15 @@ test("production runtime no longer imports stage-context sidechannel", async () 
 
   assert.doesNotMatch(runtimeHandlerSource, /stage-context\.js/);
   assert.doesNotMatch(runtimeHandlerSource, /writeAgentInboxContext/);
+  // 侧信道的落盘形态（inbox/context.json）也不得复活 —— 原 loop-context-cleanup.test.js 的唯一断言。
+  assert.doesNotMatch(runtimeHandlerSource, /context\.json/);
 });
 
 test("production runtime has no active imports of retired context or legacy dispatch-runtime modules", async () => {
   const files = [
     new URL("../lib/system-action/system-action-runtime.js", import.meta.url),
-    new URL("../lib/routing/dispatch-graph-policy.js", import.meta.url),
-    new URL("../lib/session-bootstrap.js", import.meta.url),
+    new URL("../lib/routing/dispatch/dispatch-graph-policy.js", import.meta.url),
+    new URL("../lib/session/session-bootstrap.js", import.meta.url),
     new URL("../lib/lifecycle/runtime-lifecycle.js", import.meta.url),
     new URL("../lib/operator/operator-snapshot-runtime.js", import.meta.url),
     new URL("../lib/admin/runtime-admin.js", import.meta.url),

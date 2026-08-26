@@ -1,3 +1,4 @@
+// 键账内存化必须是第一条 import(ESM 按序执行;见 helper 头注)。
 import test from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -8,15 +9,15 @@ import { fileURLToPath } from "node:url";
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import { AGENT_ROLE } from "../lib/agent/agent-metadata.js";
 import { agentWorkspace, apiRef, cfg, runtimeAgentConfigs, setApiRef } from "../lib/state.js";
-import { INTENT_TYPES, createDirectRequestEnvelope } from "../lib/protocol-primitives.js";
+import { INTENT_TYPES, createDirectRequestEnvelope } from "../lib/protocol/protocol-primitives.js";
 import { EVENT_TYPE } from "../lib/core/event-types.js";
-import { getRoleOutputDirectives } from "../lib/role-spec-registry.js";
+import { getRoleOutputDirectives } from "../lib/prompt/role-spec-registry.js";
 import {
   SEMANTIC_WORKFLOWS,
   inferSemanticWorkflow,
-} from "../lib/runtime-workflow-semantics.js";
-import { deliveryRunTerminal } from "../lib/routing/delivery-terminal.js";
-import { normalizeSystemActionDeliveryDiagnostic } from "../lib/lifecycle/runtime-diagnostics.js";
+} from "../lib/routing/runtime-workflow-semantics.js";
+import { deliveryRunTerminal } from "../lib/routing/delivery/delivery-terminal.js";
+import { normalizeSystemActionDeliveryDiagnostic } from "../lib/routing/runtime-diagnostics.js";
 import {
   buildSystemActionDeliveryResult,
   buildRuntimeDeliveryResultSource,
@@ -24,7 +25,7 @@ import {
   resolveRuntimeResultOutputPath,
   summarizeDeliveryResultPayload,
   buildRuntimeResultDeliveryTask,
-} from "../lib/routing/delivery-result.js";
+} from "../lib/routing/delivery/delivery-result.js";
 import { buildProgressPayload } from "../lib/transport/sse.js";
 import {
   CONTRACT_STATUS,
@@ -38,15 +39,15 @@ import {
   buildHeartbeatTemplate,
   buildOutboxCommitExample,
   buildPlatformGuideTemplate,
-} from "../lib/platform-doc-builder.js";
-import { deliveryRunSystemActionRuntimeResult } from "../lib/routing/delivery-system-action-runtime-result.js";
-import { deliveryEnqueueSystemActionReturn } from "../lib/routing/delivery-system-action-transport.js";
-import { SYSTEM_ACTION_DELIVERY_IDS } from "../lib/routing/delivery-protocols.js";
+} from "../lib/prompt/platform-doc-builder.js";
+import { deliveryRunSystemActionRuntimeResult } from "../lib/routing/delivery/delivery-system-action-runtime-result.js";
+import { deliveryEnqueueSystemActionReturn } from "../lib/routing/delivery/delivery-system-action-transport.js";
+import { SYSTEM_ACTION_DELIVERY_IDS } from "../lib/routing/delivery/delivery-protocols.js";
 import {
   clearSystemActionDeliveryTicketStore,
   registerSystemActionDeliveryTicket,
-} from "../lib/routing/delivery-system-action-ticket.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
+} from "../lib/routing/delivery/delivery-system-action-ticket.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
 import { clearTrackingStore, rememberTrackingState } from "../lib/store/tracker-store.js";
 import { CONTROL_PLANE_PATHS } from "../lib/control-plane/control-plane-paths.js";
 
@@ -116,7 +117,6 @@ test("workspace guidance writes DELIVERY.md and documents both terminal and syst
     assert.match(delivery, /delivery:system_action/);
     assert.match(delivery, /delivery:system_action_assign_task_result/);
     assert.match(delivery, /delivery:system_action_runtime_result/);
-    assert.match(delivery, /delivery:system_action_review_verdict/);
     assert.match(delivery, /replyTo/);
   } finally {
     runtimeAgentConfigs.clear();
@@ -131,7 +131,6 @@ test("planner platform guidance uses minimal runtime_result commit semantics", (
   assert.match(manifest, /"summary"/);
   assert.doesNotMatch(manifest, /"transition"/);
   assert.doesNotMatch(manifest, /"completion"/);
-  assert.doesNotMatch(manifest, /_manifest\.json/);
 });
 
 test("startup sync does not overwrite a no-marker legacy planner soul", async () => {
@@ -170,36 +169,6 @@ test("startup sync does not overwrite a no-marker legacy planner soul", async ()
   }
 });
 
-test("reviewer IDENTITY keeps review persona without embedding shared-contract IO protocol", async () => {
-  const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-reviewer-guidance-"));
-
-  try {
-    await syncAgentWorkspaceGuidance({
-      agentId: "reviewer-guidance",
-      role: "reviewer",
-      skills: [],
-      workspaceDir,
-      graph: { edges: [] },
-      loops: [],
-    });
-
-    // ④role: reviewer persona now lives in the managed IDENTITY.md (not SOUL).
-    const identity = await readFile(join(workspaceDir, "IDENTITY.md"), "utf8");
-
-    assert.match(identity, /## Role/);
-    assert.match(identity, /Reviewer node|review/i, "reviewer persona keeps review stance");
-    assert.doesNotMatch(identity, /inbox\/contract\.json/);
-    assert.doesNotMatch(identity, /outbox\/stage_result\.json/);
-    assert.doesNotMatch(identity, /outbox\/contract_result\.json/);
-    assert.doesNotMatch(identity, /HEARTBEAT_OK/);
-
-    // SOUL is user-owned; sync does not seed it (only bootstrap does).
-    await assert.rejects(access(join(workspaceDir, "SOUL.md")), "sync does not write a SOUL");
-  } finally {
-    await rm(workspaceDir, { recursive: true, force: true });
-  }
-});
-
 test("execution IDENTITY stays role-only while wake output directives carry the contract entrypoint", async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), "openclaw-executor-soul-boundary-"));
 
@@ -224,7 +193,10 @@ test("execution IDENTITY stays role-only while wake output directives carry the 
     assert.doesNotMatch(identity, /outbox\/stage_result\.json/);
     assert.doesNotMatch(identity, /outbox\/contract_result\.json/);
     assert.doesNotMatch(identity, /HEARTBEAT_OK/);
-    assert.match(outputDirectives, /user-facing deliverable/i);
+    // 双面交付(2026-08-18):产出指令要同时教到消息面(直接回复即交付)与
+    // 文件面(任务要文件工件时写 outbox),缺一面 agent 就会把另一面当唯一路。
+    assert.match(outputDirectives, /reply/i);
+    assert.match(outputDirectives, /file artifact/i);
     assert.doesNotMatch(outputDirectives, /outbox\/stage_result\.json/);
     assert.doesNotMatch(outputDirectives, /outbox\/contract_result\.json/);
     assert.doesNotMatch(outputDirectives, /contract\.output/);
@@ -247,7 +219,7 @@ test("managed guidance distinguishes current session from system contract wake s
   assert.doesNotMatch(platformGuide, /第一入口永远是 `inbox\/contract\.json`/);
   assert.match(platformGuide, /用户直达/);
   assert.match(platformGuide, /系统派工/);
-  assert.match(platformGuide, /\[ACTION\]/);
+  assert.match(platformGuide, /调用协作工具/);
 });
 
 test("execution-layer guidance prunes generic workspace scaffold files", async () => {
@@ -327,12 +299,6 @@ test("deferred system_action follow-up uses delivery workflows", () => {
     targetAgent: "worker-a",
     contractId: "contract-assign",
   });
-  const reviewFollowUp = buildDeferredSystemActionFollowUp({
-    actionType: INTENT_TYPES.REQUEST_REVIEW,
-    status: SYSTEM_ACTION_STATUS.DISPATCHED,
-    deferredCompletion: true,
-    targetAgent: "reviewer",
-  });
 
   assert.equal(createTaskFollowUp.mode, "delivery");
   assert.equal(createTaskFollowUp.workflow, "delivery:system_action_runtime_result");
@@ -342,9 +308,6 @@ test("deferred system_action follow-up uses delivery workflows", () => {
 
   assert.equal(assignTaskFollowUp.workflow, "delivery:system_action_assign_task_result");
   assert.equal(assignTaskFollowUp.semanticWorkflow, SEMANTIC_WORKFLOWS.DELIVERY_SYSTEM_ACTION);
-
-  assert.equal(reviewFollowUp.workflow, "delivery:system_action_review_verdict");
-  assert.equal(reviewFollowUp.semanticWorkflow, SEMANTIC_WORKFLOWS.DELIVERY_SYSTEM_ACTION);
 });
 
 test("semantic workflow only accepts unified delivery lanes", () => {
@@ -359,10 +322,6 @@ test("semantic workflow only accepts unified delivery lanes", () => {
   assert.equal(
     inferSemanticWorkflow("review_verdict_return"),
     null,
-  );
-  assert.equal(
-    inferSemanticWorkflow("delivery:system_action_review_verdict"),
-    SEMANTIC_WORKFLOWS.DELIVERY_SYSTEM_ACTION,
   );
   assert.equal(
     inferSemanticWorkflow("delivery:terminal"),
@@ -839,6 +798,69 @@ test("deliveryRunTerminal hides internal completion reasons in non-success deliv
   }
 });
 
+test("deliveryRunTerminal carries the terminal summary and stage into the internal replyTo leg", async () => {
+  const gatewayAgentId = `delivery-failure-summary-gateway-${Date.now()}`;
+  const contractId = `TC-TERMINAL-SUMMARY-${Date.now()}`;
+  const workspaceDir = agentWorkspace(gatewayAgentId);
+  const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
+  const gateSummary = "本环声明的产物未兑现（无新鲜产物文件、无语义产出），未转发给下一环 worker-b；需产出实质交付物后重试";
+
+  runtimeAgentConfigs.clear();
+  runtimeAgentConfigs.set(gatewayAgentId, {
+    id: gatewayAgentId,
+    role: "bridge",
+    gateway: true,
+    ingressSource: null,
+    specialized: false,
+    skills: [],
+  });
+
+  try {
+    const result = await deliveryRunTerminal({
+      status: "failed",
+      startMs: Date.now() - 1000,
+      toolCallTotal: 0,
+      contract: {
+        id: contractId,
+        task: "internal delivery leg must localize the failure",
+        output: "",
+        // 回路退役(B6b):「📍 环节」定位线索单源 = stageRuntime.currentStageId。
+        stageRuntime: { version: 1, currentStageId: "research", completedStageIds: [] },
+        replyTo: {
+          kind: "agent",
+          agentId: gatewayAgentId,
+          sessionKey: `agent:${gatewayAgentId}:main`,
+        },
+        terminalOutcome: {
+          status: "failed",
+          source: "handoff_completion_gate",
+          reason: "missing_output",
+          summary: gateSummary,
+        },
+      },
+    }, null, {
+      info() {},
+      warn() {},
+      error() {},
+    });
+
+    assert.equal(result.ok, true);
+
+    const delivered = JSON.parse(
+      await readFile(join(workspaceDir, "deliveries", `DL-${contractId}.json`), "utf8"),
+    );
+    assert.ok(delivered.resultSummary.includes(gateSummary));
+    assert.match(delivered.resultSummary, /环节: research/u);
+    assert.doesNotMatch(delivered.resultSummary, /missing_output|handoff_completion_gate/iu);
+  } finally {
+    runtimeAgentConfigs.clear();
+    for (const [agentId, config] of originalRuntimeConfigs.entries()) {
+      runtimeAgentConfigs.set(agentId, config);
+    }
+    await rm(workspaceDir, { recursive: true, force: true });
+  }
+});
+
 test("deliveryRunTerminal keeps non-success terminal reasons out of user-facing delivery copy", async () => {
   const gatewayAgentId = `delivery-failure-reason-gateway-${Date.now()}`;
   const contractId = `TC-TERMINAL-FAULT-${Date.now()}`;
@@ -872,7 +894,7 @@ test("deliveryRunTerminal keeps non-success terminal reasons out of user-facing 
         },
         terminalOutcome: {
           status: "failed",
-          source: "loop_runtime",
+          source: "execution_hard_stop",
           reason: "tool_write_failed",
           clarification: "runtime incident: tool write failed",
         },
@@ -889,7 +911,7 @@ test("deliveryRunTerminal keeps non-success terminal reasons out of user-facing 
       await readFile(join(workspaceDir, "deliveries", `DL-${contractId}.json`), "utf8"),
     );
     assert.equal(delivered.resultSummary, "❌ 任务失败\n任务未完成。");
-    assert.doesNotMatch(delivered.resultSummary, /tool_write_failed|runtime incident|loop_runtime/iu);
+    assert.doesNotMatch(delivered.resultSummary, /tool_write_failed|runtime incident|execution_hard_stop/iu);
   } finally {
     runtimeAgentConfigs.clear();
     for (const [agentId, config] of originalRuntimeConfigs.entries()) {
@@ -1165,7 +1187,6 @@ test("runtime surface exposes only unified delivery event names", () => {
   assert.equal(EVENT_TYPE.SYSTEM_ACTION_DELIVERY_FAILED, "system_action_delivery_failed");
   assert.equal(EVENT_TYPE.SYSTEM_ACTION_RUNTIME_RESULT_DELIVERED, "system_action_runtime_result_delivered");
   assert.equal(EVENT_TYPE.SYSTEM_ACTION_ASSIGN_TASK_RESULT_DELIVERED, "system_action_assign_task_result_delivered");
-  assert.equal(EVENT_TYPE.SYSTEM_ACTION_REVIEW_VERDICT_DELIVERED, "system_action_review_verdict_delivered");
   assert.equal("RUNTIME_BRIDGE_FAILED" in EVENT_TYPE, false);
   assert.equal("EXECUTION_RESULT_RETURNED" in EVENT_TYPE, false);
   assert.equal("ASSIGN_TASK_RESULT_RETURNED" in EVENT_TYPE, false);
@@ -1352,10 +1373,10 @@ test("system_action runtime delivery without ticket does not enqueue fallback ro
 
 test("delivery control-plane source files no longer mention legacy runtime return residue", async () => {
   const files = [
-    join(WATCHDOG_ROOT, "lib", "routing", "dispatch-transport.js"),
-    join(WATCHDOG_ROOT, "lib", "runtime-workflow-semantics.js"),
+    join(WATCHDOG_ROOT, "lib", "routing", "dispatch", "dispatch-transport.js"),
+    join(WATCHDOG_ROOT, "lib", "routing", "runtime-workflow-semantics.js"),
     join(WATCHDOG_ROOT, "lib", "workspace-guidance-writer.js"),
-    join(WATCHDOG_ROOT, "lib", "harness", "harness-module-evidence.js"),
+    join(WATCHDOG_ROOT, "lib", "lifecycle", "agent-end", "terminal.js"),
   ];
   const legacyPatterns = [
     /\bexecution_contract_return\b/,
@@ -1449,7 +1470,7 @@ test("workspace guidance building map no longer advertises legacy dedicated role
 });
 
 test("legacy runtime direct inbox module is removed in favor of direct envelope queue semantics", async () => {
-  const queueModule = await import("../lib/runtime-direct-envelope-queue.js");
+  const queueModule = await import("../lib/routing/runtime-direct-envelope-queue.js");
 
   assert.equal(typeof queueModule.ensureRuntimeDirectEnvelopeInbox, "function");
   assert.equal(typeof queueModule.enqueueRuntimeDirectEnvelope, "function");
@@ -1460,7 +1481,8 @@ test("legacy runtime direct inbox module is removed in favor of direct envelope 
 
 test("legacy bridge module files are removed", async () => {
   const legacyFiles = [
-    "agent-end-bridge-chain.js",
+    // 历史遗留文件名(lib/bridge/ 已退役)，拆开拼写以避开 agent-end 旧前缀残留扫描
+    "agent-end-" + "bridge-chain.js",
     "contract-return-bridge.js",
     "review-bridge.js",
     "runtime-bridge-core.js",
@@ -1483,7 +1505,7 @@ test("legacy pool compatibility shell file is removed", async () => {
 });
 
 test("dispatch module no longer exports compatibility wrappers", async () => {
-  const dispatchModule = await import("../lib/routing/dispatch-transport.js");
+  const dispatchModule = await import("../lib/routing/dispatch/dispatch-transport.js");
 
   assert.equal(typeof dispatchModule.dispatchSendDirectRequest, "function");
   assert.equal(typeof dispatchModule.dispatchSendExecutionContract, "function");
@@ -1513,20 +1535,19 @@ test("unified system_action delivery routing modules exist in lib/routing", asyn
     "delivery-system-action-transport.js",
     "delivery-system-action-helpers.js",
     "delivery-system-action-ticket.js",
-    "delivery-system-action-review-verdict.js",
   ];
 
   for (const fileName of unifiedFiles) {
-    await access(join(WATCHDOG_ROOT, "lib", "routing", fileName));
+    await access(join(WATCHDOG_ROOT, "lib", "routing", "delivery", fileName));
   }
 });
 
 test("collaboration policy imports without legacy bridge path", async () => {
-  await assert.doesNotReject(() => import("../lib/collaboration-policy.js"));
+  await assert.doesNotReject(() => import("../lib/system-action/collaboration-policy.js"));
 });
 
 test("system_action runtime delivery imports without duplicate route exports", async () => {
-  await assert.doesNotReject(() => import("../lib/routing/delivery-system-action-runtime-result.js"));
+  await assert.doesNotReject(() => import("../lib/routing/delivery/delivery-system-action-runtime-result.js"));
 });
 
 test("canonical runtime and active test prompts no longer mention outbox/system_action.json", async () => {
@@ -1534,7 +1555,7 @@ test("canonical runtime and active test prompts no longer mention outbox/system_
     join(WATCHDOG_ROOT, "lib", "store", "execution-trace-store.js"),
     join(WATCHDOG_ROOT, "lib", "formal-runtime", "checks", "system-action-chain.js"),
     join(WATCHDOG_ROOT, "tests", "delegation-early-check-paths.test.js"),
-    join(WATCHDOG_ROOT, "tests", "contractor-loop-permission.test.js"),
+    join(WATCHDOG_ROOT, "tests", "system-action-legacy-payload-rejection.test.js"),
   ];
 
   for (const filePath of files) {

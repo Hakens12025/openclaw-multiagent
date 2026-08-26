@@ -3,15 +3,15 @@
  *
  * 背景：operator-snapshot 原先直读以下高消费 runtime store/registry：
  *   - listLifecycleWorkItems        (contracts) — snapshot 多处派生 counts/active/failures/incidents/progressions
- *   - listAdminChangeSets           (admin/admin-change-sets) — draft relations 重度消费
+ *   - listAdminChangeSets           (admin/change-sets/admin-change-sets) — draft relations 重度消费
  *   - listAutomationRuntimeStates   (automation/automation-runtime) — coreData.automationRuntimes，被 operator-brain 消费
- *   - summarizeAutomationRuntimeRegistry(automation/automation-runtime) — reviewer/decision 快照依赖
+ *   - summarizeAutomationRuntimeRegistry(automation/automation-runtime) — decision 快照依赖
  * 均属绕过 CLI-system 的旁路。本次复用 inspect-surface 模式收口为：
  *   inspect.work_items / inspect.change_sets /
  *   inspect.automation_runtime / inspect.automation_runtime_summary
  *
  * 这批最危险：snapshot 从它们派生大量字段。等价测试不只测 list 本身，
- * 还测 snapshot 派生字段（counts / active / failures / reviewer / decision）迁移前后一致。
+ * 还测 snapshot 派生字段（counts / active / failures / decision）迁移前后一致。
  *
  * 每个锁定：
  *   ① 新 surface 存在且合规（冻结 schema 校验）
@@ -31,8 +31,8 @@ import {
 import { validateCliSurface } from "../lib/cli-system/cli-surface-schema.js";
 
 // 直读源（仅供等价性对照，不在 operator 路径中使用）
-import { listLifecycleWorkItems } from "../lib/contracts.js";
-import { listAdminChangeSets } from "../lib/admin/admin-change-sets.js";
+import { listLifecycleWorkItems } from "../lib/contract/contracts.js";
+import { listAdminChangeSets } from "../lib/admin/change-sets/admin-change-sets.js";
 import {
   listAutomationRuntimeStates,
   summarizeAutomationRuntimeRegistry,
@@ -41,7 +41,6 @@ import {
 // snapshot 派生逻辑（用于验证派生字段等价）
 import { summarizeWorkItem } from "../lib/operator/operator-snapshot-summarizers.js";
 import {
-  buildReviewerResultsSnapshot,
   buildAutomationDecisionsSnapshot,
 } from "../lib/operator/operator-snapshot-runtime.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
@@ -154,18 +153,13 @@ test("change_sets 派生字段（counts.total / byStatus）经 surface 与直读
   assert.deepEqual(byStatus(viaSurface), byStatus(direct), "draftCounts 应一致");
 });
 
-test("automation_runtime_summary 派生字段（counts/reviewer/decision）经 surface 与直读一致", async () => {
+test("automation_runtime_summary 派生字段（counts/decision）经 surface 与直读一致", async () => {
   const direct = await summarizeAutomationRuntimeRegistry();
   const viaSurface = await inspectCliSystemSurface({ surfaceId: "inspect.automation_runtime_summary" });
 
   // counts 直接来自 summary
   assert.deepEqual(viaSurface.counts, direct.counts, "automations.counts 应一致");
-  // reviewer / decision 快照派生
-  assert.deepEqual(
-    buildReviewerResultsSnapshot(viaSurface),
-    buildReviewerResultsSnapshot(direct),
-    "reviewerResults 快照应一致",
-  );
+  // decision 快照派生（reviewerResults 快照已随评审链删除 + harness 全退役移除）
   assert.deepEqual(
     buildAutomationDecisionsSnapshot(viaSurface),
     buildAutomationDecisionsSnapshot(direct),

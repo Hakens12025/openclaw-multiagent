@@ -103,7 +103,7 @@ test("json：镜像字段齐全，totals 正确，非 pass 的 hint 已解析", 
 });
 
 test("json/txt：epoch ms 时间被归一为 ISO；空 checks 不抛", () => {
-  const json = buildFormalReportJson({ run: { presetId: "dispatch", startedAt: 1760000000000, finishedAt: 1760000005000 } });
+  const json = buildFormalReportJson({ run: { presetId: "single", startedAt: 1760000000000, finishedAt: 1760000005000 } });
   assert.equal(json.startedAt, new Date(1760000000000).toISOString());
   assert.equal(json.verdict, "PASS");
   assert.equal(json.totals.total, 0);

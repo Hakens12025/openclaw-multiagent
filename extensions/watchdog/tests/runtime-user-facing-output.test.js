@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyRuntimeControlPayload } from "../lib/runtime-user-facing-output.js";
+import { classifyRuntimeControlPayload } from "../lib/delivery/runtime-user-facing-output.js";
 
 test("localized read failure text is classified as runtime control residue", () => {
   const payload = [

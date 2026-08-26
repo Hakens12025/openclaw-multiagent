@@ -26,7 +26,7 @@ const dispatchChainSnapshot = {
   },
 };
 
-mock.module("../lib/state-file-utils.js", {
+mock.module("../lib/state/state-file-utils.js", {
   namedExports: {
     atomicWriteFile: async (filePath, data) => {
       atomicWriteCalls.push({ filePath, data });
@@ -35,7 +35,7 @@ mock.module("../lib/state-file-utils.js", {
   },
 });
 
-mock.module("../lib/state-paths.js", {
+mock.module("../lib/state/state-paths.js", {
   namedExports: {
     STATE_FILE: stateFile,
   },
@@ -61,7 +61,7 @@ mock.module("../lib/store/contract-flow-store.js", {
   },
 });
 
-const { persistState, loadState } = await import("../lib/state-persistence.js");
+const { persistState, loadState } = await import("../lib/state/state-persistence.js");
 
 test("persistState writes tracker and dispatch snapshots provided by their store owners", async () => {
   atomicWriteCalls.length = 0;

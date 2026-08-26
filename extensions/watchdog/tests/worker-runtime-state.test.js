@@ -4,9 +4,12 @@ import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:worker-runtime-state.test.js" });
 import * as state from "../lib/state.js";
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import {
@@ -27,8 +30,8 @@ import {
   resetAllDispatchStates,
   syncDispatchTargets,
   syncDispatchTargetsFromRuntime,
-} from "../lib/routing/dispatch-runtime-state.js";
-import { reconcileDispatchRuntimeTruth } from "../lib/routing/dispatch-runtime-reconcile.js";
+} from "../lib/routing/dispatch/dispatch-runtime-state.js";
+import { reconcileDispatchRuntimeTruth } from "../lib/routing/dispatch/dispatch-runtime-reconcile.js";
 import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = { info() {}, warn() {}, error() {} };
@@ -122,17 +125,17 @@ test("syncDispatchTargetsFromRuntime hydrates every configured dispatch role ins
     runtimeAgentConfigs.clear();
     runtimeAgentConfigs.set("planner", { id: "planner", role: "planner" });
     runtimeAgentConfigs.set("worker-a", { id: "worker-a", role: "executor" });
-    runtimeAgentConfigs.set("reviewer-a", { id: "reviewer-a", role: "reviewer" });
+    runtimeAgentConfigs.set("researcher-a", { id: "researcher-a", role: "researcher" });
     await saveGraph({
       edges: [
         { from: "planner", to: "worker-a", label: "assign" },
-        { from: "worker-a", to: "reviewer-a", label: "review" },
+        { from: "worker-a", to: "researcher-a", label: "research" },
       ],
     });
 
     await syncDispatchTargetsFromRuntime(logger);
 
-    assert.deepEqual(listDispatchTargetIds().sort(), ["planner", "reviewer-a", "worker-a"]);
+    assert.deepEqual(listDispatchTargetIds().sort(), ["planner", "researcher-a", "worker-a"]);
   } finally {
     clearDispatchStores();
     runtimeAgentConfigs.clear();
@@ -412,7 +415,7 @@ test("getDispatchTargetCurrentContract returns canonical current contract id", (
 });
 
 test("dispatch-runtime-state module no longer exports worker-only names", async () => {
-  const dispatchRuntimeState = await import("../lib/routing/dispatch-runtime-state.js");
+  const dispatchRuntimeState = await import("../lib/routing/dispatch/dispatch-runtime-state.js");
 
   assert.equal("buildWorkerRuntimeSnapshot" in dispatchRuntimeState, false);
   assert.equal("enqueueContract" in dispatchRuntimeState, false);
@@ -420,7 +423,7 @@ test("dispatch-runtime-state module no longer exports worker-only names", async 
 
 test("dispatch runtime state no longer carries graph round-robin routing state", async () => {
   const dispatchRuntimeSource = await readFile(
-    new URL("../lib/routing/dispatch-runtime-state.js", import.meta.url),
+    new URL("../lib/routing/dispatch/dispatch-runtime-state.js", import.meta.url),
     "utf8",
   );
 
@@ -596,7 +599,7 @@ test("dequeueDispatchContract persists an inflight queue lease and reload restor
 
 test("dispatch runtime persistence no longer reads or writes legacy workers shape", async () => {
   const dispatchRuntimeSource = await readFile(
-    new URL("../lib/routing/dispatch-runtime-state.js", import.meta.url),
+    new URL("../lib/routing/dispatch/dispatch-runtime-state.js", import.meta.url),
     "utf8",
   );
   const runtimeAdminSource = await readFile(
@@ -630,13 +633,13 @@ test("reconcileDispatchRuntimeTruth prunes persisted targets outside the active 
   const previousGraph = await loadGraph();
   const previousRuntimeConfigs = new Map(runtimeAgentConfigs);
   const ghostContractId = `TC-GHOST-PERSISTED-${Date.now()}`;
-  const ghostContractPath = getContractPath(ghostContractId);
+  let ghostContractPath = getContractPath(ghostContractId);
   clearDispatchStores();
   runtimeAgentConfigs.clear();
   runtimeAgentConfigs.set("planner-a", { id: "planner-a", role: "planner" });
 
   try {
-    await persistContractSnapshot(ghostContractPath, {
+    ghostContractPath = await persistContractById({
       id: ghostContractId,
       task: "persisted ghost target should not self-authorize",
       assignee: "ghost-target",
@@ -734,7 +737,7 @@ test("reconcileDispatchRuntimeTruth prunes stale queue entries and requeues orph
   await syncDispatchTargets(["planner-a"], logger);
 
   const orphanContractId = `TC-RUNTIME-ORPHAN-${Date.now()}`;
-  const orphanContractPath = getContractPath(orphanContractId);
+  let orphanContractPath = getContractPath(orphanContractId);
 
   try {
     dispatchTargetStateMap.set("planner-a", {
@@ -746,7 +749,7 @@ test("reconcileDispatchRuntimeTruth prunes stale queue entries and requeues orph
       queue: [{ contractId: "TC-STALE-QUEUE", fromAgent: "controller" }],
     });
 
-    await persistContractSnapshot(orphanContractPath, {
+    orphanContractPath = await persistContractById({
       id: orphanContractId,
       task: "reconcile should recover orphan pending contract",
       assignee: "planner-a",
@@ -809,10 +812,10 @@ test("reconcileDispatchRuntimeTruth prunes existing queued contracts without cur
   await syncDispatchTargets(["planner-a"], logger);
 
   const queuedContractId = `TC-RUNTIME-QUEUE-EDGE-${Date.now()}`;
-  const queuedContractPath = getContractPath(queuedContractId);
+  let queuedContractPath = getContractPath(queuedContractId);
 
   try {
-    await persistContractSnapshot(queuedContractPath, {
+    queuedContractPath = await persistContractById({
       id: queuedContractId,
       task: "existing queue entry should still obey graph truth",
       assignee: "planner-a",
@@ -864,11 +867,11 @@ test("reconcileDispatchRuntimeTruth prunes stale outgoing queue diagnostics", as
   await syncDispatchTargets(["planner-a", "worker-b"], logger);
 
   const validContractId = `TC-RUNTIME-OUTGOING-VALID-${Date.now()}`;
-  const validContractPath = getContractPath(validContractId);
+  let validContractPath = getContractPath(validContractId);
   const terminalContractId = `TC-RUNTIME-OUTGOING-TERMINAL-${Date.now()}`;
-  const terminalContractPath = getContractPath(terminalContractId);
+  let terminalContractPath = getContractPath(terminalContractId);
   const invalidEdgeContractId = `TC-RUNTIME-OUTGOING-EDGE-${Date.now()}`;
-  const invalidEdgeContractPath = getContractPath(invalidEdgeContractId);
+  let invalidEdgeContractPath = getContractPath(invalidEdgeContractId);
 
   try {
     await saveGraph({
@@ -876,7 +879,7 @@ test("reconcileDispatchRuntimeTruth prunes stale outgoing queue diagnostics", as
         { from: "controller", to: "planner-a", label: "ingress" },
       ],
     });
-    await persistContractSnapshot(validContractPath, {
+    validContractPath = await persistContractById({
       id: validContractId,
       task: "valid outgoing diagnostic should remain",
       assignee: "planner-a",
@@ -885,7 +888,7 @@ test("reconcileDispatchRuntimeTruth prunes stale outgoing queue diagnostics", as
       updatedAt: Date.now(),
       protocol: { version: 1, envelope: "execution_contract" },
     }, logger);
-    await persistContractSnapshot(terminalContractPath, {
+    terminalContractPath = await persistContractById({
       id: terminalContractId,
       task: "terminal outgoing diagnostic should be pruned",
       assignee: "planner-a",
@@ -894,7 +897,7 @@ test("reconcileDispatchRuntimeTruth prunes stale outgoing queue diagnostics", as
       updatedAt: Date.now(),
       protocol: { version: 1, envelope: "execution_contract" },
     }, logger);
-    await persistContractSnapshot(invalidEdgeContractPath, {
+    invalidEdgeContractPath = await persistContractById({
       id: invalidEdgeContractId,
       task: "invalid edge outgoing diagnostic should be pruned",
       assignee: "worker-b",
@@ -964,10 +967,10 @@ test("reconcileDispatchRuntimeTruth does not recover orphan pending contracts wi
   await syncDispatchTargets(["planner-a"], logger);
 
   const orphanContractId = `TC-RUNTIME-UNAUTHORIZED-ORPHAN-${Date.now()}`;
-  const orphanContractPath = getContractPath(orphanContractId);
+  let orphanContractPath = getContractPath(orphanContractId);
 
   try {
-    await persistContractSnapshot(orphanContractPath, {
+    orphanContractPath = await persistContractById({
       id: orphanContractId,
       task: "reconcile must not let assignee bypass graph topology",
       assignee: "planner-a",
@@ -1008,12 +1011,12 @@ test("reconcileDispatchRuntimeTruth stays idempotent under concurrent startup ca
   await syncDispatchTargets(["planner-a"], logger);
 
   const queuedContractId = `TC-RUNTIME-QUEUED-${Date.now()}`;
-  const queuedContractPath = getContractPath(queuedContractId);
+  let queuedContractPath = getContractPath(queuedContractId);
   const orphanContractId = `TC-RUNTIME-ORPHAN-CONCURRENT-${Date.now()}`;
-  const orphanContractPath = getContractPath(orphanContractId);
+  let orphanContractPath = getContractPath(orphanContractId);
 
   try {
-    await persistContractSnapshot(queuedContractPath, {
+    queuedContractPath = await persistContractById({
       id: queuedContractId,
       task: "existing queued contract should not duplicate",
       assignee: "planner-a",
@@ -1028,7 +1031,7 @@ test("reconcileDispatchRuntimeTruth stays idempotent under concurrent startup ca
       replyTo: { agentId: "controller", sessionKey: "agent:controller:main" },
     }, logger);
 
-    await persistContractSnapshot(orphanContractPath, {
+    orphanContractPath = await persistContractById({
       id: orphanContractId,
       task: "orphan contract should only be recovered once",
       assignee: "planner-a",

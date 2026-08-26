@@ -10,19 +10,18 @@ import {
   unignoreHeartbeatSession,
 } from "../lib/store/heartbeat-session-store.js";
 import { broadcast, buildProgressPayload } from "../lib/transport/sse.js";
-import { refreshTrackingProjection } from "../lib/stage-projection.js";
-import { routeInbox } from "../runtime-mailbox.js";
+import { refreshTrackingProjection } from "../lib/stage/stage-projection.js";
+import { routeInbox } from "../lib/routing/mailbox/runtime-mailbox.js";
 import { handleBeforeStartIngress } from "../lib/ingress/before-start-ingress.js";
 import { hasActionableHeartbeatWork } from "../lib/heartbeat-gate.js";
-import { getContractPath } from "../lib/contracts.js";
+import { getContractPath } from "../lib/contract/contracts.js";
+import { wireTurnStarted } from "../lib/archive/run-event-wiring.js";
 import {
   createTrackingState,
   bindPendingWorkerContract,
   bindInboxContractEnvelope,
-  bindInboxArtifactContext,
   refreshTrackingInputIoObservation,
-} from "../lib/session-bootstrap.js";
-import { runWorkerHardPathAutoExec } from "../lib/hard-path-autoexec.js";
+} from "../lib/session/session-bootstrap.js";
 import {
   hasTrackingSession,
   hasConcurrentTrackingSessionForAgent,
@@ -31,11 +30,13 @@ import {
   rememberTrackingState,
 } from "../lib/store/tracker-store.js";
 import { resumeRuntimeFollowUpLease } from "../lib/runtime-follow-up-lease.js";
-import { initTrace } from "../lib/store/execution-trace-store.js";
-import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
-import { parseAgentContractSessionKey } from "../lib/session-keys.js";
+import { isAgentEndInFlight, waitForAgentEndSettled } from "../lib/session/session-phase-store.js";
+import { openSessionProgress } from "../lib/evidence/session-progress-projection.js";
+import { openSessionTrace } from "../lib/evidence/session-trace-store.js";
+import { syncTrackingRuntimeStageProgress } from "../lib/stage/runtime-stage-progress.js";
+import { parseAgentContractSessionKey } from "../lib/session/session-keys.js";
 import { composeEffectiveProfile } from "../lib/effective-profile-composer.js";
-import { loadConfig } from "../lib/agent/agent-admin-store.js";
+import { loadConfig } from "../lib/agent/admin/agent-admin-store.js";
 
 async function resolveExecutionPolicySnapshot(agentId, logger) {
   try {
@@ -129,6 +130,15 @@ export function register(api, logger) {
       return;
     }
 
+    // 收尾让位：本 sessionKey 的 agent_end 流水线还在飞时，先等它落地再决定
+    // resume/新建。唤醒撞进收尾窗口会复活一个即将被 finalize 拆除的 tracker，
+    // 之后整个回合无 tracker 运行、收尾静默跳过（2026-08-10 幽灵回合竞态）。
+    // 等完后若 tracker 已删，自然走下方全新建 tracking 的正路（绑回投 envelope）。
+    if (isAgentEndInFlight(sessionKey)) {
+      logger.info(`[watchdog] waiting for in-flight agent_end to settle before binding ${sessionKey}`);
+      await waitForAgentEndSettled(sessionKey);
+    }
+
     // Resume existing tracker
     if (hasTrackingSession(sessionKey)) {
       unignoreHeartbeatSession(sessionKey);
@@ -149,6 +159,7 @@ export function register(api, logger) {
         );
       }
 
+      const resumedWithoutContract = !existing.contract;
       if (isWorker(agentId) && !existing.contract) {
         const bound = await bindPendingWorkerContract({
           agentId,
@@ -171,9 +182,14 @@ export function register(api, logger) {
           allowNonDirectRequest: true,
           requiredContractId: exactContractId,
         });
-        await bindInboxArtifactContext({
+      }
+
+      // 事件接线(批② §八):resume 且本次新绑上合约 = 新回合开始(纯 resume 不重复记)。
+      if (resumedWithoutContract && existing.contract) {
+        void wireTurnStarted({
+          contract: existing.contract,
           agentId,
-          trackingState: existing,
+          sessionKey,
           logger,
         });
       }
@@ -219,11 +235,6 @@ export function register(api, logger) {
         allowNonDirectRequest: true,
         requiredContractId: exactContractId,
       });
-      await bindInboxArtifactContext({
-        agentId,
-        trackingState,
-        logger,
-      });
     }
 
     if (isPassiveMainSession && await hasActionableHeartbeatWork(agentId, trackingState, sessionKey) === false) {
@@ -237,10 +248,20 @@ export function register(api, logger) {
     }
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    // 事件接线(批② §八):新 tracking 会话携合约起跑 = turn_started。fire-and-forget。
+    if (trackingState.contract) {
+      void wireTurnStarted({
+        contract: trackingState.contract,
+        agentId,
+        sessionKey,
+        logger,
+      });
+    }
+    openSessionProgress(sessionKey, trackingState.contract, { agentId });
+    await openSessionTrace(sessionKey, {
+      agentId, contractId: trackingState.contract?.id ?? null,
+    }).catch((error) => logger.warn(`[watchdog] trace open failed (non-blocking): ${error.message}`));
     refreshTrackingInputIoObservation(trackingState, agentId);
-
-    await runWorkerHardPathAutoExec({ agentId, trackingState, logger });
 
     await syncTrackingRuntimeStageProgress(trackingState);
     await refreshTrackingProjection(trackingState);

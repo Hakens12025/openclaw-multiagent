@@ -6,27 +6,50 @@
 // (state-paths re-exports CONTRACTS_DIR / STATE_FILE / QUEUE_STATE_FILE
 // from here for back-compat with the existing 5 consumers).
 
-import { homedir } from "node:os";
+import { mkdtempSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const OC_ROOT = join(homedir(), ".openclaw");
 
 export const CONTROL_PLANE_ROOT = join(OC_ROOT, "control-plane");
 
+// ── 店根门卫(核心设计指标§13「多主体真值:写者身份进门」,备忘录158 §五) ──
+// node:test 给每个测试子进程恒注入 NODE_TEST_CONTEXT(实测 child-v8)。测试进程
+// 未显式种子(OPENCLAW_* env)时,店根一律落进程级 mkdtemp 沙箱——手跑单测
+// (五次生产树污染事故的全部通道,最近一次 2026-08-26 TC-TERMINALIZE 夹具)从此
+// 结构性免疫,忘不忘导 seed-tree-stores 都污染不了生产。npm test 的显式 env 照旧
+// 生效;网关/live 预设/CLI 脚本无 NODE_TEST_CONTEXT,生产根不变。
+// seed-tree-stores 由"安全边界"降格为"确定性夹具工具"。
+// 判定属主唯一在此;各店解析函数只消费本函数,不得各自另判。
+let testSandboxRoot = null;
+export function resolveOwnedStorePath(envKey, productionPath, sandboxRel) {
+  const seeded = process.env[envKey];
+  if (typeof seeded === "string" && seeded.trim()) return seeded.trim();
+  if (process.env.NODE_TEST_CONTEXT) {
+    if (!testSandboxRoot) testSandboxRoot = mkdtempSync(join(tmpdir(), "openclaw-teststore-"));
+    return join(testSandboxRoot, sandboxRel);
+  }
+  return productionPath;
+}
+
 export const CONTROL_PLANE_PATHS = Object.freeze({
   root: CONTROL_PLANE_ROOT,
   contractsDir: join(CONTROL_PLANE_ROOT, "contracts"),
+  threadsDir: join(CONTROL_PLANE_ROOT, "threads"), // 批②树店根(备忘录142 §三);IO 时经 OPENCLAW_THREADS_DIR 惰性种子,见 lib/archive/thread-tree-store.js
+  contractIndexFile: join(CONTROL_PLANE_ROOT, "contract-index.jsonl"), // id→{threadId,runId} append-only 索引;种子 OPENCLAW_CONTRACT_INDEX_FILE
+  sessionIndexFile: join(CONTROL_PLANE_ROOT, "session-index.jsonl"), // 会话 id→run 家 append-only 索引;种子 OPENCLAW_SESSION_INDEX_FILE,见 lib/archive/session-home-index.js
+  traceDir: join(CONTROL_PLANE_ROOT, "trace"), // session event ledger（与已退场的 workflow-trace 快照店无关）
+
   stateFile: join(CONTROL_PLANE_ROOT, "watchdog-state.json"),
   queueStateFile: join(CONTROL_PLANE_ROOT, "queue-state.json"),
   outputDir: join(CONTROL_PLANE_ROOT, "output"),
-  conversationsDir: join(CONTROL_PLANE_ROOT, "conversations"),
   adminChangeSetsDir: join(CONTROL_PLANE_ROOT, "admin-change-sets"),
   taskStateFile: join(CONTROL_PLANE_ROOT, "task-state.md"),
   systemActionDeliveryTicketsFile: join(CONTROL_PLANE_ROOT, "system-action-delivery-tickets.json"),
   agentDefaultSkillsFile: join(CONTROL_PLANE_ROOT, "agent-default-skills.json"),
   agentJoinRegistryFile: join(CONTROL_PLANE_ROOT, "agent-join-registry.json"),
   agentGraphFile: join(CONTROL_PLANE_ROOT, "agent-graph.json"),
-  graphLoopRegistryFile: join(CONTROL_PLANE_ROOT, "graph-loop-registry.json"),
   automationRuntimeFile: join(CONTROL_PLANE_ROOT, "automation-runtime.json"),
   automationRegistryFile: join(CONTROL_PLANE_ROOT, "automation-registry.json"),
   scheduleRegistryFile: join(CONTROL_PLANE_ROOT, "schedule-registry.json"),
@@ -38,6 +61,10 @@ export const CONTROL_PLANE_PATHS = Object.freeze({
   chartsRegistryFile: join(CONTROL_PLANE_ROOT, "charts.json"),
   knowledgeEvalSetsFile: join(CONTROL_PLANE_ROOT, "knowledge-eval-sets.json"),
   knowledgeEvalRunsFile: join(CONTROL_PLANE_ROOT, "knowledge-eval-runs.json"),
+  // .jsonl(append-only 键账,delivery-idempotency-store):追加写,不整文件重写
+  deliveryIdempotencyFile: join(CONTROL_PLANE_ROOT, "delivery-idempotency.jsonl"),
+  // 单文件一票(delivery-ticket-store):dlv-{contractId}.json,泵消费后删除
+  deliveryTicketsDir: join(CONTROL_PLANE_ROOT, "delivery-tickets"),
 });
 
 // per-KB RAG 索引文件:control-plane/kb-<id>-index.json(wiki 库例外,复用 wiki-rag-index.json)。
@@ -58,14 +85,12 @@ export const LEGACY_CONTROLLER_PATHS = Object.freeze({
   stateFile: join(LEGACY_CONTROLLER_ROOT, ".watchdog-state.json"),
   queueStateFile: join(LEGACY_CONTROLLER_ROOT, ".queue-state.json"),
   outputDir: join(LEGACY_CONTROLLER_ROOT, "output"),
-  conversationsDir: join(LEGACY_CONTROLLER_ROOT, "conversations"),
   adminChangeSetsDir: join(LEGACY_CONTROLLER_ROOT, "admin-change-sets"),
   taskStateFile: join(LEGACY_CONTROLLER_ROOT, "TASK_STATE.md"),
   systemActionDeliveryTicketsFile: join(LEGACY_CONTROLLER_ROOT, ".system-action-delivery-tickets.json"),
   agentDefaultSkillsFile: join(LEGACY_CONTROLLER_ROOT, ".agent-default-skills.json"),
   agentJoinRegistryFile: join(LEGACY_CONTROLLER_ROOT, ".watchdog-agent-joins.json"),
   agentGraphFile: join(LEGACY_CONTROLLER_ROOT, "agent_graph.json"),
-  graphLoopRegistryFile: join(LEGACY_CONTROLLER_ROOT, "graph_loops.json"),
   automationRuntimeFile: join(LEGACY_CONTROLLER_ROOT, ".watchdog-automation-runtime.json"),
   automationRegistryFile: join(LEGACY_CONTROLLER_ROOT, ".watchdog-automations.json"),
   scheduleRegistryFile: join(LEGACY_CONTROLLER_ROOT, ".watchdog-schedules.json"),

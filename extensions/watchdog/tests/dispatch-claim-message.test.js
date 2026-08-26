@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildDispatchTargetClaimMessage } from "../lib/session-bootstrap.js";
+import { buildDispatchTargetClaimMessage } from "../lib/session/session-bootstrap.js";
 
 test("dispatch target claim message names the agent, contract id, and title", () => {
   const message = buildDispatchTargetClaimMessage("worker", {

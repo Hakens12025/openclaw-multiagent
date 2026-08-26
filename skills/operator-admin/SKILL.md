@@ -46,7 +46,7 @@ description: Runtime operator 管理技能。用于读取 OpenClaw 的 inspect/a
 - `agents.constraints`
 - `agents.name`
 - `agents.description`
-- `agents.card.tools`
+- `agents.tools`
 - `agents.card.formats`
 - `agents.role`
 - `agents.skills`
@@ -85,7 +85,6 @@ description: Runtime operator 管理技能。用于读取 OpenClaw 的 inspect/a
 ## Operator 判断顺序
 
 1. 判断是否属于 `runtime/platform`：谁协作、回路怎么继续、结果回给谁、自动化何时唤醒
-2. 判断是否属于 `harness`：这一轮怎么执行、追踪、重放、收集证据
 3. 判断是否属于 `skill`：实验怎么做、memo 怎么写、错误清单怎么整理、handoff 怎么写
 4. 判断当前是否有真实 typed surface：有 surface 就 plan + execute；缺 surface 就 advice_only
 
@@ -94,8 +93,7 @@ description: Runtime operator 管理技能。用于读取 OpenClaw 的 inspect/a
 | 层 | 负责什么 | 典型内容 |
 |---|---|---|
 | `skill / soul` | 任务专业语义与本地工作规则 | 实验拆解、备忘录、错误清单、handoff |
-| `harness` | 单轮执行的工业化约束 | 工具调用、sandbox、timeout、artifact、trace、run result |
-| `runtime / platform` | 系统级协作与长期真值 | `AgentBinding`、`EdgeSpec`、`LoopSpec`、`ContractSpec`、`MessageEnvelope`、delivery |
+| `runtime / platform` | 系统级协作与长期真值 | `AgentBinding`、`EdgeSpec`、`GroupSpec`、`ContractSpec`、`MessageEnvelope`、delivery |
 | `operator` | inspect / apply / verify 的管理决策 | 读什么、动什么、走 direct apply 还是 change-set、如何验证 |
 
 ## 操作顺序

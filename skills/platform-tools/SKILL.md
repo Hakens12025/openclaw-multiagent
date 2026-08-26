@@ -31,20 +31,18 @@ description: OpenClaw 平台工具说明。说明本地 read/write/edit、结构
 
 ## 什么时候交给 runtime
 
-需要委派、审查、唤醒、loop 推进或结果回到上游会话时，使用 `system-action` skill 的 `[ACTION]` 协议。
+需要委派、唤醒或让结果回到上游会话时，直接调用本轮可用的协作工具（`assign_task` / `wake_agent`）。工具走不通时才看降级写法（`COLLABORATION-FALLBACK.md`）。
 
 ## 读取顺序
 
 1. `SOUL.md`
 2. 本轮系统唤醒信息和当前会话上下文
-3. 本轮明确给出的 contract
-4. `PLATFORM-GUIDE.md`
-5. 协作时再读 `BUILDING-MAP.md`
-6. 权限确认时再读 `COLLABORATION-GRAPH.md`
-7. 回流语义时再读 `DELIVERY.md`
+3. 本轮明确给出的 contract（`inbox/contract.json`）
+4. 上游产物：`inbox/upstream/<producer>/`，清单随 contract 递送
 
 ## 输出规则
 
-- Write the user-facing artifact requested by the contract.
-- Write `outbox/runtime_result.json` for runtime status metadata.
+- Write the user-facing artifact requested by the contract into `outbox/`.
+- 产物写进 `outbox/` 就会被采集，无需额外的提交令牌文件。
+- `outbox/runtime_result.json` carries runtime status metadata：只在 `status: failed` 这个平台自身观察不到的状态时写它（缺外部信息也用 failed，reason 写清缺什么）。
 - Runtime consumes status metadata; the user-facing answer lives in the artifact.

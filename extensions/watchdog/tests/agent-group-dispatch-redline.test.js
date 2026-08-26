@@ -6,8 +6,7 @@
  *      没有 group-internal 免授权暗门。
  *   ② 不造新 transport：展开的边走既有 dispatch（dispatchRouteExecutionContract），
  *      dispatcher 完全感知不到「这条边来自 group」——只看 EdgeSpec。
- *   ③ 与 loop 正交可嵌套：GroupSession 带 loopSessionId 反向指针，group 当 loop stage
- *      / loop 套 group 至少一个能跑通（成员状态推进 + 等齐判定）。
+ *   ③ 成员态推进与出组判定是纯函数：aggregate 等齐 / race 先得，均无 IO、可单测。
  *
  * 复用 dispatch-graph-policy.test.js 的 mock 骨架：mock.module 替 IO，受控 graph。
  */
@@ -49,6 +48,12 @@ mock.module("../lib/agent/agent-graph.js", {
     getEdgesFrom: (graph, nodeId) => (graph?.edges || []).filter((e) => e.from === nodeId),
     getEdgesTo: (graph, nodeId) => (graph?.edges || []).filter((e) => e.to === nodeId),
     hasDirectedEdge: (graph, from, to) => (graph?.edges || []).some((e) => e.from === from && e.to === to),
+    // 与真实实现同形:标了 pipeline 的边优先,一条都没标时全部边都是候选。
+    getPipelineEdgesFrom: (graph, nodeId) => {
+      const edges = (graph?.edges || []).filter((e) => e.from === nodeId);
+      const marked = edges.filter((e) => e.metadata?.pipeline === true);
+      return marked.length > 0 ? marked : edges;
+    },
   },
 });
 
@@ -62,7 +67,7 @@ mock.module("../lib/state.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-runtime-state.js", {
+mock.module("../lib/routing/dispatch/dispatch-runtime-state.js", {
   namedExports: {
     listDispatchTargetIds: () => [...dispatchTargetStateMap.keys()],
     hasDispatchTarget: (a) => dispatchTargetStateMap.has(a),
@@ -96,7 +101,7 @@ mock.module("../lib/store/tracker-store.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-transport.js", {
+mock.module("../lib/routing/dispatch/dispatch-transport.js", {
   namedExports: {
     dispatchSendExecutionContract: async (...args) => { dispatchSharedCalls.push(args); return { ok: true }; },
   },
@@ -104,14 +109,16 @@ mock.module("../lib/routing/dispatch-transport.js", {
 
 mock.module("../lib/transport/sse.js", { namedExports: { broadcast: () => {} } });
 
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
     mutateContractSnapshot: async (_p, _l, fn) => { const dummy = { assignee: null, status: "draft" }; fn(dummy); return { contract: dummy }; },
+    mutateContractById: async (_id, _l, fn) => { const dummy = { assignee: null, status: "draft" }; fn(dummy); return { contract: dummy }; },
     getContractPath: (id) => `/tmp/fake/${id}/contract.json`,
+    readContractSnapshotById: async (id) => ({ id }), // FIX(A2-fanout-depth): dispatch path now reads the contract's hop counter
   },
 });
 
-const { dispatchRouteExecutionContract } = await import("../lib/routing/dispatch-graph-policy.js");
+const { dispatchRouteExecutionContract } = await import("../lib/routing/dispatch/dispatch-graph-policy.js");
 
 const logger = { info() {}, warn() {}, error() {} };
 const api = {};
@@ -204,33 +211,29 @@ describe("AgentGroup red line: expanded edges go through existing graph auth", (
   });
 });
 
-// ── 红线 ③：与 loop 正交可嵌套（group 当 loop stage）────────────────────────────
+// ── 红线 ③：成员态推进与出组判定（纯函数）────────────────────────────────────
 
 // 注：本文件 mock 了 state.js（withLock/atomicWriteFile no-op），故 group-session-store
-// 的 IO 路径在此不可用。嵌套/三模式语义用 group-session-normalize 纯函数验证（无 IO，
+// 的 IO 路径在此不可用。三模式语义用 group-session-normalize 纯函数验证（无 IO，
 // 不受 mock 影响）；store 的真实 IO round-trip 在 group-session-store.test.js 已覆盖。
-describe("AgentGroup × loop orthogonality (nesting)", () => {
-  test("GroupSession carries loopSessionId back-pointer and advances members within a loop round (aggregate)", () => {
-    // group 当 loop 的一个 stage：GroupSession.loopSessionId 指向父 loop（正交，不融合）
+describe("AgentGroup member-state advancement (pure)", () => {
+  test("aggregate mode: the group only clears once every member completed", () => {
     let session = normalizeGroupSessionEntry({
       id: "GS-nest",
       groupId: "stage-review",
       members: ["rev-a", "rev-b"],
       entryAgentId: "rev-a",
       outputMode: "aggregate",
-      loopSessionId: "LS-parent-loop",
       round: 2,
     });
-    assert.equal(session.loopSessionId, "LS-parent-loop", "GroupSession 带 loop 反向指针");
-    assert.equal(session.round, 2, "group 在 loop 第 2 轮里");
+    assert.equal(session.round, 2);
 
     // 成员逐个完成 → 等齐判定推进（aggregate）
     session = applyMemberCompletion(session, "rev-a", { output: { v: 1 } });
     assert.equal(isGroupAggregateSatisfied(session), false, "只完成一个 → 未等齐");
     session = applyMemberCompletion(session, "rev-b", { output: { v: 2 } });
     assert.equal(isGroupAggregateSatisfied(session), true, "全部完成 → 等齐，可走组级出边");
-    // loop 反向指针贯穿成员推进（loop 仍可继续推进自己的轮次）
-    assert.equal(session.loopSessionId, "LS-parent-loop");
+    assert.equal(session.round, 2, "轮次计数贯穿成员推进");
   });
 
   test("race mode: first completed member wins (GroupSession marks winner, rest cancellable)", () => {

@@ -26,10 +26,12 @@ import { loadGraph } from "../../agent/agent-graph.js";
 import { runCheck, markBlocked } from "./check-runner.js";
 
 const PROBE_SESSION_ID = "health-probe-session";
+const PROBE_TREE_ID = "health-probe-nonexistent";
 const PROBE_SCHEDULE_ID = "health-probe-schedule";
 
 // ── HTTP helpers（带 status；infra.fetchJSON/postAdmin 丢 status，闸探针需要 400）──
-// jsonOk 区分「body 是合法 JSON（可以是 null，如 active_loop_session 空闲时）」与「解析失败」。
+// jsonOk 区分「body 是合法 JSON（含字面量 null —— 空态 surface 的合法响应）」与「解析失败」：
+// 只看 json===null 两者无法分辨，inspect 全量扫的 200 判据必须靠 jsonOk 才不误判空态为坏响应。
 async function getRaw(path) {
   const sep = path.includes("?") ? "&" : "?";
   const res = await httpFetch(`${BASE}${path}${sep}token=${encodeURIComponent(tokens.gateway)}`);
@@ -65,6 +67,11 @@ export function buildInspectSweepParams(probeAgentId) {
     "inspect.knowledge_search": { query: "传送带", topK: "5" },
     "inspect.knowledge_kb_search": { kbId: "wiki", query: "harness", topK: "3" },
     "inspect.knowledge_agent_search": { agentId: probeAgentId, query: "harness", topK: "3" },
+    // 树读面四带参表面:合法 charset 的不存在 id → found:false 是设计内合法态,200 即通
+    "inspect.run": { threadId: PROBE_TREE_ID, runId: PROBE_TREE_ID },
+    "inspect.run_events": { threadId: PROBE_TREE_ID, runId: PROBE_TREE_ID },
+    "inspect.run_causality": { threadId: PROBE_TREE_ID, runId: PROBE_TREE_ID },
+    "inspect.contract_seal": { contractId: PROBE_TREE_ID },
   };
 }
 
@@ -230,16 +237,12 @@ function buildGatewayCheckPlan({ cfg, probeAgentId }) {
   add({ id: "operator.snapshot-consistency", subsystem: "operator", title: "operator-snapshot counts agree with inspect surfaces", code: "E-INSPECT-003" }, async () => {
     const snap = await getRaw("/watchdog/operator-snapshot?limit=5");
     if (snap.status !== 200) return { status: "fail", evidence: `operator-snapshot HTTP ${snap.status}`, hint: snapshotConsistencyHint };
-    const loops = await getRaw(inspectPath("inspect.graph_loops"));
-    if (loops.status !== 200 || !Array.isArray(loops.json)) return { status: "fail", evidence: `inspect.graph_loops HTTP ${loops.status}`, hint: snapshotConsistencyHint };
     const problems = [];
-    const registered = snap.json?.loops?.counts?.registered;
-    if (registered !== loops.json.length) problems.push(`loops.registered=${registered} vs inspect.graph_loops=${loops.json.length}`);
     const runtimeCount = (cfg?.agents?.list || []).filter((a) => a?.id && !isReservedControlLayerAgentId(a.id)).length;
     const agentsTotal = snap.json?.agents?.counts?.total;
     if (agentsTotal !== runtimeCount) problems.push(`agents.total=${agentsTotal} vs configured runtime agents=${runtimeCount}`);
     if (problems.length > 0) return { status: "fail", evidence: problems.join("; "), hint: snapshotConsistencyHint };
-    return `loops.registered=${registered}, agents.total=${agentsTotal} consistent`;
+    return `agents.total=${agentsTotal} consistent`;
   });
 
   add({ id: "knowledge.bases-wiki", subsystem: "knowledge", title: "wiki knowledge base registered with chunks", code: "E-KNOWLEDGE-001" }, async () => {
@@ -386,11 +389,32 @@ export async function runHealthGatewayChecks(run, context, { cfg = null } = {}) 
     return `200, queue=${res.json.dispatchQueue.entries?.length ?? 0} tracking=${Object.keys(res.json.trackingSessions).length}`;
   });
 
+  const bootLedgerDescriptor = {
+    id: "kernel.boot-ledger",
+    subsystem: "kernel",
+    title: "boot dependency ledger sealed with provided count at floor (>=4)",
+    code: "E-BOOT-001",
+  };
+
   if (reachability.status !== "pass") {
-    markBlocked(context, plan.map((p) => p.descriptor), "E-RUNNER-003",
+    markBlocked(context, [bootLedgerDescriptor, ...plan.map((p) => p.descriptor)], "E-RUNNER-003",
       `gateway unreachable/unhealthy: ${reachability.evidence}`);
     return;
   }
+
+  // RX-02:经 /watchdog/runtime 的 bootDeps 字段读网关进程真实封账态。
+  // 下界断言(>=4 而非 ===4):接线增加不红,符合 health 计数惯例。
+  await runCheck(context, bootLedgerDescriptor, async () => {
+    const res = await getRaw("/watchdog/runtime");
+    const bootDeps = res.json?.bootDeps;
+    if (!bootDeps || bootDeps.sealed !== true || bootDeps.providedCount < 4) {
+      return {
+        status: "fail",
+        evidence: `bootDeps=${JSON.stringify(bootDeps ?? null)} (expected sealed + provided>=4; assertComplete 未跑、种子接线缩水,或 /watchdog/runtime 未暴露 bootDeps)`,
+      };
+    }
+    return `boot deps sealed, provided=${bootDeps.providedCount} required=${bootDeps.requiredCount}`;
+  });
 
   for (const entry of plan) {
     await runCheck(context, entry.descriptor, entry.fn);

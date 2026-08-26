@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildManagementRegistry } from "../lib/management-registry-view.js";
+import { buildManagementRegistry } from "../lib/management/management-registry-view.js";
 
 test("management registry hides control-plane actors from agent targets", () => {
   const registry = buildManagementRegistry({

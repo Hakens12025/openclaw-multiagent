@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 
 import { agentWorkspace } from "../lib/state.js";
-import { readAgentCard, syncAgentWorkspaceProfile, writeAgentCardProfile } from "../lib/agent/agent-admin-profile.js";
+import { readAgentCard, syncAgentWorkspaceProfile, writeAgentCardProfile } from "../lib/agent/admin/agent-admin-profile.js";
 
 test("writeAgentCardProfile preserves sibling changes under concurrent writes", async () => {
   const agentId = `agent-profile-race-${Date.now()}`;

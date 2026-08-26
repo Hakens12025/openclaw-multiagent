@@ -23,8 +23,6 @@ test("knowledge capability fragment is data-driven over live surfaces (no hardco
   const ctx = await buildOperatorKnowledgeContext({
     requestText: "operator surface 执行 能力 schedule automation",
     graph: { edges: [] },
-    loops: [],
-    loopSessions: [],
     skills: [],
     surfaces,
   });
@@ -40,8 +38,6 @@ test("knowledge static corpus carries autonomy-loop and inspect-apply-verify sem
   const ctx = await buildOperatorKnowledgeContext({
     requestText: "harness profile lifecycle 自治 回路 治理 trust verify",
     graph: { edges: [] },
-    loops: [],
-    loopSessions: [],
     skills: [],
     surfaces: [],
   });

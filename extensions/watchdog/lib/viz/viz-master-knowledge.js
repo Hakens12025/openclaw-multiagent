@@ -1,15 +1,16 @@
 // viz-master-knowledge.js — the chart-family knowledge layer for the visualization master.
 // Mirrors operator-knowledge.js but scoped to the chart family. DRY: the fragment scorer
 // (scoreFragment), the request tokenizer (tokenizeRequest) and the wiki grounding retriever
-// (retrieveWikiGroundingNotes) are IMPORTED from operator-knowledge.js — agent-agnostic
+// (retrieveGroundingNotes) are IMPORTED from operator-knowledge.js — agent-agnostic
 // machinery, not re-implemented here. This module only contributes viz-specific static
 // fragments + two LIVE fragments (existing charts, chart-scoped capabilities).
 
 import {
   scoreFragment,
   tokenizeRequest,
-  retrieveWikiGroundingNotes,
+  retrieveGroundingNotes,
 } from "../operator/operator-knowledge.js";
+import { AGENT_IDS } from "../agent/agent-metadata.js";
 import { normalizeString } from "../core/normalize.js";
 
 const MAX_SELECTED_FRAGMENTS = 6;
@@ -23,15 +24,15 @@ const VIZ_STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/chart-build/SKILL.md",
     priority: 10,
     tags: ["chart", "图表", "可视化", "visualization", "line", "bar", "pie", "折线", "柱状", "饼图", "series", "spec", "画图", "数据", "data"],
-    summary: "面对一个可视化/图表请求(画折线/柱状/饼图、把一组数据做成图)按 4 步: ①读懂数据(一组或多组扁平 {x,y} 点集,静态非数据流) ②选图表类型(line|bar|pie) ③把数据装进声明式 chart-spec ④emit 恰好一个 apply.chart_create 步骤。viz-master 只产出图表 spec、到 apply.chart_create 为止,渲染由平台手写 SVG 渲染器接管——不写 SVG、不调样式、一个 plan 只建一张图(多图诉求拆成多次请求)。绝不 emit verify 步骤(apply.chart_create 无 verificationCapability)。",
+    summary: "面对一个可视化/图表请求(画折线/柱状/饼图、把一组数据做成图)按 4 步: ①读懂数据(一组或多组扁平 {x,y} 点集,静态数据;或折线图的 sse 实时绑定——绑一个 inspect.* 面轮询取数) ②选图表类型(line|bar|pie) ③把数据装进声明式 chart-spec ④emit 恰好一个 apply.chart_create 步骤。viz-master 只产出图表 spec、到 apply.chart_create 为止,渲染由平台手写 SVG 渲染器接管——不写 SVG、不调样式、一个 plan 只建一张图(多图诉求拆成多次请求)。绝不 emit verify 步骤(apply.chart_create 无 verificationCapability)。",
   },
   {
     id: "chart-spec-contract",
     title: "Chart Spec Contract (validateChartSpec)",
     sourcePath: "skills/chart-build/SKILL.md",
     priority: 9,
-    tags: ["spec", "schema", "chart", "图表", "validateChartSpec", "契约", "id", "type", "series", "points", "axes"],
-    summary: "声明式 chart-spec(version 1)契约,经 validateChartSpec 校验: id 必填 kebab-case(^[a-z0-9][a-z0-9-]{1,48}$,无路径穿越) · type 必填 line|bar|pie · series 非空数组,每条 {name, points:[{x:number|string, y:number}]} 至少一个点 · title/label/axes/render 可选(axes 在 pie 时忽略) · dataBinding 固定 {mode:'static'}(sse 保留未启用)。payload 形如 {spec:{...}}; 同 id 覆盖(upsert)。spec 非法 → 平台直接 {ok:false} 拒绝,所以装数据时严格遵守 schema。",
+    tags: ["spec", "schema", "chart", "图表", "validateChartSpec", "契约", "id", "type", "series", "points", "axes", "sse", "实时", "live", "dataBinding", "binding"],
+    summary: "声明式 chart-spec(version 1)契约,经 validateChartSpec 校验: id 必填 kebab-case(^[a-z0-9][a-z0-9-]{1,48}$,无路径穿越) · type 必填 line|bar|pie · series 非空数组,每条 {name, points:[{x:number|string, y:number}]} 至少一个点 · title/label/axes/render 可选(axes 在 pie 时忽略) · dataBinding {mode:'static'|'sse'}——sse 仅限 line(实时时间序列),binding {source:'inspect.*' 面 id, field 可选 dot-path 取数值(缺省: 数组结果取长度/数值结果取本身), intervalMs 5000–300000 默认 25000, maxPoints 5–200 默认 30}。payload 形如 {spec:{...}}; 同 id 覆盖(upsert)。spec 非法 → 平台直接 {ok:false} 拒绝,所以装数据时严格遵守 schema。",
   },
   {
     id: "chart-family-boundary",
@@ -39,7 +40,7 @@ const VIZ_STATIC_KNOWLEDGE_FRAGMENTS = Object.freeze([
     sourcePath: "skills/chart-build/SKILL.md",
     priority: 9,
     tags: ["boundary", "边界", "chart", "图表", "非真值", "non-truth", "operator", "agent", "graph", "knowledge", "权限", "ownership"],
-    summary: "viz-master 是可视化专项 meta-agent,唯一拥有 chart 家族(它是 charts.json 这个非真值控制面的 SOLE WRITER,knowledge-bases.json 同级)。能且仅能写 chart 家族(apply.chart_create / apply.chart_move)+ 读 inspect.charts;绝不碰 agent/graph/knowledge 等结构真值家族——建 agent、改图、跑 loop、改知识库是 operator 的领域,遇到这类诉求交还 operator 或拒绝。charts.json 非真值 → 写图表绝不触发结构快照、绝不进 readTruths。超出 line/bar/pie 扁平点集表达上限(任意 SVG/交互/实时 SSE 绑定)同样拒绝。",
+    summary: "viz-master 是可视化专项 meta-agent,唯一拥有 chart 家族(它是 charts.json 这个非真值控制面的 SOLE WRITER,knowledge-bases.json 同级)。能且仅能写 chart 家族(apply.chart_create / apply.chart_move)+ 读 inspect.charts;绝不碰 agent/graph/knowledge 等结构真值家族——建 agent、改图、建组、改知识库是 operator 的领域,遇到这类诉求交还 operator 或拒绝。charts.json 非真值 → 写图表绝不触发结构快照、绝不进 readTruths。超出 line/bar/pie 扁平点集表达上限(任意 SVG/交互组件)同样拒绝;实时折线是支持的——走 dataBinding {mode:'sse'}(line 专属,绑 inspect.* 面),不是拒绝理由。",
   },
 ]);
 
@@ -99,8 +100,8 @@ function buildChartCapabilityFragment(surfaces = []) {
 }
 
 // Mirrors buildOperatorKnowledgeContext: score the static + live fragments against the request and
-// keep the top-N, plus wiki grounding notes. Reuses the IMPORTED scoreFragment / tokenizeRequest /
-// retrieveWikiGroundingNotes — no duplicated scorer/tokenizer/retriever.
+// keep the top-N, plus RAG grounding notes. Reuses the IMPORTED scoreFragment / tokenizeRequest /
+// retrieveGroundingNotes — no duplicated scorer/tokenizer/retriever.
 export async function buildVizMasterKnowledgeContext({
   requestText,
   charts,
@@ -121,9 +122,9 @@ export async function buildVizMasterKnowledgeContext({
 
   return {
     selectedFragments,
-    // Same WHY grounding as operator: wiki-RAG (compiled rationale). searchWiki never throws —
-    // degraded/empty on missing embeddings keeps viz-master grounded by selectedFragments.
-    retrievedNotes: await retrieveWikiGroundingNotes(requestText, 4),
+    // Same WHY grounding as operator: per-agent RAG (viz-master 绑定的 KB ∪ global,含 wiki 种子库)。
+    // 检索永不抛 — degraded/empty on missing embeddings keeps viz-master grounded by selectedFragments.
+    retrievedNotes: await retrieveGroundingNotes(requestText, 4, { agentId: AGENT_IDS.VIZ_MASTER }),
   };
 }
 

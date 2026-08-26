@@ -19,7 +19,7 @@ import { join, dirname } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(
-  join(__dirname, "../lib/admin/admin-change-set-executor.js"),
+  join(__dirname, "../lib/admin/change-sets/admin-change-set-executor.js"),
   "utf8",
 );
 

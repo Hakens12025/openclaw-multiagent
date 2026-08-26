@@ -8,9 +8,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createTrackingState } from "../lib/session-bootstrap.js";
-import { materializeTaskStagePlan } from "../lib/task-stage-plan.js";
-import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
+import { materializeTaskStagePlan } from "../lib/stage/task-stage-plan.js";
+import { syncTrackingRuntimeStageProgress } from "../lib/stage/runtime-stage-progress.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 
 function buildTrackingStateWithStages(contractId, phases) {

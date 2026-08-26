@@ -62,17 +62,9 @@ function buildAutomationSpecPayload(payload, existing = null) {
     wakePolicy,
     governance,
     systemActionDelivery,
-    harness: {
-      ...harness,
-      ...(normalized.executionMode != null ? { mode: normalized.executionMode } : {}),
-      ...(normalized.assuranceLevel != null ? { assuranceLevel: normalized.assuranceLevel } : {}),
-      ...(normalized.harnessProfile != null ? { profileId: normalized.harnessProfile } : {}),
-      ...(normalized.harnessProfileId != null ? { profileId: normalized.harnessProfileId } : {}),
-      ...(normalized.profileId != null ? { profileId: normalized.profileId } : {}),
-      ...(normalized.harnessCoverage && typeof normalized.harnessCoverage === "object"
-        ? { coverage: normalized.harnessCoverage }
-        : {}),
-    },
+    // harness 退化为透传配置袋（v226 harness 全退役；moduleConfig/testMode/profileId
+    // 等键原样透传，不再做模块选择与别名归一）。
+    harness,
     deliveryTargets: nextDeliveryTargets.length > 0
       ? nextDeliveryTargets
       : (Array.isArray(existing?.deliveryTargets) ? existing.deliveryTargets : []),

@@ -13,7 +13,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
-import { atomicWriteFile, readJsonFile, withLock } from "../state-file-utils.js";
+import { atomicWriteFile, readJsonFile, withLock } from "../state/state-file-utils.js";
 
 const STORE_FILE = CONTROL_PLANE_PATHS.guidanceDriftStateFile;
 const LOCK_KEY = "guidance-drift-state";

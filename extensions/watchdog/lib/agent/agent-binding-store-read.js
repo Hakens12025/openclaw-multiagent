@@ -10,7 +10,7 @@ import {
 } from "../core/normalize.js";
 import { composeDefaultCapabilityProjection } from "./agent-capability-policy.js";
 
-const EXEC_POLICY_BOOLEANS = ["planRequired", "draftLifecycle", "autoFollowUp", "noDirectIntake"];
+const EXEC_POLICY_BOOLEANS = ["draftLifecycle", "autoFollowUp", "noDirectIntake"];
 const EXEC_POLICY_NUMBERS = ["autoPromoteTimeout"];
 const EXEC_POLICY_ENUMS = { sessionCleanup: ["immediate", "deferred"] };
 

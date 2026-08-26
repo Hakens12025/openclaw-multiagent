@@ -13,13 +13,13 @@ import {
   createTrackingState,
   bindInboxContractEnvelope,
   bindPendingWorkerContract,
-} from "../lib/session-bootstrap.js";
-import { routeInbox } from "../runtime-mailbox.js";
+} from "../lib/session/session-bootstrap.js";
+import { routeInbox } from "../lib/routing/mailbox/runtime-mailbox.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import { clearTrackingStore } from "../lib/store/tracker-store.js";
-import { createDirectRequestEnvelope } from "../lib/protocol-primitives.js";
+import { createDirectRequestEnvelope } from "../lib/protocol/protocol-primitives.js";
 
 const logger = {
   info() {},
@@ -80,8 +80,7 @@ test("bindPendingWorkerContract prefers dispatch owner currentContract over shar
   const ownerCreatedAt = Date.now() - 10_000;
   const newerCreatedAt = Date.now();
 
-  await persistContractSnapshot(
-    getContractPath(ownerContractId),
+  await persistContractById(
     buildExecutionContract({
       contractId: ownerContractId,
       assignee: agentId,
@@ -89,8 +88,7 @@ test("bindPendingWorkerContract prefers dispatch owner currentContract over shar
     }),
     logger,
   );
-  await persistContractSnapshot(
-    getContractPath(newerContractId),
+  await persistContractById(
     buildExecutionContract({
       contractId: newerContractId,
       assignee: agentId,
@@ -134,8 +132,7 @@ test("bindPendingWorkerContract prefers dispatch owner currentContract over shar
 test("bindPendingWorkerContract does not bind shared contracts without dispatch ownership", async () => withTempExecutor(async ({ agentId }) => {
   const orphanContractId = `TC-ORPHAN-${Date.now()}`;
 
-  await persistContractSnapshot(
-    getContractPath(orphanContractId),
+  await persistContractById(
     buildExecutionContract({
       contractId: orphanContractId,
       assignee: agentId,
@@ -179,7 +176,7 @@ test("routeInbox exact contract sessions clear stale inbox instead of falling ba
     createdAt: Date.now() - 5_000,
   });
 
-  await persistContractSnapshot(getContractPath(oldContractId), oldContract, logger);
+  await persistContractById(oldContract, logger);
   await writeFile(inboxPath, JSON.stringify(oldContract, null, 2), "utf8");
 
   try {
@@ -210,7 +207,7 @@ test("routeInbox without exact dispatch ownership clears shared assignee residue
     createdAt: Date.now(),
   });
 
-  await persistContractSnapshot(getContractPath(orphanContractId), orphanContract, logger);
+  await persistContractById(orphanContract, logger);
   await writeFile(inboxPath, JSON.stringify(orphanContract, null, 2), "utf8");
 
   try {
@@ -240,7 +237,7 @@ test("exact contract hints still bind when runtime session key casing drifts fro
     createdAt: Date.now(),
   });
 
-  await persistContractSnapshot(getContractPath(contractId), contract, logger);
+  await persistContractById(contract, logger);
   dispatchTargetStateMap.set(agentId, {
     busy: true,
     healthy: true,
@@ -293,7 +290,7 @@ test("exact contract hints do not bind shared contracts without dispatch current
     createdAt: Date.now(),
   });
 
-  await persistContractSnapshot(getContractPath(contractId), contract, logger);
+  await persistContractById(contract, logger);
   await writeFile(inboxPath, JSON.stringify(contract, null, 2), "utf8");
 
   const trackingState = createTrackingState({

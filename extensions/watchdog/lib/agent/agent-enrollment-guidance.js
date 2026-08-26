@@ -6,15 +6,15 @@ import { join, resolve } from "node:path";
 import {
   loadConfig,
   runAgentAdminWrite,
-} from "./agent-admin-store.js";
+} from "./admin/agent-admin-store.js";
 import {
   expandHomePath,
   composeAgentBinding,
   loadAgentCardProjection,
 } from "../effective-profile-composer.js";
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
-import { defaultAgentWorkspace } from "../state-agent-helpers.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../managed-doc-markers.js";
+import { defaultAgentWorkspace } from "../state/state-agent-helpers.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../prompt/managed-doc-markers.js";
 import { syncAgentWorkspaceGuidance } from "../workspace-guidance-writer.js";
 import {
   findDiscoveredAgentEntry,

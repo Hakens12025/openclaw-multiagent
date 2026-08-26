@@ -1,7 +1,7 @@
 import { access, cp, mkdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { OC } from "../state-paths.js";
+import { OC } from "../state/state-paths.js";
 
 export const OPERATOR_WORKSPACE = join(OC, "workspaces", "operator");
 export const LEGACY_OPERATOR_WORKSPACE = join(OC, "workspaces", "platform-operator");

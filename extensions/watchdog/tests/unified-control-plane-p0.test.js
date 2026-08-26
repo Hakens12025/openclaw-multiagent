@@ -6,20 +6,17 @@ import { tmpdir } from "node:os";
 
 import { registerRuntimeAgents } from "../lib/agent/agent-identity.js";
 import { OC, agentWorkspace, dispatchTargetStateMap, runtimeAgentConfigs, sseClients } from "../lib/state.js";
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import {
   createTrackingState,
   bindInboxContractEnvelope,
-} from "../lib/session-bootstrap.js";
-import { commitSemanticTerminalState } from "../lib/terminal-commit.js";
-import {
-  deriveSystemActionTerminalOutcome,
-} from "../lib/system-action/system-action-runtime-ledger.js";
+} from "../lib/session/session-bootstrap.js";
+import { commitSemanticTerminalState } from "../lib/routing/terminal-commit.js";
 import { SYSTEM_ACTION_STATUS, CONTRACT_STATUS } from "../lib/core/runtime-status.js";
-import { INTENT_TYPES, normalizeSystemIntent } from "../lib/protocol-primitives.js";
-import { getSemanticSkillSpec } from "../lib/semantic-skill-registry.js";
-import { materializeTaskStagePlan } from "../lib/task-stage-plan.js";
+import { INTENT_TYPES, normalizeSystemIntent } from "../lib/protocol/protocol-primitives.js";
+import { getSemanticSkillSpec } from "../lib/prompt/semantic-skill-registry.js";
+import { materializeTaskStagePlan } from "../lib/stage/task-stage-plan.js";
 import { deriveDelegationIntentForEarlyCheck } from "../hooks/after-tool-call.js";
 import { runContractorInboxTestSerial } from "../lib/formal-runtime/test-locks.js";
 
@@ -188,8 +185,9 @@ test("planner shared execution contract bind promotes canonical contract status 
   const inboxContractPath = join(inboxDir, "contract.json");
   const inboxOriginal = await snapshotFile(inboxContractPath);
   const contractId = `TC-P0-PLANNER-SHARED-${Date.now()}`;
-  const sharedContractPath = getContractPath(contractId);
-  const sharedOriginal = await snapshotFile(sharedContractPath);
+  // 批③A 语义:索引未收录的新 id → getContractPath 返 null(正本路径由 persistContractById 产生)
+  let sharedContractPath = getContractPath(contractId);
+  const sharedOriginal = sharedContractPath ? await snapshotFile(sharedContractPath) : null;
   let restoreDispatchOwner = null;
 
   await mkdir(inboxDir, { recursive: true });
@@ -211,7 +209,7 @@ test("planner shared execution contract bind promotes canonical contract status 
       },
     };
 
-    await persistContractSnapshot(sharedContractPath, contract, logger);
+    sharedContractPath = await persistContractById(contract, logger);
     await writeFile(inboxContractPath, JSON.stringify(contract, null, 2), "utf8");
     restoreDispatchOwner = setDispatchOwner("planner", contractId);
 
@@ -237,9 +235,11 @@ test("planner shared execution contract bind promotes canonical contract status 
     assert.equal(persisted.status, CONTRACT_STATUS.RUNNING);
   } finally {
     restoreDispatchOwner?.();
-    evictContractSnapshotByPath(sharedContractPath);
+    if (sharedContractPath) {
+      evictContractSnapshotByPath(sharedContractPath);
+      await restoreFile(sharedContractPath, sharedOriginal);
+    }
     await restoreFile(inboxContractPath, inboxOriginal);
-    await restoreFile(sharedContractPath, sharedOriginal);
   }
 }));
 
@@ -346,10 +346,6 @@ test("findRuntimeDirectInboxContract can locate queued stage contract when activ
       taskType: "direct_request",
       task: "occupied active inbox",
       assignee: "researcher",
-      pipelineStage: {
-        loopId: "research-loop",
-        stage: "researcher",
-      },
     }, null, 2), "utf8");
 
     await writeFile(join(queueDir, "contract-000001-DIRECT-QUEUED.json"), JSON.stringify({
@@ -357,15 +353,11 @@ test("findRuntimeDirectInboxContract can locate queued stage contract when activ
       taskType: "direct_request",
       task: "queued target contract",
       assignee: "researcher",
-      pipelineStage: {
-        loopId: "t2-loop-platform",
-        stage: "researcher",
-      },
     }, null, 2), "utf8");
 
     const found = await findRuntimeDirectInboxContract(
       inboxDir,
-      (contract) => contract?.pipelineStage?.loopId === "t2-loop-platform",
+      (contract) => contract?.id === "DIRECT-QUEUED",
     );
 
     assert.equal(found?.source, "queue");
@@ -376,23 +368,9 @@ test("findRuntimeDirectInboxContract can locate queued stage contract when activ
 });
 
 
-test("start_loop dispatched is treated as accepted runtime action", () => {
-  const systemActionResult = {
-    status: SYSTEM_ACTION_STATUS.DISPATCHED,
-    actionType: INTENT_TYPES.START_LOOP,
-    loopId: "loop-test",
-  };
-
-  const terminalOutcome = deriveSystemActionTerminalOutcome(systemActionResult, {
-    collected: false,
-  });
-
-  assert.equal(terminalOutcome, null);
-});
-
 test("commitSemanticTerminalState persists canonical completed stageRuntime for completed stagePlan contracts", async () => {
   const contractId = `TC-P0-STAGE-RUNTIME-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
 
   try {
     const contract = {
@@ -418,7 +396,7 @@ test("commitSemanticTerminalState persists canonical completed stageRuntime for 
       },
       output: join(agentWorkspace("controller"), "output", `${contractId}.md`),
     };
-    await persistContractSnapshot(contractPath, contract, logger);
+    contractPath = await persistContractById(contract, logger);
 
     const trackingState = createTrackingState({
       sessionKey: `agent:worker:test:${Date.now()}`,
@@ -468,7 +446,7 @@ test("commitSemanticTerminalState persists canonical completed stageRuntime for 
 
 test("commitSemanticTerminalState releases dispatch runtime ownership for terminal contracts", async () => {
   const contractId = `TC-P0-TERMINAL-DISPATCH-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
 
   try {
     const contract = {
@@ -483,7 +461,7 @@ test("commitSemanticTerminalState releases dispatch runtime ownership for termin
       total: 1,
       output: join(agentWorkspace("worker"), "output", `${contractId}.md`),
     };
-    await persistContractSnapshot(contractPath, contract, logger);
+    contractPath = await persistContractById(contract, logger);
 
     dispatchTargetStateMap.clear();
     dispatchTargetStateMap.set("worker", {
@@ -586,7 +564,7 @@ test("after-tool-call early delegation check ignores legacy start_pipeline targe
 
 test("contractor terminal commit updates shared root contract instead of inbox copy", async () => runContractorInboxTestSerial(async () => {
   const contractId = `TC-P0-CONTRACTOR-PATH-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const inboxDir = join(agentWorkspace("contractor"), "inbox");
   const inboxPath = join(inboxDir, "contract.json");
   const originalInbox = await snapshotFile(inboxPath);
@@ -610,7 +588,7 @@ test("contractor terminal commit updates shared root contract instead of inbox c
         envelope: "execution_contract",
       },
     };
-    await persistContractSnapshot(contractPath, contract, logger);
+    contractPath = await persistContractById(contract, logger);
     await writeFile(inboxPath, JSON.stringify(contract, null, 2), "utf8");
     restoreDispatchOwner = setDispatchOwner("contractor", contractId);
 
@@ -635,14 +613,14 @@ test("contractor terminal commit updates shared root contract instead of inbox c
       outcome: {
         status: CONTRACT_STATUS.COMPLETED,
         source: "system_action",
-        reason: "deferred via start_loop",
+        reason: "deferred via assign_task",
       },
       logger,
       extraFields: {
-        systemAction: {
-          type: INTENT_TYPES.START_LOOP,
+        systemAction: [{
+          type: INTENT_TYPES.ASSIGN_TASK,
           status: SYSTEM_ACTION_STATUS.DISPATCHED,
-        },
+        }],
       },
     });
 
@@ -651,7 +629,7 @@ test("contractor terminal commit updates shared root contract instead of inbox c
     const sharedContract = JSON.parse(await readFile(contractPath, "utf8"));
     const inboxContract = JSON.parse(await readFile(inboxPath, "utf8"));
     assert.equal(sharedContract.status, CONTRACT_STATUS.COMPLETED);
-    assert.equal(sharedContract.systemAction?.type, INTENT_TYPES.START_LOOP);
+    assert.equal(sharedContract.systemAction?.[0]?.type, INTENT_TYPES.ASSIGN_TASK);
     assert.equal(inboxContract.status, CONTRACT_STATUS.PENDING);
   } finally {
     restoreDispatchOwner?.();

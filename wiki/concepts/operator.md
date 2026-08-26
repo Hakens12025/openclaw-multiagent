@@ -12,7 +12,7 @@
 
 「修改系统回路」只有 agent（LLM 驱动）能做到——需要理解、判断、规划。它**该**规划，这是本职，不是越权。
 
-代码结构已还原成 agent 三件套：`lib/operator/operator-brain.js`（LLM 脑）/ `lib/operator-runtime.js`（薄壳，当前 78 行，叠在 `operator/operator-brain.js` + `operator-executor.js` + `operator-plan.js` 之上）/ `lib/operator/operator-executor.js`（落地）。知识库见 `operator-knowledge-library.js`。
+代码结构已还原成 agent 三件套：`lib/operator/operator-brain.js`（LLM 脑）/ `lib/operator/operator-runtime.js`（薄壳，当前 78 行，叠在 `operator/operator-brain.js` + `operator-executor.js` + `operator-plan.js` 之上）/ `lib/operator/operator-executor.js`（落地）。知识库见 `operator-knowledge-library.js`。
 
 当前主要读侧：`lib/operator/operator-snapshot.js` / `operator-surface-policy.js`。
 
@@ -20,7 +20,7 @@
 
 operator **不得绕过 [CLI System](cli-system.md) 直读 runtime store**。
 
-v109-stable 达成：`operator-snapshot.js` 原先 13 处直读 runtime store（harness-run / graph-loop / loop-session / schedule / agent-join / test-runs / agent-graph / guidance-drift / delivery-ticket / pending-signal / work-items / admin-change-sets / automation-runtime）全部改经 `inspectCliSystemSurface(...)`（14 个 `inspect.*` surface），行为等价。
+v109-stable 达成：`operator-snapshot.js` 原先 13 处直读 runtime store（harness-run / graph-loop / loop-session / schedule / agent-join / test-runs / agent-graph / guidance-drift / delivery-ticket / pending-signal / work-items / admin-change-sets / automation-runtime）全部改经 `inspectCliSystemSurface(...)`，行为等价。（其中 graph-loop / loop-session 两腿已随 2026-08-18 回路退役整条删除，snapshot 不再产出 `loops` / `loopSessions`。）
 
 余下跨模块 import 皆合法：纯算法（detectCycles）、静态配置、LLM planner、常量（runtime-status / capability-registry / normalize）。
 
@@ -56,9 +56,11 @@ management 的精妙 = 给这个强 agent 配好接口 / 知识 / 落地通道�
 
 ## 设计者 vs 运行者边界
 
-operator 是**结构设计者**，不是任务运行者。它 DESIGN 的是结构 + agent 内容：`agents.create` / `agents.role` / `agents.tools` / `skills.create`（领域方法作为 skill 编写）+ `agents.skills` / `graph.edge.add` / `graph.loop.compose` / `graph.group.compose`。
+operator 是**结构设计者**，不是任务运行者。它 DESIGN 的是结构 + agent 内容：`agents.create` / `agents.role` / `agents.tools` / `skills.create`（领域方法作为 skill 编写）+ `agents.skills` / `graph.edge.add` / `graph.group.compose`。
 
-一次 build plan 的**正确终态** = 结构 active（授权边 / LoopSpec 存在但尚未运行）+ `inspect.structure_preview` 给用户预览。operator **绝不**在 build plan 末尾 emit `runtime.loop.start` 携带用户的具体一次性任务——「跑」是用户的下游动作（线性管线由 ingress 把任务随 contract 投进入口 agent inbox；回路由用户显式触发 `runtime.loop.start`）。判据见 `lib/operator/operator-brain.js`:~210 + `operator-knowledge.js` 的 `new-task-workflow` 片段（`sourcePath: skills/operator-new-task/SKILL.md`）。
+**迭代结构怎么建**（2026-08-18 回路退役后的唯一做法）：就用 `graph.edge.add` 把末跳连回入口（a→b→c→a）。环是边闭合出来的形状，平台经 `detectCycles` 自己识别并在图谱高亮，**没有独立的回路对象要注册**（`graph.loop.compose` 已删）。
+
+一次 build plan 的**正确终态** = 结构 active（agent 已建、role/skills/tools 已配、授权边已连成需要的形状，含成环）+ `inspect.structure_preview` 给用户预览。「跑」是用户的下游动作：由用户/ingress 把任务随 contract 投进入口 agent 的 inbox，传送带逐跳推进；结构成环时就沿回边自然循环，跑飞由 `dispatch-depth-guard`（32/6）与执行硬停兜底。判据见 `lib/operator/operator-brain.js` 的 designer-only 提示词段 + `operator-knowledge.js` 的 `new-task-workflow` 片段（`sourcePath: skills/operator-new-task/SKILL.md`）。
 
 ## 可靠性
 
@@ -66,8 +68,8 @@ planner 调用做了多重兜底：
 
 - **single-retry**：`callPlannerWithSingleRetry`（`operator-brain.js`），但 abort / GLM-socket 失败首次即重抛，retry 不掩盖 provider 故障。
 - **resilient step-drop normalize**：`normalizeOperatorBrainPlanResult`（`operator-plan.js`）只丢掉无法执行的坏 step、保留有效步骤并附 warning，不再因一个幻觉 step 而整盘丢弃（EXECUTE 路径仍严格）。
-- **glm-socket dispatcher + 截断 JSON 修复**：`lib/llm-planner.js`（`repairTruncatedJsonText` 修 glm-style 截断流 + dispatcher 处理 reasoning 模型长耗时）。
-- **GLM-5.1 fallback**：`resolveOperatorBrainModel`（`lib/brain-model-resolver.js`）。
+- **glm-socket dispatcher + 截断 JSON 修复**：`lib/llm/llm-planner.js`（`repairTruncatedJsonText` 修 glm-style 截断流 + dispatcher 处理 reasoning 模型长耗时）。
+- **GLM-5.1 fallback**：`resolveOperatorBrainModel`（`lib/llm/brain-model-resolver.js`）。
 - **紧凑 agent-map 片段**（`operator-knowledge.js` 的 `buildAgentMapFragment`）是 operator 读结构的视图。
 
 ## 演化
@@ -80,14 +82,15 @@ planner 调用做了多重兜底：
 | v109-stable | 零旁路收口达成：13 处直读 runtime store 全改经 `inspectCliSystemSurface`。源: 备忘录112/113/114 |
 | 2026-05-31 | **认知校正**：operator = meta-agent（非治理引擎/只读观测者）；「去伪」正解 + 作废"不当第二 planner"措辞。源: 备忘录120 附录 / PLAN §6.5,P5 |
 | v119-stable | AgentGroup 宏展开本体上线，operator 可经 `graph.group.compose` 设计组 |
-| v120-stable | LoopSpec 自带 maxRounds/maxExperiments，operator 可建带预算的回路 |
-| v121-stable | loop reviewer 环节卡死修复（heartbeat artifact-branch 认已绑定 contract=有活干） |
-| 本会话 | **手已通**：38 个 operatorExecutable surface 上线 + executor 真跑 plan（structure-snapshot 回滚 + forceVerify）；明确 **designer-only** 边界（设计结构+agent 内容，不替用户跑任务，不 emit `runtime.loop.start`）；planner 可靠性批次（single-retry/resilient-normalize/glm-socket/GLM-5.1 fallback） |
+| v120-stable | LoopSpec 自带 maxRounds/maxExperiments，operator 可建带预算的回路（已随 2026-08-18 退役作废） |
+| v121-stable | reviewer 环节卡死修复（heartbeat artifact-branch 认已绑定 contract=有活干；修复本体与回路无关，仍生效） |
+| 本会话 | **手已通**：38 个 operatorExecutable surface 上线 + executor 真跑 plan（structure-snapshot 回滚 + forceVerify）；明确 **designer-only** 边界（设计结构+agent 内容，不替用户跑任务）；planner 可靠性批次（single-retry/resilient-normalize/glm-socket/GLM-5.1 fallback） |
 
 ## 当前状态
 
 - 实现：if-else 已拆、brain/薄壳/executor 已分离；**「手」已通**——38 个 `operatorExecutable` surface 已上线（`lib/admin/catalog/apply-rest.js` 28 + `agents-apply.js` 10）。`operator-executor.js` 的 `executeOperatorExecutablePlan` 真跑 plan：逐步 `executeCliSystemSurface`（`actor='operator'`）+ explicit-confirm 闸（破坏性 surface 需显式确认）+ 多步 structure-snapshot 原子回滚 + forceVerify-after-apply + soft-fail（`{ok:false}`）也回滚。自治死链 (b) 已闭——见 [四关节自治闭环](self-governance-loop.md)。
-- 边界：designer-only——建好结构 active + `inspect.structure_preview` 即交付完成，跑由用户下游触发。
+- 边界：designer-only——建好结构 active + `inspect.structure_preview` 即交付完成，跑由用户下游触发（把任务投进入口 agent inbox）。
+- 2026-08-18：`graph.loop.compose` / `runtime.loop.start` 两个 surface 已随回路退役删除；迭代结构改用 `graph.edge.add` 成环表达。
 - 红线：不绕 CLI system 直读/直写真值（读侧已收口）。
 
 相关概念: [system-layering](system-layering.md) | [agent-binding](agent-binding.md) | [hard-soft-path](hard-soft-path.md) | [四关节自治闭环](self-governance-loop.md)

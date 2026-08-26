@@ -4,13 +4,12 @@ import {
 } from "../lib/agent/agent-enrollment-guidance.js";
 import { buildOperatorSnapshot } from "../lib/operator/operator-snapshot.js";
 import { inspectCliSystemSurface, summarizeCliSystemSurfaces } from "../lib/cli-system/cli-surface-registry.js";
-import { summarizeHarnessDashboard } from "../lib/harness/harness-dashboard.js";
 import {
   listAgentRegistry,
   listModelRegistry,
   listSkillRegistry,
   readAgentDefaultsRegistry,
-} from "../lib/capability/capability-registry.js";
+} from "../lib/management/capability-registry.js";
 import { summarizeAdminSurfaces } from "../lib/admin/admin-surface-registry.js";
 import { getAgentIdentitySnapshot } from "../lib/agent/agent-identity.js";
 
@@ -262,27 +261,6 @@ export function register(api, {
       try {
         const agents = await listAgentRegistry();
         sendJson(res, 200, agents);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return true;
-    },
-  });
-
-  api.registerHttpRoute({
-    path: "/watchdog/harness",
-    auth: "plugin",
-    match: "exact",
-    handler: async (req, res) => {
-      if (!checkAuth(req, res)) return true;
-      if (req.method !== "GET") {
-        res.writeHead(405, { "Content-Type": "text/plain" });
-        res.end("GET only");
-        return true;
-      }
-      try {
-        const payload = await summarizeHarnessDashboard();
-        sendJson(res, 200, payload);
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }

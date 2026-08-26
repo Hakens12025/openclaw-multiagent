@@ -3,7 +3,7 @@ import {
   listAutoInjectedAgentSkillRefs,
   listForcedPlatformSkillRefs,
   listReservedConfiguredDefaultSkillIds,
-} from "../semantic-skill-registry.js";
+} from "../prompt/semantic-skill-registry.js";
 import { uniqueStrings } from "../core/normalize.js";
 
 const RESERVED_CONFIGURED_DEFAULT_SKILL_IDS = new Set(listReservedConfiguredDefaultSkillIds());
@@ -19,10 +19,6 @@ export function getForcedPlatformSkillRefs() {
 
 export function getReservedConfiguredDefaultSkillIds() {
   return [...RESERVED_CONFIGURED_DEFAULT_SKILL_IDS];
-}
-
-export function getSystemActionEnabledRoles() {
-  return [...(ROLE_INJECTED_SEMANTIC_SKILL_MAP["system-action"] || [])];
 }
 
 export function getRoleInjectedDefaultSkillMap() {

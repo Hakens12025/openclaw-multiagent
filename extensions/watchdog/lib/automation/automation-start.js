@@ -1,18 +1,9 @@
 import {
   listLifecycleWorkItems,
-} from "../contracts.js";
-import {
-  buildHarnessSpec,
-  normalizeHarnessRun,
-  startHarnessRun,
-} from "../harness/harness-run.js";
-import {
-  initializeHarnessRunModules,
-} from "../harness/harness-module-runner.js";
+} from "../contract/contracts.js";
 import { dispatchAcceptIngressMessage } from "../ingress/dispatch-entry.js";
-import { getErrorMessage, normalizeRecord, normalizeString } from "../core/normalize.js";
+import { getErrorMessage, normalizeString } from "../core/normalize.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { getActiveLoopRuntime } from "../loop/loop-round-runtime.js";
 import {
   isTerminalContractStatus,
 } from "../core/runtime-status.js";
@@ -21,54 +12,16 @@ import {
   ensureAutomationRuntimeState,
   upsertAutomationRuntimeState,
 } from "./automation-runtime.js";
-import {
-  normalizePositiveInteger,
-  buildNextWakeAt,
-} from "./automation-decision.js";
+import { buildNextWakeAt, normalizePositiveInteger } from "./automation-decision.js";
 import {
   buildDefaultSystemActionDelivery,
   buildAutomationContext,
-  isLoopRuntimeActive,
-  resolveAutomationIdFromContext,
   resolveRoundFromContext,
-  resolveTriggerFromContext,
-  resolveRequestedAtFromContext,
   buildContractIndex,
-  buildActiveHarnessLifecycle,
   classifyStartResult,
   ensureRuntimeContext,
-} from "./automation-harness-lifecycle.js";
-import {
-  handleAutomationContractTerminal,
-  handleAutomationLoopRuntimeTerminal,
-} from "./automation-finalize.js";
-
-// 把 runtime.pendingReworkGuidance 拼进任务文本（LLM 管内容的合法注入点：entry.message
-// 是任务文本，非 transport）。让小模型知道上轮哪错、别从零重做。无教训则原样返回。
-export function composeEntryMessageWithRework(baseMessage, pendingReworkGuidance) {
-  const guidance = normalizeRecord(pendingReworkGuidance, null);
-  const base = normalizeString(baseMessage) || "";
-  if (!guidance) return base;
-
-  const failureClass = normalizeString(guidance.failureClass);
-  const reworkTarget = normalizeString(guidance.reworkTarget);
-  const strategy = normalizeString(guidance.strategy);
-  const findings = (Array.isArray(guidance.actionableFindings) ? guidance.actionableFindings : [])
-    .map((f) => normalizeString(f?.message))
-    .filter(Boolean);
-
-  if (!failureClass && !reworkTarget && findings.length === 0) return base;
-
-  const lines = ["", "──", "【上轮未通过 / Previous round did not pass — 在此基础上修正，勿从零重做】"];
-  if (failureClass) lines.push(`failureClass: ${failureClass}`);
-  if (reworkTarget) lines.push(`reworkTarget（重点修这里）: ${reworkTarget}`);
-  if (strategy) lines.push(`strategy: ${strategy}`);
-  if (findings.length > 0) {
-    lines.push("具体问题 / findings:");
-    findings.forEach((msg, i) => lines.push(`  ${i + 1}. ${msg}`));
-  }
-  return `${base}${lines.join("\n")}`;
-}
+} from "./automation-round-context.js";
+import { handleAutomationContractTerminal } from "./automation-finalize.js";
 
 export async function startAutomationRound(automationId, {
   trigger = "manual",
@@ -99,10 +52,7 @@ export async function startAutomationRound(automationId, {
     };
   }
 
-  const [workItems, loopRuntime] = await Promise.all([
-    listLifecycleWorkItems(),
-    getActiveLoopRuntime(),
-  ]);
+  const workItems = await listLifecycleWorkItems();
   const contractIndex = buildContractIndex(workItems);
   const runtimeContract = normalizeString(runtime?.activeContractId)
     ? contractIndex.byId.get(runtime.activeContractId) || null
@@ -111,79 +61,40 @@ export async function startAutomationRound(automationId, {
     const recovered = await handleAutomationContractTerminal(runtimeContract, { logger, onAlert });
     runtime = recovered?.runtime || runtime;
   }
-  if (normalizeString(runtime?.activePipelineId)
-    && normalizeString(loopRuntime?.pipelineId) === normalizeString(runtime.activePipelineId)
-    && loopRuntime?.currentStage === "concluded"
-    && resolveAutomationIdFromContext(loopRuntime?.automationContext) === normalizedId) {
-    const recovered = await handleAutomationLoopRuntimeTerminal(loopRuntime, { logger, onAlert });
-    runtime = recovered?.runtime || runtime;
-  }
-
-  const activeLoopRuntime = isLoopRuntimeActive(loopRuntime)
-    && resolveAutomationIdFromContext(loopRuntime?.automationContext) === normalizedId
-    ? loopRuntime
-    : null;
+  // 在跑判据单源：合约。回路退役(2026-08-18)前这里还并了一条 loopRuntime 腿，
+  // 但那条腿的门 `resolveAutomationIdFromContext(loopRuntime.automationContext)` 恒 null
+  // （回路运行时从不携带 automationContext），生产上一次都没进过。
   const activeContract = contractIndex.activeByAutomationId.get(normalizedId) || null;
 
-  if (activeContract || activeLoopRuntime) {
-    const activeContext = normalizeRecord(
-      activeContract?.automationContext || activeLoopRuntime?.automationContext,
-      null,
-    );
+  if (activeContract) {
     const resolvedRound = Math.max(
       normalizePositiveInteger(runtime?.currentRound, 0),
-      resolveRoundFromContext(activeContract?.automationContext, 0),
-      resolveRoundFromContext(activeLoopRuntime?.automationContext, 0),
+      resolveRoundFromContext(activeContract.automationContext, 0),
     );
-    const harnessState = await buildActiveHarnessLifecycle(spec, runtime, {
-      round: resolvedRound,
-      trigger: resolveTriggerFromContext(activeContext, normalizeString(trigger) || "manual"),
-      requestedAt: resolveRequestedAtFromContext(activeContext, runtime?.lastWakeAt || Date.now()),
-      startedAt: resolveRequestedAtFromContext(activeContext, runtime?.lastWakeAt || Date.now()),
-      contractId: activeContract?.id || null,
-      pipelineId: activeLoopRuntime?.pipelineId || null,
-      loopId: activeLoopRuntime?.loopId || null,
-    });
     const runningRuntime = await upsertAutomationRuntimeState({
       ...runtime,
       status: "running",
-      activeContractId: activeContract?.id || runtime?.activeContractId || null,
-      activePipelineId: activeLoopRuntime?.pipelineId || runtime?.activePipelineId || null,
-      activeLoopId: activeLoopRuntime?.loopId || runtime?.activeLoopId || null,
+      activeContractId: activeContract.id || runtime?.activeContractId || null,
       currentRound: resolvedRound,
-      activeHarnessSpec: harnessState.activeHarnessSpec,
-      activeHarnessRun: harnessState.activeHarnessRun,
     });
     return {
       ok: true,
       skipped: true,
-      reason: activeContract ? "automation_contract_running" : "automation_loop_runtime_running",
+      reason: "automation_contract_running",
       automation: spec,
       runtime: runningRuntime,
-      activeContractId: activeContract?.id || null,
-      activePipelineId: activeLoopRuntime?.pipelineId || null,
-      activeLoopId: activeLoopRuntime?.loopId || null,
+      activeContractId: activeContract.id || null,
     };
   }
 
   const nextRound = normalizePositiveInteger(runtime?.currentRound, 0) + 1;
   const now = Date.now();
   const replyTo = buildDefaultSystemActionDelivery(spec);
-  const requestedHarnessSpec = buildHarnessSpec(spec, {
-    round: nextRound,
-    trigger,
-    requestedAt: now,
-  });
-  const requestedHarnessRun = startHarnessRun(requestedHarnessSpec, {
-    startedAt: now,
-  });
-  const automationContext = buildAutomationContext(spec, nextRound, trigger, now, {
-    harnessSpec: requestedHarnessSpec,
-    harnessRunId: requestedHarnessRun.id,
-  });
+  const automationContext = buildAutomationContext(spec, nextRound, trigger, now);
 
-  // 修死链(a)：把上轮 rework 教训拼进本轮任务文本（内容层注入，不碰 transport）。
-  const entryMessage = composeEntryMessageWithRework(spec.entry.message, runtime?.pendingReworkGuidance);
+  // （rework 教训注入随评审链删除而退役——pendingReworkGuidance 的唯一生产者
+  //  是 reviewerResult 派生段，备忘录150 后无源，v226 一并摘除。）
+  const entryMessage = spec.entry.message;
 
   let triggerResult = null;
   try {
@@ -200,10 +111,6 @@ export async function startAutomationRound(automationId, {
       ...runtime,
       status: "error",
       activeContractId: null,
-      activePipelineId: null,
-      activeLoopId: null,
-      activeHarnessSpec: null,
-      activeHarnessRun: null,
       nextWakeAt: null,
     });
     onAlert?.({
@@ -227,16 +134,16 @@ export async function startAutomationRound(automationId, {
       ...runtime,
       status: "idle",
       activeContractId: null,
-      activePipelineId: null,
-      activeLoopId: null,
-      activeHarnessSpec: null,
-      activeHarnessRun: null,
-      nextWakeAt: startState.busy ? buildNextWakeAt(spec, now) : null,
+      // 起跑未成功 → 按 wakePolicy 冷却退避重排下一次自唤醒。写 null 等于静默停摆：
+      // executor 只轮询 `Number.isFinite(nextWakeAt)` 的 idle automation，
+      // reconcile 的 onBoot 兜底又要求 `!Number.isFinite(lastWakeAt)`（跑过一轮后不再成立），
+      // 于是一次起跑失败就永久失去唤醒源。退避沿用既有 buildNextWakeAt（wakePolicy.cooldownSeconds，
+      // 默认 300s），不另造重试节流真值。
+      nextWakeAt: buildNextWakeAt(spec, now),
     });
     return {
       ok: true,
       skipped: true,
-      busy: startState.busy,
       reason: startState.reason,
       automation: spec,
       runtime: idleRuntime,
@@ -244,28 +151,13 @@ export async function startAutomationRound(automationId, {
     };
   }
 
-  const activeHarnessRun = await initializeHarnessRunModules(normalizeHarnessRun({
-    ...requestedHarnessRun,
-    contractId: startState.contractId,
-    pipelineId: startState.pipelineId,
-    loopId: startState.loopId,
-  }), {
-    automationSpec: spec,
-  });
   const nextRuntime = await upsertAutomationRuntimeState({
     ...runtime,
     status: "running",
     currentRound: nextRound,
     activeContractId: startState.contractId,
-    activePipelineId: startState.pipelineId,
-    activeLoopId: startState.loopId,
-    activeHarnessSpec: requestedHarnessSpec,
-    activeHarnessRun,
     lastWakeAt: now,
     nextWakeAt: null,
-    // 教训已注入本轮 entryMessage 并成功起跑 → 清 pending，避免重复注入下下轮。
-    // 仅在真正起跑（startState.started）的此路径清；skip/error 路径不清，保留到下次尝试。
-    pendingReworkGuidance: null,
   });
 
   onAlert?.({
@@ -274,14 +166,11 @@ export async function startAutomationRound(automationId, {
     round: nextRound,
     route: triggerResult?.route || null,
     contractId: startState.contractId,
-    pipelineId: startState.pipelineId,
-    loopId: startState.loopId,
     ts: now,
   });
   logger?.info?.(
     `[watchdog] automation round started: ${normalizedId} round=${nextRound}`
-    + `${startState.contractId ? ` contract=${startState.contractId}` : ""}`
-    + `${startState.pipelineId ? ` loop=${startState.pipelineId}` : ""}`,
+    + `${startState.contractId ? ` contract=${startState.contractId}` : ""}`,
   );
 
   return {

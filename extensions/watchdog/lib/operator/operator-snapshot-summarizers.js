@@ -1,7 +1,6 @@
 // lib/operator-snapshot-summarizers.js — Summarize functions for operator snapshot entities
 
 import { compactText } from "../core/normalize.js";
-import { projectAutomationHarnessSummary } from "../automation/automation-harness-projection.js";
 import {
   summarizeGraphRouteProgression,
   summarizeRuntimeIncident,
@@ -102,34 +101,6 @@ export function summarizeSystemActionDeliveryTicket(ticket) {
   };
 }
 
-export function summarizeLoop(loop) {
-  return {
-    id: loop?.id || "unknown",
-    entryAgentId: loop?.entryAgentId || null,
-    kind: loop?.kind || null,
-    active: loop?.active === true,
-    cycleDetected: loop?.cycleDetected === true,
-    nodeCount: Array.isArray(loop?.nodes) ? loop.nodes.length : 0,
-    missingEdges: Array.isArray(loop?.missingEdges) ? loop.missingEdges.length : 0,
-  };
-}
-
-export function summarizeLoopSession(session) {
-  return {
-    id: session?.id || "unknown",
-    loopId: session?.loopId || null,
-    pipelineId: session?.pipelineId || null,
-    currentStage: session?.currentStage || null,
-    previousStage: session?.previousStage || null,
-    round: Number.isFinite(session?.round) ? session.round : null,
-    runtimeStatus: session?.runtimeStatus || session?.status || null,
-    active: session?.active === true,
-    loopActive: session?.loopActive === true,
-    missingEdges: Array.isArray(session?.missingEdges) ? session.missingEdges.length : 0,
-    updatedAt: Number.isFinite(session?.updatedAt) ? session.updatedAt : null,
-  };
-}
-
 export function summarizeSchedule(schedule) {
   const deliveryTargets = Array.isArray(schedule?.deliveryTargets) ? schedule.deliveryTargets : [];
   return {
@@ -144,10 +115,7 @@ export function summarizeSchedule(schedule) {
 }
 
 export function summarizeAutomation(automation) {
-  const harnessSummary = projectAutomationHarnessSummary({
-    harness: automation?.harness,
-    runtime: automation?.runtime,
-  });
+  // harness 塑形投影已随 harness 全退役删除（v226 / 2026-08-23，备忘录149 batch3）。
   return {
     id: automation?.id || "unknown",
     enabled: automation?.enabled === true,
@@ -162,23 +130,6 @@ export function summarizeAutomation(automation) {
     childAutomationCount: Array.isArray(automation?.runtime?.childAutomationIds)
       ? automation.runtime.childAutomationIds.length
       : 0,
-    executionMode: harnessSummary.executionMode,
-    assuranceLevel: harnessSummary.assuranceLevel,
-    harnessEnabled: harnessSummary.harnessEnabled,
-    harnessProfileId: harnessSummary.harnessProfileId,
-    harnessProfileTrustLevel: harnessSummary.harnessProfileTrustLevel,
-    harnessCoverageCounts: harnessSummary.harnessCoverageCounts,
-    activeHarnessStatus: harnessSummary.activeHarnessStatus,
-    activeHarnessRound: harnessSummary.activeHarnessRound,
-    activeHarnessRunId: harnessSummary.activeHarnessRunId,
-    activeHarnessGateVerdict: harnessSummary.activeHarnessGateVerdict,
-    activeHarnessPendingModuleCount: harnessSummary.activeHarnessPendingModuleCount,
-    activeHarnessFailedModuleCount: harnessSummary.activeHarnessFailedModuleCount,
-    lastHarnessStatus: harnessSummary.lastHarnessStatus,
-    lastHarnessDecision: harnessSummary.lastHarnessDecision,
-    lastHarnessGateVerdict: harnessSummary.lastHarnessGateVerdict,
-    lastHarnessFailedModuleCount: harnessSummary.lastHarnessFailedModuleCount,
-    recentHarnessRunCount: harnessSummary.recentHarnessRunCount,
   };
 }
 

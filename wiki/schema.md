@@ -35,7 +35,7 @@ wiki/
 > 一句话定义
 
 ## 是什么
-简明描述，不超过 3 段。引用代码位置（`lib/routing/dispatch-graph-policy.js`）但不复制代码。
+简明描述，不超过 3 段。引用代码位置（`lib/routing/dispatch/dispatch-graph-policy.js`）但不复制代码。
 
 ## 为什么存在
 解决什么问题，带来什么系统价值。

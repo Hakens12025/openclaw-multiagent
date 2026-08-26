@@ -35,7 +35,6 @@ test("active protocol docs reference canonical dispatch and delivery truth", asy
   assert.match(delivery, /delivery:terminal/);
   assert.match(delivery, /delivery:system_action_runtime_result/);
   assert.match(delivery, /delivery:system_action_assign_task_result/);
-  assert.match(delivery, /delivery:system_action_review_verdict/);
   assert.doesNotMatch(delivery, /delivery:systemaction\b/);
   assert.doesNotMatch(delivery, /收编被 session management 实现阻塞/);
   assert.doesNotMatch(delivery, /delivery\.js \+ delivery-targets\.js 合并尚未执行/);
@@ -48,19 +47,19 @@ test("active protocol docs reference canonical dispatch and delivery truth", asy
 });
 
 test("active protocol consumers import protocol-registry instead of hardcoding runtime ids", async () => {
-  const [dashboardSource, platformDocSource] = await Promise.all([
-    readWatchdogFile("dashboard.js"),
-    readWatchdogFile("lib", "platform-doc-builder.js"),
+  // 旧 dashboard 前端已随批4 整删;协议 id 消费者收敛到 lib 两侧
+  // (platform-doc-builder + delivery-protocols),registry 落 lib/protocol/。
+  const [platformDocSource, deliveryProtocolsSource] = await Promise.all([
+    readWatchdogFile("lib", "prompt", "platform-doc-builder.js"),
+    readWatchdogFile("lib", "routing", "delivery", "delivery-protocols.js"),
   ]);
 
-  assert.match(dashboardSource, /from ['"]\.\/protocol-registry\.js['"]/);
-  assert.match(platformDocSource, /from ['"]\.\.\/protocol-registry\.js['"]/);
+  assert.match(platformDocSource, /from ['"][^'"]*protocol\/protocol-registry\.js['"]/);
+  assert.match(deliveryProtocolsSource, /from ['"][^'"]*protocol\/protocol-registry\.js['"]/);
 
-  assert.doesNotMatch(dashboardSource, /workflow !== 'delivery:terminal'/);
   assert.doesNotMatch(platformDocSource, /`delivery:terminal`/);
   assert.doesNotMatch(platformDocSource, /`delivery:system_action_assign_task_result`/);
   assert.doesNotMatch(platformDocSource, /`delivery:system_action_runtime_result`/);
-  assert.doesNotMatch(platformDocSource, /`delivery:system_action_review_verdict`/);
 });
 
 test("active operator prompt docs avoid retired topology and pipeline terms", async () => {
@@ -78,7 +77,7 @@ test("active operator prompt docs avoid retired topology and pipeline terms", as
 
 test("active runtime skill and action metadata avoids retired graph-router wording", async () => {
   const [semanticSkillRegistry, systemActionRuntime] = await Promise.all([
-    readWatchdogFile("lib", "semantic-skill-registry.js"),
+    readWatchdogFile("lib", "prompt", "semantic-skill-registry.js"),
     readWatchdogFile("lib", "system-action", "system-action-runtime.js"),
   ]);
 
@@ -89,8 +88,7 @@ test("active runtime skill and action metadata avoids retired graph-router wordi
 
 test("runtime diagnostics uses terminalDelivery instead of retired completionEgress naming", async () => {
   const files = {
-    dashboard: await readWatchdogFile("dashboard.js"),
-    agentEndTerminal: await readWatchdogFile("lib", "lifecycle", "agent-end-terminal.js"),
+    agentEndTerminal: await readWatchdogFile("lib", "lifecycle", "agent-end", "terminal.js"),
     suiteLink: await readWatchdogFile("lib", "formal-runtime", "suite-link.js"),
     runtimeDiagnosis: await readWatchdogFile("tests", "runtime-diagnosis.js"),
   };
@@ -100,27 +98,13 @@ test("runtime diagnostics uses terminalDelivery instead of retired completionEgr
   }
 });
 
-test("dashboard main view exposes runtime graph wording instead of dispatch pipeline wording", async () => {
-  const [html, i18n] = await Promise.all([
-    readWatchdogFile("dashboard.html"),
-    readWatchdogFile("dashboard-i18n.js"),
-  ]);
-
-  assert.doesNotMatch(html, /DISPATCH PIPELINE/);
-  assert.doesNotMatch(i18n, /DISPATCH PIPELINE|\u8C03\u5EA6\u7BA1\u7EBF/);
-  assert.match(html, /RUNTIME GRAPH/);
-  assert.match(i18n, /RUNTIME GRAPH/);
-  assert.match(i18n, /\\u8FD0\\u884C\\u65F6\\u56FE/);
-});
-
 test("operator and admin surface copy avoids retired fast path and loop pipeline wording", async () => {
-  const [adminCatalog, adminFields, operatorDashboard] = await Promise.all([
+  const [adminCatalog, adminFields] = await Promise.all([
     readWatchdogFile("lib", "admin", "admin-surface-catalog.js"),
     readWatchdogFile("lib", "admin", "admin-surface-input-fields.js"),
-    readWatchdogFile("dashboard-operator.js"),
   ]);
 
-  for (const [label, content] of Object.entries({ adminCatalog, adminFields, operatorDashboard })) {
+  for (const [label, content] of Object.entries({ adminCatalog, adminFields })) {
     assert.doesNotMatch(content, /fast-track|full-path|short contract/i, `${label} leaks retired contract split terms`);
     assert.doesNotMatch(content, /loop pipeline|pipeline progression|pipeline state/i, `${label} leaks retired loop-pipeline wording`);
   }

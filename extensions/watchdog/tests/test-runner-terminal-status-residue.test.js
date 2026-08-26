@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { waitForCliRunCompletion } from "../lib/test-runner-cli-client.js";
+import { waitForCliRunCompletion } from "../lib/formal-runtime/test-runner-cli-client.js";
 
 test("test-runner completion waits for formal run status, not contract status residue", async () => {
   const details = [

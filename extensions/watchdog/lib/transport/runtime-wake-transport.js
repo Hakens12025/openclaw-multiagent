@@ -5,7 +5,53 @@ import { request as httpRequest } from "node:http";
 import { cfg } from "../state.js";
 import { canAutoWakeForTaskRuntime } from "../agent/agent-activation-policy.js";
 import { getAgentIdentitySnapshot } from "../agent/agent-identity.js";
-import { normalizeWakeDiagnostic } from "../lifecycle/runtime-diagnostics.js";
+import { normalizeWakeDiagnostic } from "../routing/runtime-diagnostics.js";
+import {
+  SESSION_PHASE,
+  getSessionPhase,
+  waitForAgentEndSettled,
+} from "../session/session-phase-store.js";
+import { buildWakeIdempotencyKey } from "../store/delivery-idempotency-store.js";
+
+// 唤醒去重是【进程内短时】的,不落盘(与投递票据键的持久账本刻意不同):
+// 宿主的唤醒队列本身是进程易失的——持久 wake 键会在重启后否决合法的重新唤醒,
+// 把恢复腿焊死(2026-08-12 对抗审查裁定)。双总线/重试连发都发生在秒级窗口内,
+// TTL 缓存足以无害化;TTL 过后允许再发,等价于"重发一封已经不在队列里的信"。
+const RECENT_WAKE_KEY_TTL_MS = 30000;
+const recentWakeKeys = new Map();
+
+function isRecentWakeKey(key, now = Date.now()) {
+  for (const [k, expiresAt] of recentWakeKeys) {
+    if (expiresAt <= now) recentWakeKeys.delete(k);
+  }
+  const expiry = recentWakeKeys.get(key);
+  return typeof expiry === "number" && expiry > now;
+}
+
+function rememberWakeKey(key, now = Date.now()) {
+  recentWakeKeys.set(key, now + RECENT_WAKE_KEY_TTL_MS);
+}
+
+// 相位门(备忘录141 §二):closing 相位等收尾落地的上限。超限 warn+放行(fail-open),
+// 接收侧 before-agent-start 的收尾让位守卫仍兜底。
+const CLOSING_SETTLE_WAIT_MS = 15_000;
+
+async function waitForClosingSettled(sessionKey, agentId, logger) {
+  let settleTimer = null;
+  const timedOut = await Promise.race([
+    waitForAgentEndSettled(sessionKey).then(() => false),
+    new Promise((resolve) => {
+      settleTimer = setTimeout(() => resolve(true), CLOSING_SETTLE_WAIT_MS);
+    }),
+  ]);
+  clearTimeout(settleTimer);
+  if (timedOut) {
+    logger?.warn?.(
+      `[comm] wake ${agentId}: closing settle wait exceeded ${CLOSING_SETTLE_WAIT_MS}ms `
+      + `for ${sessionKey} — proceeding fail-open (receiver-side guard covers)`,
+    );
+  }
+}
 
 export const RUNTIME_WAKE_SEMANTICS = Object.freeze({
   GENERIC: "generic",
@@ -13,7 +59,6 @@ export const RUNTIME_WAKE_SEMANTICS = Object.freeze({
   DIRECT_REQUEST_RESUME: "direct_request_resume",
   SYSTEM_ACTION_WAKE_AGENT: "system_action_wake_agent",
   ASSIGN_TASK_DISPATCH: "assign_task_dispatch",
-  REQUEST_REVIEW_DISPATCH: "request_review_dispatch",
   TERMINAL_DELIVERY_READY: "terminal_delivery_ready",
   SYSTEM_ACTION_DELIVERY_RESUME: "system_action_delivery_resume",
 });
@@ -99,8 +144,6 @@ export function buildRuntimeWakeReason(reason, options = {}) {
       return "继续当前协作任务。";
     case RUNTIME_WAKE_SEMANTICS.ASSIGN_TASK_DISPATCH:
       return "处理当前协作任务。";
-    case RUNTIME_WAKE_SEMANTICS.REQUEST_REVIEW_DISPATCH:
-      return "处理当前审阅任务。";
     case RUNTIME_WAKE_SEMANTICS.TERMINAL_DELIVERY_READY:
       return "领取当前结果。";
     case RUNTIME_WAKE_SEMANTICS.SYSTEM_ACTION_DELIVERY_RESUME:
@@ -117,11 +160,23 @@ async function hooksDispatchDetailed(agentId, message, logger, options = {}) {
   const deliver = options?.deliver === true;
   const wakeEnvelope = options?.wakeEnvelope || null;
 
+  // 言面收口 P0(备忘录156 四层②,2026-08-26 裁决):宿主会把 hook 隔离运行的最终
+  // 原文回执进 default agent(controller)的 main 会话——载荷缺 name 时横幅显示为
+  // 无意义的 "Hook Hook",且 wakeMode:"now" 会在每次合约结束后强拍醒 controller。
+  //   name:回执自述归属(runtime:<agentId>[:<cid>]),controller 能读出这是运行时遥测;
+  //   wakeMode next-heartbeat:回执不再触发即时心跳(只随 30m 自然心跳带到),
+  //     不影响目标 agent 本身的运行(宿主 wakeMode 只门控回执后的 requestHeartbeatNow)。
+  // 宿主无静默旗标(deliver 语义=投聊天渠道,更糟),彻底封死需上游支持,见备忘录156 P3。
+  const contractTail = typeof sessionKey === "string" && sessionKey.includes(":contract:")
+    ? `:${sessionKey.split(":contract:")[1]}`
+    : "";
+
   try {
     const payload = JSON.stringify({
       message,
       agentId,
-      wakeMode: "now",
+      name: `runtime:${agentId}${contractTail}`,
+      wakeMode: "next-heartbeat",
       ...(deliver ? { deliver: true } : {}),
       ...(sessionKey ? { sessionKey } : {}),
       ...(wakeEnvelope ? { wakeEnvelope } : {}),
@@ -194,14 +249,46 @@ export async function runtimeWakeAgentDetailed(agentId, reason, api, logger, opt
       targetAgent: agentId,
     });
   }
-  logger?.info?.(`[comm] wake ${agentId}: ${message.slice(0, 120)}${wakeEnvelope ? ` [semantic=${wakeEnvelope.semanticType}]` : ""}`);
   const sessionKey = options?.sessionKey || null;
+
+  // 相位门(备忘录141 §二):closing → 等收尾落地(15s fail-open)再发;running/idle 照发
+  // ——宿主本就把发给在跑会话的唤醒排队到回合边界(回投腿复活会话的机制),拒发会饿死投递,
+  // 重复发的害处由下面的幂等键账兜住。
+  if (sessionKey && getSessionPhase(sessionKey) === SESSION_PHASE.CLOSING) {
+    await waitForClosingSettled(sessionKey, agentId, logger);
+  }
+
+  // 幂等键账(备忘录141 §三):有身份(deliveryTicketId/sourceContractId 至少其一)才成键;
+  // generic/heartbeat 唤醒键为 null,永不去重。记账在两条发送腿的成功分支——首发失败不记。
+  const idempotencyKey = buildWakeIdempotencyKey({
+    targetSessionKey: sessionKey,
+    deliveryTicketId: options?.deliveryTicketId || null,
+    sourceContractId: options?.sourceContractId || null,
+  });
+  if (idempotencyKey && isRecentWakeKey(idempotencyKey)) {
+    logger?.info?.(`[comm] wake ${agentId} deduplicated: ${idempotencyKey}`);
+    return normalizeWakeDiagnostic({
+      ok: true,
+      requested: false,
+      mode: "deduplicated",
+      reason: "duplicate_wake_idempotency_key",
+      error: null,
+    }, {
+      lane: "runtime_wake",
+      targetAgent: agentId,
+    });
+  }
+
+  logger?.info?.(`[comm] wake ${agentId}: ${message.slice(0, 120)}${wakeEnvelope ? ` [semantic=${wakeEnvelope.semanticType}]` : ""}`);
   let hookError = null;
   let fallbackUsed = false;
 
   if (cfg.hooksToken) {
     const hookResult = await hooksDispatchDetailed(agentId, message, logger, options);
     if (hookResult.ok) {
+      if (idempotencyKey) {
+        rememberWakeKey(idempotencyKey);
+      }
       return normalizeWakeDiagnostic({
         ok: true,
         requested: true,
@@ -228,6 +315,9 @@ export async function runtimeWakeAgentDetailed(agentId, reason, api, logger, opt
       ...(sessionKey ? { sessionKey } : {}),
       ...(wakeEnvelope ? { wakeEnvelope } : {}),
     });
+    if (idempotencyKey) {
+      rememberWakeKey(idempotencyKey);
+    }
     return normalizeWakeDiagnostic({
       ok: true,
       requested: true,

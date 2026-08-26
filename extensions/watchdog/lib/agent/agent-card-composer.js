@@ -1,6 +1,6 @@
 import { AGENT_ROLE } from "./agent-metadata.js";
 import { composeDefaultCapabilityProjection } from "./agent-capability-policy.js";
-import { getRoleSummary } from "../role-spec-registry.js";
+import { getRoleSummary } from "../prompt/role-spec-registry.js";
 
 export function composeAgentCardBase({ agentId, role }) {
   return {

@@ -1,6 +1,12 @@
 # 系统分层 (System Layering)
 
-> OpenClaw 的 7 层架构模型，定义每层职责边界，禁止跨层替代。
+> ⚠️ **系统里有两套 `L{n}` 编号，别混用**（标注于 2026-08-09）：
+> - **本页的 7 层（L0-L6）= 职责模型**，回答"这件事该由谁负责、哪层不许替谁做"。**L 号只在本页语境下成立。**
+> - **`docs/system-map.md` 的 11 层（L0-L10）= 定址坐标系**，是 CLAUDE.md §7.5 规定的问题定位口径（`L{n} 层 · 板块 · 功能 · 问题`）。**报问题、写 issue 一律用那套。**
+>
+> 两套的同名层含义不同（例：本页 L2=Control Plane，system-map L2=协作·编排；本页 L3=Execution Shaping，system-map L3=Agent执行·安全沙箱）。
+
+> OpenClaw 的 7 层架构**职责**模型，定义每层职责边界，禁止跨层替代。
 
 ## 是什么
 
@@ -8,9 +14,9 @@
 
 | Layer | 名称 | 核心对象 / 职责 |
 |-------|------|-----------------|
-| L0 | Kernel | AgentBinding, Contract, MessageEnvelope, EdgeSpec, LoopSpec, LoopSession, AutomationRuntimeState, ticket/ledger/lock/store — 系统原语，不含业务逻辑 |
+| L0 | Kernel | AgentBinding, Contract, MessageEnvelope, EdgeSpec, GroupSpec/GroupSession, AutomationRuntimeState, ticket/ledger/lock/store — 系统原语，不含业务逻辑（LoopSpec/LoopSession 已于 2026-08-18 退役） |
 | L1 | Communication | ingress.normalize（入口归一化）, conveyor.dispatch（传送带分发）, return routing（回程路由） |
-| L2 | Control Plane | graph collaboration（图协作授权）, loop advancement（循环推进）, runtime graph progression（运行时图推进） |
+| L2 | Control Plane | graph pipeline routing（固定管线选路 + 传送带投递授权，**不含**动态协作授权——那在 `collaboration-intent-policy` 角色表；含 `detectCycles` 识环）, agent group 展开, runtime graph progression（运行时图推进） |
 | L3 | Execution Shaping | harness run, modules, profiles, evidence, failure classification — 塑造单次执行的质量 |
 | L4 | Evaluation | EvaluationResult, judgment semantics — 对执行结果做判定 |
 | L5 | Governance | AutomationDecision, ProfileLifecycle, capability evolution — 自动化治理与能力演化 |

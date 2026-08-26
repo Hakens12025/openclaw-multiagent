@@ -1,25 +1,26 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { atomicWriteFile } from "./state-file-utils.js";
+import { atomicWriteFile } from "./state/state-file-utils.js";
 import { AGENT_ROLE, normalizeAgentRole } from "./agent/agent-identity.js";
+import { isReservedControlLayerAgentId } from "./agent/agent-plane-policy.js";
 import { composeEffectiveProfile } from "./effective-profile-composer.js";
 import { loadGraph } from "./agent/agent-graph.js";
 import { composeAgentCardProjection } from "./agent/agent-card-composer.js";
 import { composeEffectiveSkillRefs } from "./agent/agent-binding-policy.js";
 import { readStoredAgentBinding } from "./agent/agent-binding-store.js";
-import { listResolvedGraphLoops } from "./loop/graph-loop-registry.js";
 import { agentWorkspace } from "./state.js";
-import { MANAGED_BOOTSTRAP_MARKER, normalizeManagedDocContent } from "./managed-doc-markers.js";
-import { renderRolePersonaBlock } from "./role-spec-registry.js";
+import { MANAGED_BOOTSTRAP_MARKER, normalizeManagedDocContent } from "./prompt/managed-doc-markers.js";
+import { renderRolePersonaBlock } from "./prompt/role-spec-registry.js";
 import {
   buildHeartbeatTemplate,
   buildAgentsTemplate,
   buildBuildingMapTemplate,
+  buildCollaborationFallbackTemplate,
   buildCollaborationGraphTemplate,
   buildDeliveryTemplate,
   buildPlatformGuideTemplate,
-} from "./platform-doc-builder.js";
+} from "./prompt/platform-doc-builder.js";
 import { MANAGED_GUIDANCE_FILE_NAMES } from "./agent/managed-guidance-files.js";
 
 export function buildAgentCard({ agentId, role, skills }) {
@@ -127,13 +128,11 @@ export async function syncAgentWorkspaceGuidance({
   skills,
   workspaceDir,
   graph = null,
-  loops = null,
   agentEntries = [],
   overwriteCustomGuidance = false,
   overwriteCustomGuidanceFiles = [],
 }) {
   const effectiveGraph = graph || await loadGraph();
-  const effectiveLoops = Array.isArray(loops) ? loops : await listResolvedGraphLoops({ graph: effectiveGraph });
   const forcedFiles = new Set(
     overwriteCustomGuidance === true
       ? MANAGED_GUIDANCE_FILE_NAMES
@@ -141,11 +140,11 @@ export async function syncAgentWorkspaceGuidance({
   );
   await mkdir(workspaceDir, { recursive: true });
 
-  // Execution-layer roles (worker/researcher/reviewer/planner) get the lean suite
+  // Execution-layer roles (worker/researcher/planner) get the lean suite
   // (IDENTITY persona + HEARTBEAT); coordination-layer roles get the full guidance suite.
   // ④role lives in IDENTITY.md (managed) for ALL roles; ⑤SOUL is user-owned (never written here).
   const EXECUTION_LAYER_ROLES = new Set([
-    AGENT_ROLE.EXECUTOR, AGENT_ROLE.RESEARCHER, AGENT_ROLE.REVIEWER, AGENT_ROLE.PLANNER,
+    AGENT_ROLE.EXECUTOR, AGENT_ROLE.RESEARCHER, AGENT_ROLE.PLANNER,
   ]);
   const isExecutionLayer = EXECUTION_LAYER_ROLES.has(role);
 
@@ -180,7 +179,7 @@ export async function syncAgentWorkspaceGuidance({
   );
   const collaborationGraphUpdated = isExecutionLayer ? false : await writeManagedFile(
     join(workspaceDir, "COLLABORATION-GRAPH.md"),
-    buildCollaborationGraphTemplate(agentId, role, effectiveGraph, effectiveLoops),
+    buildCollaborationGraphTemplate(agentId, role, effectiveGraph),
     { force: forcedFiles.has("COLLABORATION-GRAPH.md") },
   );
   const deliveryUpdated = isExecutionLayer ? false : await writeManagedFile(
@@ -189,9 +188,14 @@ export async function syncAgentWorkspaceGuidance({
     { force: forcedFiles.has("DELIVERY.md") },
   );
   await unlink(join(workspaceDir, LEGACY_DELIVERY_GUIDANCE_FILE)).catch(() => {});
+  const collaborationFallbackUpdated = isExecutionLayer ? false : await writeManagedFile(
+    join(workspaceDir, "COLLABORATION-FALLBACK.md"),
+    buildCollaborationFallbackTemplate(),
+    { force: forcedFiles.has("COLLABORATION-FALLBACK.md") },
+  );
   const platformGuideUpdated = isExecutionLayer ? false : await writeManagedFile(
     join(workspaceDir, "PLATFORM-GUIDE.md"),
-    buildPlatformGuideTemplate(agentId, role, skills, effectiveGraph, effectiveLoops),
+    buildPlatformGuideTemplate(agentId, role, skills, effectiveGraph),
     { force: forcedFiles.has("PLATFORM-GUIDE.md") },
   );
   const heartbeatUpdated = await writeManagedFile(
@@ -224,6 +228,7 @@ export async function syncAgentWorkspaceGuidance({
     { name: "BUILDING-MAP.md", updated: buildingMapUpdated },
     { name: "COLLABORATION-GRAPH.md", updated: collaborationGraphUpdated },
     { name: "DELIVERY.md", updated: deliveryUpdated },
+    { name: "COLLABORATION-FALLBACK.md", updated: collaborationFallbackUpdated },
     { name: "PLATFORM-GUIDE.md", updated: platformGuideUpdated },
     { name: "HEARTBEAT.md", updated: heartbeatUpdated },
   ];
@@ -232,7 +237,6 @@ export async function syncAgentWorkspaceGuidance({
 export async function syncAllRuntimeWorkspaceGuidance(config, logger) {
   const agents = Array.isArray(config?.agents?.list) ? config.agents.list : [];
   const graph = await loadGraph();
-  const loops = await listResolvedGraphLoops({ graph });
 
   const agentEntries = agents.map((agent) => {
     const agentId = typeof agent?.id === "string" ? agent.id.trim() : "";
@@ -275,7 +279,6 @@ export async function syncAllRuntimeWorkspaceGuidance(config, logger) {
         skills: entry.skills,
         workspaceDir,
         graph,
-        loops,
         agentEntries,
       });
       await writeIfMissing(
@@ -284,6 +287,28 @@ export async function syncAllRuntimeWorkspaceGuidance(config, logger) {
       );
     } catch (error) {
       logger?.warn?.(`[watchdog] workspace guidance sync failed for ${entry.id}: ${error.message}`);
+    }
+  }
+
+  // 心跳驱动的 control-plane 保留 agent（备忘录149 阶段0）：宿主按 heartbeat 配置
+  // 唤醒它，但没有心跳契约文件它就是"被叫醒却不知道该干嘛"——viz-master 因此
+  // 每轮猜读 HEARTBEAT.md 撞 ENOENT。runtime 平面 seed 全套 guidance 的设计不变，
+  // 这里只给"会被心跳叫醒的 control-plane agent"补唤醒契约一个文件。
+  for (const agent of agents) {
+    const agentId = typeof agent?.id === "string" ? agent.id.trim() : "";
+    if (!agentId || !isReservedControlLayerAgentId(agentId)) continue;
+    if (!agent?.heartbeat?.every) continue;
+    // 优先用配置里的 workspace（~ 展开），缺席才回落 agentWorkspace 的覆盖表/默认——
+    // 不依赖 runtimeAgentConfigs 状态，单测可完全离态运行
+    const configuredWorkspace = typeof agent.workspace === "string" && agent.workspace.trim()
+      ? agent.workspace.trim().replace(/^~(?=\/|$)/, process.env.HOME || "~")
+      : null;
+    const workspaceDir = configuredWorkspace || agentWorkspace(agentId);
+    try {
+      await mkdir(workspaceDir, { recursive: true });
+      await writeIfMissing(join(workspaceDir, "HEARTBEAT.md"), buildHeartbeatTemplate());
+    } catch (error) {
+      logger?.warn?.(`[watchdog] heartbeat contract seed failed for ${agentId}: ${error.message}`);
     }
   }
 }

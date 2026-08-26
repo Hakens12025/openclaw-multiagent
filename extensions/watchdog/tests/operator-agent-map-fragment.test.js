@@ -13,7 +13,7 @@ test("agent-map: compact per-agent role/model + in/out edges", async () => {
     { id: "reviewer1", role: "reviewer", model: "ark/minimax" },
   ];
   const graph = { edges: [{ from: "writer", to: "reviewer1" }, { from: "reviewer1", to: "writer" }] };
-  const ctx = await buildOperatorKnowledgeContext({ requestText: "建结构 agent map 入边 出边 协作", agents, graph, loops: [] });
+  const ctx = await buildOperatorKnowledgeContext({ requestText: "建结构 agent map 入边 出边 协作", agents, graph });
   const frag = ctx.selectedFragments.find((f) => f.id === "agent-map");
   assert.ok(frag, "agent-map fragment must be selected");
   assert.match(frag.summary, /writer\[worker\]/);
@@ -23,7 +23,7 @@ test("agent-map: compact per-agent role/model + in/out edges", async () => {
 });
 
 test("agent-map: no registered agents → graceful summary, no crash", async () => {
-  const ctx = await buildOperatorKnowledgeContext({ requestText: "agent map 结构 建立", agents: [], graph: { edges: [] }, loops: [] });
+  const ctx = await buildOperatorKnowledgeContext({ requestText: "agent map 结构 建立", agents: [], graph: { edges: [] } });
   const frag = ctx.selectedFragments.find((f) => f.id === "agent-map");
   assert.ok(frag);
   assert.match(frag.summary, /没有已注册 agent/);

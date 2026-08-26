@@ -13,9 +13,8 @@ Delivery 负责把结果送到正确的下一跳。当前运行时使用一套 d
 | `delivery:terminal` | contract 到终态后回最终用户或外部入口 |
 | `delivery:system_action_runtime_result` | 普通子流程完成后，结果回发起 agent / session |
 | `delivery:system_action_assign_task_result` | assign_task 子任务完成后，结果回委派者 |
-| `delivery:system_action_review_verdict` | request_review 审查完成后，verdict 回发起者 |
 
-文档里可把后三者统称为 `delivery:system_action` 概念家族；运行时使用上表中的精确 variant id。
+文档里可把后两者统称为 `delivery:system_action` 概念家族；运行时使用上表中的精确 variant id。
 
 **回件元数据模型**：
 

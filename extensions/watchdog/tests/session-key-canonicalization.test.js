@@ -8,7 +8,7 @@ import {
   buildAgentContractSessionKey,
   buildAgentMainSessionKey,
   parseAgentContractSessionKey,
-} from "../lib/session-keys.js";
+} from "../lib/session/session-keys.js";
 
 const WATCHDOG_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -27,12 +27,12 @@ test("session key helpers build canonical main and contract session keys", () =>
 test("core runtime files use canonical session key helpers instead of hand-written templates", async () => {
   const files = [
     join(WATCHDOG_ROOT, "lib", "agent", "agent-identity.js"),
-    join(WATCHDOG_ROOT, "lib", "automation", "automation-harness-lifecycle.js"),
+    join(WATCHDOG_ROOT, "lib", "automation", "automation-round-context.js"),
     join(WATCHDOG_ROOT, "lib", "automation", "automation-registry.js"),
     join(WATCHDOG_ROOT, "lib", "ingress", "before-start-ingress.js"),
-    join(WATCHDOG_ROOT, "lib", "routing", "delivery-terminal.js"),
-    join(WATCHDOG_ROOT, "lib", "routing", "dispatch-graph-policy.js"),
-    join(WATCHDOG_ROOT, "lib", "routing", "delivery-system-action-helpers.js"),
+    join(WATCHDOG_ROOT, "lib", "routing", "delivery", "delivery-terminal.js"),
+    join(WATCHDOG_ROOT, "lib", "routing", "dispatch", "dispatch-graph-policy.js"),
+    join(WATCHDOG_ROOT, "lib", "routing", "delivery", "delivery-system-action-helpers.js"),
     join(WATCHDOG_ROOT, "lib", "schedule", "schedule-registry.js"),
     join(WATCHDOG_ROOT, "lib", "schedule", "schedule-trigger.js"),
   ];

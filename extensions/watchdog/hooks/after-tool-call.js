@@ -4,7 +4,7 @@
 import { unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
-  HOME, MAX_RECENT_TOOL_EVENTS, TOOL_CALLS_WINDOW_SIZE,
+  HOME, MAX_RECENT_TOOL_EVENTS, TOOL_CALLS_WINDOW_SIZE, resolveWorkspacePath,
   agentWorkspace,
 } from "../lib/state.js";
 import {
@@ -13,38 +13,41 @@ import {
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import { getTrackingState } from "../lib/store/tracker-store.js";
 import { broadcast, buildProgressPayload } from "../lib/transport/sse.js";
-import { writeTaskState } from "../lib/contracts.js";
-import { recordStep } from "../lib/store/execution-trace-store.js";
-import { evaluateTrace } from "../lib/store/execution-trace-store.js";
-import { normalizeSystemIntent, RUNTIME_RESULT_FILE } from "../lib/protocol-primitives.js";
+import { writeTaskState } from "../lib/contract/contracts.js";
+import { recordToolCallEvidence } from "../lib/evidence/evidence-bridge.js";
 import {
-  AGENT_ROLE,
+  getSessionProgress,
+  recordProgressToolCall,
+} from "../lib/evidence/session-progress-projection.js";
+import { normalizeSystemIntent, RUNTIME_RESULT_FILE } from "../lib/protocol/protocol-primitives.js";
+import {
   getAgentIdentitySnapshot,
   getAgentRole,
-  resolveAgentIdByRole,
 } from "../lib/agent/agent-identity.js";
 import {
   classifyCanonicalProtocolCommit,
   scheduleProtocolCommitReconcile,
-} from "../lib/protocol-commit-reconcile.js";
-import { refreshTrackingProjection } from "../lib/stage-projection.js";
+} from "../lib/protocol/protocol-commit-reconcile.js";
+import { refreshTrackingProjection } from "../lib/stage/stage-projection.js";
 import {
   trackToolCall,
   markSessionHardStopped,
   getSessionHardStopReason,
   HARD_STOP_REASON,
-} from "../lib/loop/loop-detection.js";
-import { resolveLoopEpochKey } from "../lib/loop/loop-epoch-key.js";
-import { resolveMaxToolCallsFromPolicy } from "../lib/execution-policy-defaults.js";
+} from "../lib/runtime/execution-hard-stop-registry.js";
+import { resolveSessionEpochKey } from "../lib/runtime/session-epoch-key.js";
+import {
+  resolveMaxToolCallsFromPolicy,
+  resolveMaxOutputBytesFromPolicy, // FIX(A4-output-length-stop): output-byte budget resolver
+} from "../lib/security/execution-policy-defaults.js";
 import { buildToolActivityCursor } from "../lib/runtime-activity.js";
 import { observeCanonicalRuntimeResultCommit } from "../lib/protocol-commit-observer.js";
-import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
+import { syncTrackingRuntimeStageProgress } from "../lib/stage/runtime-stage-progress.js";
 import {
   appendToolTimelineEvent,
   buildToolTimelineEvent,
 } from "../lib/tool-timeline.js";
-import { canonicalizeContractOutputPath } from "../lib/runtime-contract-output-alias.js";
-import { isToolOutcomeError } from "../lib/runtime-user-facing-output.js";
+import { isToolOutcomeError, measureToolResultBytes } from "../lib/delivery/runtime-user-facing-output.js"; // FIX(A4-output-length-stop): measure tool result bytes
 import {
   getExecutionIncident,
   upsertExecutionIncident,
@@ -52,12 +55,18 @@ import {
 import { evaluateRuntimeFault } from "../lib/runtime/runtime-fault-evaluator.js";
 import { terminalizeHardStoppedRuntimeSession } from "../lib/runtime/hard-stop-terminalize.js";
 
-function deriveLoopHardStopCommitInfo({ agentId, trackingState, traceVerdict }) {
+export function deriveHardStopCommitInfo({ agentId, trackingState, traceVerdict }) {
   const fallbackRuntimeResultPath = agentId
     ? join(agentWorkspace(agentId), "outbox", RUNTIME_RESULT_FILE)
     : "";
   const contractOutput = String(trackingState?.contract?.output || "").trim();
-  const commitPath = contractOutput || fallbackRuntimeResultPath;
+  // 树轮换底:outputCommitted 由树 outbox 内的实际写命中时,commitPath 用投影记下的
+  // 落盘文件(committedWritePath)——树轮 contract.output 地址无文件,拿它当 commitPath
+  // 会被 reconcile 的 commit_file_missing 短路,硬停树轮收口单腿化。
+  const committedWritePath = String(traceVerdict?.committedWritePath || "").trim();
+  const commitPath = (traceVerdict?.outputCommitted === true && committedWritePath)
+    ? committedWritePath
+    : contractOutput || fallbackRuntimeResultPath;
   if (!commitPath) {
     return null;
   }
@@ -70,18 +79,7 @@ function deriveLoopHardStopCommitInfo({ agentId, trackingState, traceVerdict }) 
 }
 
 export function resolveToolWriteTargetPath({ agentId, rawPath, trackingState = null }) {
-  const normalized = String(rawPath || "").replace(/^~/, HOME);
-  if (!normalized) return normalized;
-  const resolvedPath = normalized.startsWith("/") || /^[A-Za-z]:[\\/]/.test(normalized)
-    ? normalized
-    : !agentId
-      ? normalized
-      : join(agentWorkspace(agentId), normalized);
-  return canonicalizeContractOutputPath({
-    agentId,
-    rawPath: resolvedPath,
-    contractOutput: trackingState?.contract?.output || "",
-  });
+  return resolveWorkspacePath(rawPath, agentWorkspace(agentId));
 }
 
 export function deriveDelegationIntentForEarlyCheck(action) {
@@ -94,11 +92,11 @@ export function deriveDelegationIntentForEarlyCheck(action) {
   };
 }
 
-function resolveSameToolLoopEvidence(loopSignal, hardStopReason) {
-  if (loopSignal === "warn") {
+function resolveSameToolRepeatEvidence(hardStopSignal, hardStopReason) {
+  if (hardStopSignal === "warn") {
     return 3;
   }
-  if (loopSignal === "hard_stop" && hardStopReason === HARD_STOP_REASON.REPEAT_THRESHOLD) {
+  if (hardStopSignal === "hard_stop" && hardStopReason === HARD_STOP_REASON.REPEAT_THRESHOLD) {
     return 5;
   }
   return 0;
@@ -115,12 +113,7 @@ function resolveIncidentTerminationReason(incidentVerdict, hardStopReason, wrong
 }
 
 function resolveObservedToolPath(agentId, rawPath) {
-  const normalized = String(rawPath || "").replace(/^~/, HOME).trim();
-  if (!normalized) return "";
-  if (normalized.startsWith("/") || /^[A-Za-z]:[\\/]/.test(normalized)) {
-    return normalized;
-  }
-  return agentId ? join(agentWorkspace(agentId), normalized) : normalized;
+  return resolveWorkspacePath(rawPath, agentWorkspace(agentId));
 }
 
 export function register(api, logger) {
@@ -131,59 +124,76 @@ export function register(api, logger) {
     const params = event.params ?? {};
     const trackingState = getTrackingState(sessionKey);
 
-    // ── Execution trace: record every tool call ──
+    // ── Evidence projection: sync per-session progress facts (hot-path readable) ──
+    // 投影必须在这里同步维护,而不是搭在 evidence-bridge 里:bridge 按设计吞掉自身
+    // 失败(证据面弱于执行面),而 outputCommitted 参与硬停提交与 runtime fault 判定。
     const writeTarget = resolveToolWriteTargetPath({
       agentId,
       rawPath: params.path ?? params.file_path ?? params.filePath ?? "",
       trackingState,
     });
     const writeSucceeded = !isToolOutcomeError(event);
-    recordStep(sessionKey, {
+    recordProgressToolCall(sessionKey, {
       tool: toolName,
       targetPath: writeTarget,
       writeSucceeded,
     });
 
+    // ── Evidence bridge: full-fidelity event into the session trace (never blocks) ──
+    await recordToolCallEvidence({
+      sessionKey, agentId, toolName, params, event,
+      contractId: trackingState?.contract?.id ?? null, logger,
+    });
+
     // ── Loop detection: track repeated identical tool calls ──
-    const epochKey = resolveLoopEpochKey(trackingState) || sessionKey;
-    const loopSignal = trackToolCall(epochKey, toolName, params);
-    if (loopSignal === "warn" || loopSignal === "hard_stop") {
+    const epochKey = resolveSessionEpochKey(trackingState) || sessionKey;
+    const hardStopSignal = trackToolCall(epochKey, toolName, params);
+    if (hardStopSignal === "warn" || hardStopSignal === "hard_stop") {
       const loopWarningTs = Date.now();
       const startedAt = Number(trackingState?.startTs || trackingState?.startedAt || 0);
       // trackToolCall runs before t.toolCallTotal++, so the post-call counter is +1.
-      broadcast("loop_warning", {
+      broadcast("execution_hard_stop_warning", {
         sessionKey,
         epochKey,
         agentId,
         agentRole: getAgentRole(agentId) || null,
         contractId: trackingState?.contract?.id || null,
         toolName,
-        level: loopSignal,
+        level: hardStopSignal,
         toolCallTotalAfter: Number((trackingState?.toolCallTotal || 0) + 1),
         elapsedMs: startedAt > 0 ? Math.max(0, loopWarningTs - startedAt) : null,
         ts: loopWarningTs,
       });
-      const [label, logFn] = loopSignal === "warn"
+      const [label, logFn] = hardStopSignal === "warn"
         ? ["LOOP WARNING: repeated tool call detected", logger.warn]
         : ["LOOP HARD STOP: tool calls will be blocked", logger.error];
       logFn(`[watchdog] ${label} — ${agentId} (session: ${sessionKey})`);
     }
-    const traceVerdict = evaluateTrace(sessionKey);
+    const traceVerdict = getSessionProgress(sessionKey);
 
     const canonicalCommitInfo = await classifyCanonicalProtocolCommit({
       agentId,
       targetPath: writeTarget,
       sessionKey,
     });
-    const loopHardStopCommitInfo = loopSignal === "hard_stop"
-      ? deriveLoopHardStopCommitInfo({
+    const hardStopCommitInfo = hardStopSignal === "hard_stop"
+      ? deriveHardStopCommitInfo({
           agentId,
           trackingState,
           traceVerdict,
         })
       : null;
 
-    // ── Delivery/Inbox consumption detection ──
+    // ── 终端投递件消费清理 ──
+    // deliveries/ 是送达 bridge/用户的终端投递件,不在 inbox 生命周期里(cleanInbox 管
+    // inbox 目录,管不到这里;bridge 会话也未必有对应的合约收尾),消费后由本处清。
+    //
+    // 曾并存的第二条(planner inbox .json 读后 10s 删)已于 2026-08-18 拆除:它来自
+    // 2026-03-09 v4 的 workspace-contractor 时代(彼时无合约状态机/队列/agent_end
+    // 收尾/树店),职责今已被 cleanInbox 严格覆盖(整目录 + ownerContractId 归属守卫 +
+    // 摘链 + direct 晋位),而它按墙钟删、与 turn 生命周期无关,反倒在 agent_end 快照
+    // 之前把信封删空(读面"系统输入不可考")、让 hard-path autoexec 随 turn 时长静默
+    // 失效、并给信封缺席竞态添了一把火。
     if (/^(read|Read)$/i.test(toolName) && !isToolOutcomeError(event)) {
       const readPath = String(params.file_path ?? params.path ?? "").replace(/^~/, HOME);
       if (readPath.includes("deliveries/") && readPath.endsWith(".json")) {
@@ -195,18 +205,6 @@ export function register(api, logger) {
           }
           catch (e) { logger.warn(`[watchdog] delivery auto-delete failed: ${e.message}`); }
         }, 5000);
-      }
-      const plannerAgentId = resolveAgentIdByRole(AGENT_ROLE.PLANNER);
-      const plannerInboxDir = join(agentWorkspace(plannerAgentId), "inbox");
-      if (readPath.startsWith(`${plannerInboxDir}/`) && readPath.endsWith(".json")) {
-        setTimeout(async () => {
-          try {
-            await unlink(readPath);
-            evictContractSnapshotByPath(readPath);
-            logger.info(`[watchdog] AUTO-DELETED consumed inbox request: ${readPath}`);
-          }
-          catch (e) { logger.warn(`[watchdog] inbox auto-delete failed: ${e.message}`); }
-        }, 10000);
       }
     }
 
@@ -252,7 +250,14 @@ export function register(api, logger) {
     // is snapshotted at before_agent_start so the resolve here is a plain lookup.
     const maxToolCallsBudget = resolveMaxToolCallsFromPolicy(t?.executionPolicy);
     if (Number(t.toolCallTotal || 0) >= maxToolCallsBudget) {
-      markSessionHardStopped(resolveLoopEpochKey(t) || sessionKey, HARD_STOP_REASON.MAX_TOOL_CALLS);
+      markSessionHardStopped(resolveSessionEpochKey(t) || sessionKey, HARD_STOP_REASON.MAX_TOOL_CALLS);
+    }
+    // FIX(A4-output-length-stop): after_tool_call bounded call COUNT but never total output VOLUME ->
+    // accumulate result bytes per session and hard-stop once the output-byte budget is crossed.
+    // Pure observation, identical shape to the maxToolCalls marking above (no contract mutation here).
+    t.outputBytesTotal = Number(t.outputBytesTotal || 0) + measureToolResultBytes(event);
+    if (t.outputBytesTotal >= resolveMaxOutputBytesFromPolicy(t?.executionPolicy)) {
+      markSessionHardStopped(resolveSessionEpochKey(t) || sessionKey, HARD_STOP_REASON.OUTPUT_BUDGET_EXHAUSTED);
     }
     if (t.toolCalls.length >= TOOL_CALLS_WINDOW_SIZE) t.toolCalls.shift();
     t.toolCalls.push({ tool: toolName, label: activityCursor.label, ts: observedAt });
@@ -296,7 +301,7 @@ export function register(api, logger) {
     });
     const incidentVerdict = evaluateRuntimeFault({
       toolLoop: {
-        sameToolSameInputCount: resolveSameToolLoopEvidence(loopSignal, hardStopReason),
+        sameToolSameInputCount: resolveSameToolRepeatEvidence(hardStopSignal, hardStopReason),
         toolName,
       },
       hardStopReason,
@@ -305,7 +310,6 @@ export function register(api, logger) {
           canonicalCommitInfo
           || observedRuntimeResultCommit
           || traceVerdict?.outputCommitted
-          || traceVerdict?.systemActionSeen
         ),
       },
       actor: {
@@ -350,7 +354,7 @@ export function register(api, logger) {
 
     broadcast("track_progress", buildProgressPayload(t));
 
-    const effectiveCommitInfo = canonicalCommitInfo || observedRuntimeResultCommit || loopHardStopCommitInfo;
+    const effectiveCommitInfo = canonicalCommitInfo || observedRuntimeResultCommit || hardStopCommitInfo;
     if (effectiveCommitInfo) {
       scheduleProtocolCommitReconcile({
         sessionKey,

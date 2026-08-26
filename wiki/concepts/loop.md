@@ -1,61 +1,68 @@
-# Loop
+# Loop（已退役 2026-08-18）
 
-> 循环 = 传送带的重复分发，不是独立协议。
+> **本页是历史页，不是当前真值。** 回路机制已整体退役：`LoopSpec` / `LoopSession` / `start_loop` /
+> `advance_loop` / `graph.loop.*` / `runtime.loop.*` / `lib/loop/` 全部不存在。
+> 当前真值见 [Graph & Edge](./graph-edge.md) 与 [Conveyor Belt](./conveyor-belt.md)。
 
-## 是什么
+## 现在的替代物（一句话）
 
-Loop 是 conveyor belt dispatch 的重复执行机制。它不引入新的通信协议，而是在已有的 conveyor dispatch 之上增加重复和状态管理。
+**图上成环 = 传送带沿回边重复投递。** 环只是边的形状，`detectCycles`（`lib/agent/agent-graph.js`）
+负责识别，前端据此高亮并弹「检测到环」，提示词装配据此写出「当前显式回路」段。
+除此之外没有回路对象、没有注册表、没有轮次、没有回路预算。
 
-**核心对象**：
-- `LoopSpec` — 循环定义：从 cycle 提升为 runtime loop，包含 phase order 和 max iterations
-- `loop-session` — 循环运行时状态存储，**只存循环状态**（不含通信字段——备忘录92 审查纠正）
+| 退役前 | 现在 |
+|---|---|
+| `graph.loop.compose` 注册 LoopSpec | `graph.edge.add` 把末跳连回入口即可，平台自动识别环 |
+| `runtime.loop.start` 起一轮 | 用户/ingress 把任务投进入口 agent 的 inbox，传送带逐跳推进 |
+| LoopSession 持有 round/stage/budget | `contract.stageRuntime` 持有当前环节；轮次由 automation 承担 |
+| `loop-budget.js` maxRounds/maxExperiments | 迭代预算归 automation governance（`resolve-governance.js` 的 `maxRounds`） |
+| loop 跑飞由 budget governance 兜底 | `dispatch-depth-guard`（32 跳 / 同目标 6 次）+ 执行硬停（重复工具调用指纹） |
+| AgentGroup 是「空间」、Loop 是「时间」 | AgentGroup 仍是空间原语；时间维由传送带逐跳推进 + automation 轮次承担 |
 
-**判别式循环 / GAN-like 模式**（备忘录74）：
-```
-researcher → worker → evaluator → (judgment) → researcher ...
-```
-- evaluator 产出判定结果驱动改进
-- 形成 judgment-driven improvement loop
+## 为什么退役
 
-**Loop 家族概念**：
-- 通用循环机制 + 具体家族绑定
-- 不同循环场景（研究、生产、审查）复用同一套循环原语
+回路曾被设计成「conveyor dispatch 之上的重复执行机制」，但它实际长成了第二套并行真值：
+自己的注册表（`graph-loop-registry.json`）、自己的会话态（`loop_session_state.json`）、
+自己的预算器、自己的 admin/CLI/HTTP 表面、自己的 agent_end 推进分支。
+这直接违反「一条路径原则」——同一件事（让任务在图上反复走）有了两条实现。
+退役后只留一条：传送带按图边投递，环由 `detectCycles` 识别。
 
-**Loop runtime 收口**（备忘录92 之后）：
-- 历史编排引擎职责回收到 loop-session 与 dispatch graph policy
-- loop-session 吸收循环决策状态
-- system_action 当前入口使用 `start_loop` / `advance_loop`
+**保留下来的能力（用户明确要求）**：识环。`detectCycles` / `hasDirectedEdge` / `loadGraph`、
+`GET /watchdog/graph` 的 `cycles` 字段、dashboard 的 `normalizeGraphCycles` / `highlightCycles` /
+`isLoopBack` 回边几何、提示词的「当前显式回路」段——一个都没删。
 
-### 环自带 limit（v120）
+## 命名警告（同名不同物）
 
-LoopSpec 声明式携带 `maxRounds` / `maxExperiments`（`lib/loop/loop-budget.js`，DEFAULT 3 / 30）。`resolveLoopStartBudget` 的优先级（后者覆盖前者）：DEFAULT < LoopSpec-declared < runtime budget < explicit runtime config —— 环字面上带着自己的 limit，未声明时 fall-through 到 DEFAULT。超限时**复用既有 budget governance 优雅 force-conclude**，不是新建限流器。
+退役后代码里仍有大量 `loop` 字面量，它们**与本页描述的图回路无关**，分属两族：
 
-### reviewer 控制环（v121）
-
-reviewer 可早停/强停循环。配套修了一个 idle 误判 bug：loop reviewer 环节拿到的是 contract（不是扁平 artifact-inbox 文件），早先 artifact-lane 分支把「有 live contract 的 reviewer」误判为 idle → `agent_end` 被跳过 → 循环卡在 reviewer 环节不前进。修复 = artifact 分支也认「已绑定 contract 即有活干」（`lib/heartbeat-gate.js` `hasActionableHeartbeatWork`，空 reviewer 仍 idle，向后兼容）。
-
-## 为什么存在
-
-- 消除旧编排 god object：把单体引擎职责拆解为循环原语
-- 统一重复执行模式：研究回路、生产流水线、审查循环都用同一套 loop 机制
-- 避免协议膨胀：loop 不是新协议，只是 conveyor dispatch 的重复应用
-
-## 和谁交互
-
-- [Conveyor Belt](./conveyor-belt.md)：loop 的每次迭代就是一次 conveyor dispatch
-- [Graph & Edge](./graph-edge.md)：循环中的 agent 协作路径受图约束
-- [Evaluation Result Chain](./evaluation-result-chain.md)：evaluator 判定驱动循环推进/终止
-- [Harness](./harness.md)：每次循环执行通过 harness 塑造（如已存在）
+1. **执行硬停**（L3 沙箱安全闸）：`lib/runtime/execution-hard-stop-registry.js`、
+   `lib/runtime/session-epoch-key.js`、`hooks/after-tool-call.js` 的重复工具调用检测、
+   `[LOOP DETECTED]` 标记、`loop_warning` / `loop_detected` 事件、`E-*` 里的 hard stop 措辞。
+   这是"agent 卡在同一个工具调用上转圈"的意思，不是图回路。
+2. **自治回路 / 工具回路**：`autonomy-loop-semantics`、"Inspect-Apply-Verify Loop"、
+   [四关节自治闭环](./self-governance-loop.md)、`knowledge-toolface.js` 的 "tool loop"。
+   这是控制面的反馈闭环，也不是图回路。
 
 ## 演化
 
 1. 备忘录65 开始讨论循环机制，将历史编排概念向 loop 迁移
 2. 备忘录69 loop-session 成为真值源，旧 Path B 删除
-3. 备忘录74 提出判别式循环 / GAN-like 模式
+3. 备忘录74 提出判别式循环 / GAN-like 模式（researcher → worker → evaluator → …）
 4. 备忘录92 正式提出旧编排引擎收口计划，loop-session 吸收决策逻辑
-5. v120-stable: LoopSpec 自带 `maxRounds`/`maxExperiments`（`loop-budget.js`），超限复用既有 budget governance 优雅收敛
-6. v121-stable: reviewer 控制环（早停/强停）+ heartbeat artifact-branch idle 误判修复（已绑定 contract 即有活干）
+5. v120-stable: LoopSpec 自带 `maxRounds`/`maxExperiments`
+6. v121-stable: reviewer 控制环（早停/强停）+ heartbeat artifact-branch idle 误判修复
+7. **2026-08-18（B1–B10 十批）：整体退役**。`lib/loop/` 七文件、`suite-loop.js`、
+   admin/CLI/HTTP 回路表面、agent_end 回路推进分支、automation 回路腿、
+   控制面第 4 份结构真值、`loop` 测试预设全部删除；错误码 114→105；
+   structure snapshot 4 真值→3 真值。
+
+## 和谁交互（历史）
+
+- [Conveyor Belt](./conveyor-belt.md)：曾经每次迭代就是一次 conveyor dispatch；现在直接就是 conveyor dispatch
+- [Graph & Edge](./graph-edge.md)：环的真值所在，**当前真值页**
+- [AgentGroup](./agent-group.md)：空间原语，退役后成为图上唯一的成组原语
+- [四关节自治闭环](./self-governance-loop.md)：第二族命名，与本页无关
 
 ## 当前状态
 
-**概念已定型，仍需实现收尾**。loop runtime 使用 loop-session 作为循环状态源；剩余工作是继续移除历史编排残留，并把决策消费面完全接到当前 runtime 对象链。
+**已退役**。本页仅供理解历史决策与命名来源；任何按本页描述去找代码的动作都会扑空。

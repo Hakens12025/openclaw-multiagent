@@ -2,8 +2,10 @@ import { basename } from "node:path";
 
 import { getToolLabel } from "./state.js";
 import { classifyRuntimeActivityKind } from "./runtime-activity.js";
+import { HARD_STOP_BLOCK_TAG } from "./runtime/execution-hard-stop-registry.js";
 
-const LOOP_HARD_STOP_PATTERN = /\[LOOP DETECTED\]/u;
+// 判据引自闸的所有者(单一真值);此前是裸正则,改协议串会静默失配。
+const HARD_STOP_PATTERN = new RegExp(HARD_STOP_BLOCK_TAG.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u");
 const PATH_GUARD_PATTERNS = [
   /EISDIR/u,
   /ENOTDIR/u,
@@ -44,7 +46,7 @@ function normalizeErrorMessage(error) {
 export function classifyToolError(error) {
   const message = normalizeErrorMessage(error);
   if (!message) return null;
-  if (LOOP_HARD_STOP_PATTERN.test(message)) {
+  if (HARD_STOP_PATTERN.test(message)) {
     return "loop_hard_stop_block";
   }
   if (PATH_GUARD_PATTERNS.some((pattern) => pattern.test(message))) {

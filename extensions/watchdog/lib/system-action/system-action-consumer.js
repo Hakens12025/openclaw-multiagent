@@ -1,18 +1,14 @@
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import { getAgentRole } from "../agent/agent-identity.js";
-import { normalizeString } from "../core/normalize.js";
 import {
-  INTENT_TYPES,
   isKnownIntentType,
   normalizeSystemIntent,
-} from "../protocol-primitives.js";
+} from "../protocol/protocol-primitives.js";
 import { systemActionDispatch } from "./system-action-runtime.js";
 import {
   SYSTEM_ACTION_STATUS,
 } from "../core/runtime-status.js";
-import { startLoopRound } from "../loop/loop-round-runtime.js";
-import { normalizePositiveInteger } from "../loop/loop-budget.js";
 import {
   isActionAllowedForRole,
   resolveDisallowedActionReason,
@@ -21,24 +17,6 @@ export {
   buildDeferredSystemActionFollowUp,
   deriveSystemActionTerminalOutcome,
 } from "./system-action-runtime-ledger.js";
-
-export function resolveStartLoopParams(normalizedAction, contractData) {
-  void contractData;
-  const params = normalizedAction?.params && typeof normalizedAction.params === "object"
-    ? normalizedAction.params
-    : {};
-  const startAgent = normalizeString(params.startAgent);
-  const requestedTask = normalizeString(params.requestedTask);
-  // loop-limit：agent 经 [ACTION] start_loop 也能在开始时给（缺省 fall-through 到 LoopSpec/DEFAULT）。
-  // 顶层 maxRounds 被 resolveLoopStartBudget 读取（命令 > LoopSpec > DEFAULT）。
-  const maxRounds = normalizePositiveInteger(params.maxRounds, null);
-
-  return {
-    ...(startAgent ? { startAgent } : {}),
-    ...(requestedTask ? { requestedTask } : {}),
-    ...(maxRounds != null ? { maxRounds } : {}),
-  };
-}
 
 export function buildSystemActionReplyTarget({
   agentId,
@@ -83,53 +61,13 @@ async function systemActionDispatchEntry(action, {
     return runtimeActionResult;
   }
 
-  switch (normalizedAction.type) {
-    case INTENT_TYPES.START_LOOP: {
-      const startLoopParams = resolveStartLoopParams(normalizedAction, contractData);
-      const loopResult = await startLoopRound(
-        {
-          ...startLoopParams,
-          runtimeApi: api,
-        },
-        null,
-        actionReplyTo,
-        logger,
-      );
-
-      if (loopResult.action === "busy") {
-        return {
-          status: SYSTEM_ACTION_STATUS.BUSY,
-          actionType: normalizedAction.type,
-          error: loopResult.error || "loop already active",
-          loopId: loopResult.loopId || null,
-        };
-      }
-
-      if (loopResult.action === "invalid_params") {
-        return {
-          status: SYSTEM_ACTION_STATUS.INVALID_PARAMS,
-          actionType: normalizedAction.type,
-          error: loopResult.error,
-        };
-      }
-
-      broadcast("alert", { type: EVENT_TYPE.LOOP_STARTED, source: agentId, ts: Date.now() });
-      logger.info(`[system_action] ${agentId} triggered start_loop → ${loopResult.action}`);
-      return {
-        status: SYSTEM_ACTION_STATUS.DISPATCHED,
-        actionType: normalizedAction.type,
-        loopId: loopResult.loopId || null,
-        loopSessionId: loopResult.loopSessionId || null,
-        currentStage: loopResult.currentStage || null,
-        targetAgent: loopResult.targetAgent || null,
-      };
-    }
-    default:
-      if (!isKnownIntentType(normalizedAction.type)) {
-        logger.warn(`[system_action] unknown action type: ${normalizedAction.type}`);
-      }
-      return { status: SYSTEM_ACTION_STATUS.UNKNOWN_ACTION, actionType: normalizedAction.type || null };
+  // systemActionDispatch 返回 undefined = 没有 runtime handler。回路退役后词汇表里
+  // 的四个 intent 全部有 handler，故这里只可能是真未知动作；仍按「既知但无处理器」
+  // 与「未知」分流写日志，让日后新增词汇位时的缺口不被 warn 噪音淹没。
+  if (!isKnownIntentType(normalizedAction.type)) {
+    logger.warn(`[system_action] unknown action type: ${normalizedAction.type}`);
   }
+  return { status: SYSTEM_ACTION_STATUS.UNKNOWN_ACTION, actionType: normalizedAction.type || null };
 }
 
 export async function systemActionConsume({
@@ -152,6 +90,20 @@ export async function systemActionConsume({
     if (actionRole && attemptedActionType && !isActionAllowedForRole(actionRole, attemptedActionType)) {
       const reason = resolveDisallowedActionReason(actionRole, attemptedActionType);
       logger.warn(`[system_action] ${agentId} role-policy reject: ${reason}`);
+      // known-but-denied 是被规定的行为(如缓建 intent create_task roles=[]),
+      // 广播出来让证据面与 live 预设可确定性观测,不再只靠日志考古。
+      broadcast("alert", {
+        type: EVENT_TYPE.SYSTEM_ACTION_ROLE_POLICY_REJECTED,
+        source: agentId,
+        actionType: attemptedActionType,
+        role: actionRole,
+        reason,
+        // 证据定位(2026-08-27):哨兵「查看证据」深链靠这两列;缺了拒绝红点只能
+        // 降级为不可跳(前端诚实禁用)。作用域现成,发端带上=证据链闭环。
+        contractId: contractData?.id ?? null,
+        sessionKey: sessionKey ?? null,
+        ts: Date.now(),
+      });
       return {
         status: SYSTEM_ACTION_STATUS.DISPATCH_ERROR,
         actionType: attemptedActionType,

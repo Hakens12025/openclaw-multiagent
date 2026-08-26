@@ -8,40 +8,45 @@
 // inspect surface 的唯一 dispatch 点，不改任何数据语义（行为等价于原直读）。
 
 import { normalizeString } from "../core/normalize.js";
-import { listRecentHarnessRuns } from "../harness/harness-run-store.js";
-import { summarizeHarnessRegistry } from "../harness/harness-registry.js";
-import { listResolvedGraphLoops } from "../loop/graph-loop-registry.js";
-import { getActiveResolvedLoopSession, listResolvedLoopSessions } from "../loop/loop-session-store.js";
 import { listResolvedGroupSessions } from "../agent/group-session-store.js";
 import { summarizeScheduleRegistry } from "../schedule/schedule-registry.js";
-import { summarizeAgentJoinRegistry } from "../agent/agent-join-registry.js";
-import { listTestRuns } from "../test-runs.js";
+import { summarizeAgentJoinRegistry } from "../agent/admin/agent-join-registry.js";
+import { listTestRuns } from "../formal-runtime/test-runs.js";
 import { loadGraph } from "../agent/agent-graph.js";
 import { computeAgentWorkflows } from "../agent/agent-workflow-grouping.js";
 import { listAgentSessions } from "../agent/agent-session-store.js";
 import { readSessionTranscript } from "../agent/agent-session-transcript.js";
 import { readSessionSystemPrompt } from "../agent/agent-session-system-prompt.js";
 import { getGuidanceDriftState } from "../agent/agent-guidance-drift-state.js";
-import { summarizeSystemActionDeliveryTickets } from "../routing/delivery-system-action-ticket.js";
+import { summarizeSystemActionDeliveryTickets } from "../routing/delivery/delivery-system-action-ticket.js";
 import { summarizePendingSignalRegistry } from "../runtime/pending-signal-registry.js";
-import { listLifecycleWorkItems } from "../contracts.js";
-import { listAdminChangeSets } from "../admin/admin-change-sets.js";
+import { listLifecycleWorkItems } from "../contract/contracts.js";
+import { listAdminChangeSets } from "../admin/change-sets/admin-change-sets.js";
 import { listAutomationRuntimeStates, summarizeAutomationRuntimeRegistry } from "../automation/automation-runtime.js";
 import { projectStructureAfter } from "../control-plane/structure-snapshot.js";
 import { listTrackingStates } from "../store/tracker-store.js";
-import { getRecentTaskHistory } from "../store/task-history-store.js";
-import { loadCapabilityRegistry } from "../capability/capability-registry.js";
-import { searchWiki } from "../operator/wiki-rag-search.js";
-import { summarizeKnowledgeBases, searchKb, searchAgentKnowledge } from "../operator/knowledge-base.js";
+import {
+  listThreads,
+  readContractSeal,
+  readRunCausality,
+  readRunDetail,
+  readRunEvents,
+  readTreeIndexes,
+} from "../archive/run-tree-inspect.js";
+import { loadCapabilityRegistry } from "../management/capability-registry.js";
+import { searchWiki } from "../knowledge/wiki-rag-search.js";
+import { summarizeKnowledgeBases, searchKb, searchAgentKnowledge } from "../knowledge/knowledge-base.js";
 import { listCharts } from "../control-plane/chart-registry.js";
-import { listKnowledgeEvalSets } from "../operator/knowledge-eval-registry.js";
-import { listKnowledgeEvalRuns } from "../operator/knowledge-eval-runner.js";
+import { listKnowledgeEvalSets } from "../knowledge/knowledge-eval-registry.js";
+import { listKnowledgeEvalRuns } from "../knowledge/knowledge-eval-runner.js";
 import { inspectCliRuntimeState } from "./cli-runtime-inspector.js";
 import { getCliSystemSurface } from "./cli-surface-registry.js";
+import { tryReadTraceRowsFromDb } from "../record-plane/record-reader.js";
+import { joinRunRecords, resolveRunTarget } from "../archive/run-join.js";
 
 // Path-segment guard for inspect surfaces that build filesystem paths from agentId/sessionId. The HTTP
 // /watchdog/inspect route forwards query params verbatim (routes/api.js), so an unchecked ".." or path
-// separator could escape the agents/ or session-archive/ root (path traversal). Strict charset (no
+// separator could escape the agents/ or run-tree participants/ root (path traversal). Strict charset (no
 // separators) + reject the "."/".." segments = the smallest single-source gate at the dispatch boundary.
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9._-]+$/u;
 function assertSafePathSegment(value, label) {
@@ -53,16 +58,6 @@ function assertSafePathSegment(value, label) {
 }
 
 const INSPECT_SOURCES = Object.freeze({
-  // inspect.harness_runs → HarnessRun store 近期记录（收口 listRecentHarnessRuns 直读）
-  "inspect.harness_runs": ({ limit } = {}) => listRecentHarnessRuns(limit),
-  // inspect.harness_catalog → harness 模块+profile 目录（operator/UI 组装前发现可用模块与方案）
-  "inspect.harness_catalog": () => summarizeHarnessRegistry(),
-  // inspect.graph_loops → 已解析 graph loop（透传 { graph }）
-  "inspect.graph_loops": ({ graph = null } = {}) => listResolvedGraphLoops({ graph }),
-  // inspect.loop_sessions → 已解析 loop session（透传 { loops }）
-  "inspect.loop_sessions": ({ loops = null } = {}) => listResolvedLoopSessions({ loops }),
-  // inspect.active_loop_session → 当前活跃 loop session（透传 { loops }）
-  "inspect.active_loop_session": ({ loops = null } = {}) => getActiveResolvedLoopSession({ loops }),
   // inspect.agent_groups → GroupSession 运行态（active + recent，组内成员完成状态）。
   // AgentGroup 是宏，runtime 真值只在 GroupSession——收口直读 group-session-store 旁路。
   "inspect.agent_groups": () => listResolvedGroupSessions(),
@@ -116,8 +111,49 @@ const INSPECT_SOURCES = Object.freeze({
   "inspect.structure_preview": (options = {}) => projectStructureAfter(options),
   // inspect.tracking_states → tracker store 全量 tracking state（无参，同步源；SSE 初始快照读路径）
   "inspect.tracking_states": () => listTrackingStates(),
-  // inspect.recent_task_history → task-history store 近期记录（透传 limit，默认 10；SSE 历史快照读路径）
-  "inspect.recent_task_history": ({ limit = 10 } = {}) => getRecentTaskHistory(limit),
+  // inspect.threads → 树店 threads 根摘要(threadId/runCount/latestRunId/latestTs)。limit 透传。
+  "inspect.threads": ({ limit } = {}) => listThreads({ limit }),
+  // inspect.run → 单 run 详情(run.json 投影 + contracts 清单 + participants 摘要)。
+  // threadId/runId 走 requireRunLineage 同款 charset 白名单(模块内断言),这里再挡一道分发边界。
+  "inspect.run": ({ threadId, runId } = {}) => readRunDetail({
+    threadId: assertSafePathSegment(threadId, "threadId"),
+    runId: assertSafePathSegment(runId, "runId"),
+  }),
+  // inspect.run_events → run 事件账分页(afterSeq 游标/limit 窗口,坏行防御跳过)。
+  // 事件内容已切 records DB 优先(读面切换第一半),文件为双写验证期垫片。
+  "inspect.run_events": ({ threadId, runId, afterSeq, limit } = {}) => readRunEvents({
+    threadId: assertSafePathSegment(threadId, "threadId"),
+    runId: assertSafePathSegment(runId, "runId"),
+    afterSeq,
+    limit,
+  }),
+  // inspect.run_causality → run 事件因果图(事件→节点,causeRefs→边,跨 run 引用原样透出)。
+  "inspect.run_causality": ({ threadId, runId } = {}) => readRunCausality({
+    threadId: assertSafePathSegment(threadId, "threadId"),
+    runId: assertSafePathSegment(runId, "runId"),
+  }),
+  // inspect.contract_seal → 合约封条清单(contract-index 寻家 + 全参与者 seal.json)。
+  "inspect.contract_seal": ({ contractId } = {}) => readContractSeal({
+    contractId: assertSafePathSegment(contractId, "contractId"),
+  }),
+  // inspect.trace → trace 证据账按 sessionKey 出闸(payload 展开 + gseq/anchorRunId/
+  // anchorSeq 随行,供透视页时间线锚点对齐)。DB 缺席/无数据 → 空数组(观测面不炸)。
+  "inspect.trace": ({ sessionKey } = {}) => {
+    const key = normalizeString(sessionKey);
+    if (!key) throw new Error("invalid sessionKey: required");
+    return tryReadTraceRowsFromDb(key) ?? [];
+  },
+  // inspect.tree_indexes → contract-index/session-index 统计(行数/可解析行/实体数,不 dump 全量)。
+  "inspect.tree_indexes": () => readTreeIndexes(),
+  // inspect.run_join → run 两店场外拼接出闸(复用 joinRunRecords + resolveRunTarget,
+  // 语义零改动)。runId/contractId/threadId 任意一把钥匙定位;认不出 → { found:false }。
+  "inspect.run_join": ({ runId, contractId, threadId } = {}) => {
+    const key = normalizeString(runId) || normalizeString(contractId) || normalizeString(threadId);
+    if (!key) throw new Error("invalid params: one of runId/contractId/threadId required");
+    const target = resolveRunTarget(key);
+    if (!target) return { found: false, query: key };
+    return joinRunRecords({ threadId: target.threadId, runId: target.runId });
+  },
   // inspect.capability_registry → capability registry 组装快照（无参；route 观测读）
   "inspect.capability_registry": () => loadCapabilityRegistry(),
   // inspect.knowledge_search → wiki-RAG 语义检索（embed query → cosine top-K over wiki-only index）。

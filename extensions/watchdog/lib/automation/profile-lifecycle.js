@@ -1,14 +1,15 @@
 /**
  * profile-lifecycle.js — ProfileLifecycle 对象链尾段（第 11 概念，概念预算上限）
  *
- * 对象链：HarnessRun → EvaluationResult → AutomationDecision → ProfileLifecycle。
+ * 对象链：AutomationDecision → ProfileLifecycle。
+ * （上游 HarnessRun → EvaluationResult 两环已随 harness 全退役删除，v226 / 2026-08-23。）
  * 备忘录114 §5.1 + cli-chain-e2e.test.js:400 标注的预留扩展点，本轮（P4）建成。
  *
  * 红线：
  * - 派生量：successStreak/failureStreak 从历史现算，不存 durable。
  * - 不造第二真值：只写 runtime.governanceSnapshot（经 resolve-governance 白名单校验），绝不改 spec。
  * - 概念预算已满：不分裂为 ResolvedGovernance/ProfileSnapshot/LifecycleState 多对象，统一在此持有。
- * - trustLevel 复用 harness-registry 的档位理念（experimental/provisional/stable），不新增 enum 泄漏。
+ * - trustLevel 档位（experimental/provisional/stable）自持有，不依赖外部 enum。
  *
  * 所有权：profile:automation = 1:N。streak 归 automation（per-automation），故 ProfileLifecycle
  * 由 (automationId, profileId) 联合标识；多 automation 共享同一 profile 时 streak 各自独立。
@@ -23,7 +24,7 @@ import {
 import { normalizeGovernanceSnapshot } from "./resolve-governance.js";
 
 // 信任阶梯：低 → 高。stable = 最硬化 = 治理最紧。
-// 不含 "unknown"：harness-registry enum 无此值；未知 profile 以 experimental（最低）为种子。
+// 不含 "unknown"：未知 profile 以 experimental（最低）为种子。
 export const TRUST_LADDER = Object.freeze(["experimental", "provisional", "stable"]);
 
 const VALID_LIFECYCLE_STATUS = new Set(["active", "retired"]);

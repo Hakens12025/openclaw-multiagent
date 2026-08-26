@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import { inspectCliSystemSurface, getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 import { validateCliSurface } from "../lib/cli-system/cli-surface-schema.js";
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:inspect-structure-preview-surface.test.js" });
 
 // inspect.structure_preview — projectStructureAfter 的 CLI-system inspect 封装。
 // 让 operator / 守门方在 apply 前经 CLI 预览结构改动(非破坏性投影), 不碰 live。
@@ -27,7 +30,7 @@ test("inspect.structure_preview 非 inspect 入口误用被拒(家族隔离)", a
   );
 });
 
-test("inspect.structure_preview 投影边/环改动(非破坏性, 不碰 live)", async () => {
+test("inspect.structure_preview 投影边改动(非破坏性, 不碰 live)", async () => {
   const originalGraph = await loadGraph();
   try {
     await saveGraph({ edges: [] });
@@ -42,17 +45,29 @@ test("inspect.structure_preview 投影边/环改动(非破坏性, 不碰 live)",
     const liveAfter = await loadGraph();
     assert.equal(liveAfter.edges.length, 0, "预览不得改 live 图");
 
-    // graph.loop.compose 投影
-    const loopPreview = await inspectCliSystemSurface({
+    // graph.edge.delete 投影(回路投影分支已随 loop 退役下线,边投影是唯一图形结构入口)
+    await saveGraph({ edges: [{ from: "planner", to: "worker" }] });
+    const delPreview = await inspectCliSystemSurface({
       surfaceId: "inspect.structure_preview",
-      params: { surfaceId: "graph.loop.compose", payload: { agents: ["planner", "worker", "worker2"] } },
+      params: { surfaceId: "graph.edge.delete", payload: { from: "planner", to: "worker" } },
     });
-    assert.equal(loopPreview.structural, true);
-    assert.deepEqual(loopPreview.edgeDiff.added, ["planner→worker", "worker→worker2", "worker2→planner"]);
-
+    assert.equal(delPreview.structural, true);
+    assert.deepEqual(delPreview.edgeDiff.removed, ["planner→worker"]);
+    assert.equal((await loadGraph()).edges.length, 1, "预览不得改 live 图");
   } finally {
     await saveGraph(originalGraph);
   }
+});
+
+test("inspect.structure_preview 已下线的回路投影 surface 退化为无结构 diff", async () => {
+  const preview = await inspectCliSystemSurface({
+    surfaceId: "inspect.structure_preview",
+    params: { surfaceId: "graph.loop.compose", payload: { agents: ["planner", "worker", "worker2"] } },
+  });
+  assert.equal(preview.structural, false, "回路已退役:不得再有 loop 投影分支");
+  assert.equal(preview.edgeDiff, null);
+  assert.equal("loops" in preview.current, false, "投影返回不得再带 loops 真值");
+  assert.equal("loops" in preview.projected, false, "投影返回不得再带 loops 真值");
 });
 
 test("inspect.structure_preview agent 级 diff: create→added, role 改→modified(overlay 用)", async () => {

@@ -5,7 +5,7 @@ import {
   CommitVerificationBlockedError,
   evaluateCommitVerificationGate,
   isVerificationRequiredForCommit,
-} from "../lib/admin/admin-change-set-commit-gate.js";
+} from "../lib/admin/change-sets/admin-change-set-commit-gate.js";
 import {
   getCliSystemSurface,
   listCliSystemSurfaces,
@@ -125,14 +125,14 @@ const GATED_PREVIEW = {
   verificationCapability: { supported: true },
 };
 
-mock.module("../lib/admin/admin-change-set-preview.js", {
+mock.module("../lib/admin/change-sets/admin-change-set-preview.js", {
   namedExports: {
     buildAdminChangeSetPreview: () => GATED_PREVIEW,
     resolveAdminChangeSetVerificationRequest: () => null,
   },
 });
 
-mock.module("../lib/admin/admin-surface-operations.js", {
+mock.module("../lib/admin/operations/admin-surface-operations.js", {
   namedExports: {
     executeAdminSurfaceOperation: async () => ({ ok: true, applied: true }),
   },
@@ -140,7 +140,7 @@ mock.module("../lib/admin/admin-surface-operations.js", {
 
 // draftState lets each test set the draft's verification status the executor reads.
 const draftState = { lastVerificationStatus: null, verificationHistory: [] };
-mock.module("../lib/admin/admin-change-sets.js", {
+mock.module("../lib/admin/change-sets/admin-change-sets.js", {
   namedExports: {
     getAdminChangeSetDetails: async () => ({
       id: "TC-GATE",
@@ -159,7 +159,7 @@ mock.module("../lib/admin/admin-change-sets.js", {
   },
 });
 
-const { executeAdminChangeSet } = await import("../lib/admin/admin-change-set-executor.js");
+const { executeAdminChangeSet } = await import("../lib/admin/change-sets/admin-change-set-executor.js");
 
 test("commit path HARD-BLOCKS: gate fail throws and never records applied", async () => {
   recordedExecutions.length = 0;

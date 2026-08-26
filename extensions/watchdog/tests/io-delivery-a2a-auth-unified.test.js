@@ -62,7 +62,7 @@ test("a2a POST /tasks/send uses gatewayToken (not hooksToken)", async (t) => {
     },
   });
 
-  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/contract/contracts.js", {
     namedExports: {
       readContractCompletionArtifact: async () => null,
       readContractSnapshotById: async () => null,
@@ -75,7 +75,7 @@ test("a2a POST /tasks/send uses gatewayToken (not hooksToken)", async (t) => {
     },
   });
 
-  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/capability/capability-registry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/management/capability-registry.js", {
     namedExports: {
       loadCapabilityRegistry: async () => ({ agents: [], skills: [] }),
     },
@@ -145,7 +145,7 @@ test("a2a GET /a2a/tasks/:id uses gatewayToken (already correct, must stay)", as
     },
   });
 
-  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/contract/contracts.js", {
     namedExports: {
       readContractCompletionArtifact: async () => null,
       readContractSnapshotById: async () => null,
@@ -158,7 +158,7 @@ test("a2a GET /a2a/tasks/:id uses gatewayToken (already correct, must stay)", as
     },
   });
 
-  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/capability/capability-registry.js", {
+  t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/management/capability-registry.js", {
     namedExports: {
       loadCapabilityRegistry: async () => ({ agents: [], skills: [] }),
     },

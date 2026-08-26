@@ -1,7 +1,7 @@
 import { normalizeString, uniqueStrings, uniqueTools } from "../core/normalize.js";
 import {
   getCapabilityPreset,
-} from "../capability/capability-preset-registry.js";
+} from "../security/capability-preset-registry.js";
 
 const DEFAULT_INPUT_FORMATS = Object.freeze(["contract-json", "direct-request"]);
 

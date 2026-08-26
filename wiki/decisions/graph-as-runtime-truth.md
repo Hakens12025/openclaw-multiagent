@@ -2,6 +2,10 @@
 
 > agent_graph.json 在运行时强制执行协作权限，不只是 UI 装饰。
 
+> ⚠️ **协作授权那半已于 2026-08-08(v179-stable)被取代**,见 [动态协作不查图边](./dynamic-collaboration-leaves-graph.md)。
+> 图在运行时**仍是真值**——但真值的对象是**固定管线选路**(ingress 首跳 / agent_end 自动选路),不是 agent 主动发起的协作。
+> 本页下方"必须经 graph 校验"的表述只适用于固定管线;动态协作的授权单源是 `collaboration-intent-policy` 的角色表。
+
 ## 决策
 
 `agent_graph.json` 作为运行时权限边界。Agent 间的协作请求必须经过 graph 校验：只有 graph 中存在边的 agent 对才能互相通信。
@@ -16,7 +20,7 @@
 
 1. **Graph 纯可视化 / UI-only** — 没有运行时约束力，agent 行为不可预测。
 2. **所有 action 都必须经 graph 约束** — 会破坏 `create_task` 等入口场景（graph 为空时无法工作）。
-3. **扩大 loop engine 作用范围至覆盖环路以外的场景** — loop engine 职责是环路检测，不应承担通用权限校验。
+3. **扩大 loop engine 作用范围至覆盖环路以外的场景** — loop engine 职责是环路检测，不应承担通用权限校验。（2026-08-18：loop engine 已整体退役，只剩纯函数 `detectCycles` 做环路检测，本条否决结论因此更强：识环与授权彻底分家。）
 
 ## 影响
 

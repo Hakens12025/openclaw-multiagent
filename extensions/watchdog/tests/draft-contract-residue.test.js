@@ -31,8 +31,8 @@ test("contract-flow-store no longer exposes draft contract side-store APIs", asy
 });
 
 test("execution routing no longer exports planner draft inbox helpers", async () => {
-  const handlers = await import("../lib/routing/runtime-mailbox-inbox-handlers.js");
-  const contracts = await import("../lib/contracts.js");
+  const handlers = await import("../lib/routing/mailbox/runtime-mailbox-inbox-handlers.js");
+  const contracts = await import("../lib/contract/contracts.js");
 
   assert.equal("routePlannerInbox" in handlers, false);
   assert.equal("promoteContract" in contracts, false);
@@ -40,12 +40,12 @@ test("execution routing no longer exports planner draft inbox helpers", async ()
 
 test("control-plane source files no longer mention draftContracts residue", async () => {
   const fileChecks = [
-    ["state-collections", "/Users/hakens/.openclaw/extensions/watchdog/lib/state-collections.js"],
+    ["state-collections", "/Users/hakens/.openclaw/extensions/watchdog/lib/state/state-collections.js"],
     ["contract-flow-store", "/Users/hakens/.openclaw/extensions/watchdog/lib/store/contract-flow-store.js"],
-    ["state-persistence", "/Users/hakens/.openclaw/extensions/watchdog/lib/state-persistence.js"],
+    ["state-persistence", "/Users/hakens/.openclaw/extensions/watchdog/lib/state/state-persistence.js"],
     ["runtime-admin", "/Users/hakens/.openclaw/extensions/watchdog/lib/admin/runtime-admin.js"],
     ["crash-recovery", "/Users/hakens/.openclaw/extensions/watchdog/lib/lifecycle/crash-recovery.js"],
-    ["runtime-mailbox-inbox-handlers", "/Users/hakens/.openclaw/extensions/watchdog/lib/routing/runtime-mailbox-inbox-handlers.js"],
+    ["runtime-mailbox-inbox-handlers", "/Users/hakens/.openclaw/extensions/watchdog/lib/routing/mailbox/runtime-mailbox-inbox-handlers.js"],
   ];
 
   for (const [label, filePath] of fileChecks) {
@@ -61,9 +61,9 @@ test("control-plane source files no longer mention draftContracts residue", asyn
 
 test("execution routing source files no longer mention planner draft promotion flow", async () => {
   const fileChecks = [
-    ["contracts", "/Users/hakens/.openclaw/extensions/watchdog/lib/contracts.js"],
+    ["contracts", "/Users/hakens/.openclaw/extensions/watchdog/lib/contract/contracts.js"],
     ["crash-recovery", "/Users/hakens/.openclaw/extensions/watchdog/lib/lifecycle/crash-recovery.js"],
-    ["runtime-mailbox-inbox-handlers", "/Users/hakens/.openclaw/extensions/watchdog/lib/routing/runtime-mailbox-inbox-handlers.js"],
+    ["runtime-mailbox-inbox-handlers", "/Users/hakens/.openclaw/extensions/watchdog/lib/routing/mailbox/runtime-mailbox-inbox-handlers.js"],
     ["before-start-ingress", "/Users/hakens/.openclaw/extensions/watchdog/lib/ingress/before-start-ingress.js"],
   ];
 

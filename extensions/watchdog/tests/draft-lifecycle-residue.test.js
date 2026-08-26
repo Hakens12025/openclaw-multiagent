@@ -10,7 +10,7 @@ test("runtime surface no longer exposes draft promotion compatibility events", (
 });
 
 test("dispatch graph policy no longer carries promoteFromDraft compatibility logic", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/routing/dispatch-graph-policy.js", "utf8");
+  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/routing/dispatch/dispatch-graph-policy.js", "utf8");
 
   assert.doesNotMatch(source, /\bpromoteFromDraft\b/);
   assert.doesNotMatch(source, /\bdraft_promoted\b/);
@@ -18,14 +18,8 @@ test("dispatch graph policy no longer carries promoteFromDraft compatibility log
 });
 
 test("system action suite no longer expects draft_promoted runtime events", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/formal-runtime/suite-system-action.js", "utf8");
+  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/lib/formal-runtime/suite-collab.js", "utf8");
 
   assert.doesNotMatch(source, /\bdraft_promoted\b/);
 });
 
-test("dashboard no longer consumes dead draft lifecycle compatibility events", async () => {
-  const source = await readFile("/Users/hakens/.openclaw/extensions/watchdog/dashboard.js", "utf8");
-
-  assert.doesNotMatch(source, /\bdraft_promoted\b/);
-  assert.doesNotMatch(source, /\bdraft_timeout\b/);
-});

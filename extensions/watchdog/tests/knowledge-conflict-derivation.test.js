@@ -8,8 +8,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { deriveConflictHints, hybridSearchOverIndex } from "../lib/operator/wiki-rag-search.js";
-import { normalizeConflictConfig } from "../lib/operator/knowledge-base-registry.js";
+import { deriveConflictHints, hybridSearchOverIndex } from "../lib/knowledge/wiki-rag-search.js";
+import { normalizeConflictConfig } from "../lib/knowledge/knowledge-base-registry.js";
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 const CONFLICT = { groupBy: "fields.ticker", on: ["fields.target_price"] };

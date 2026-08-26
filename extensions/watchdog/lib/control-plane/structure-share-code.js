@@ -18,8 +18,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { loadGraph } from "../agent/agent-graph.js";
-import { loadGraphLoopRegistry } from "../loop/graph-loop-registry.js";
-import { loadConfig } from "../agent/agent-admin-store.js";
+import { loadConfig } from "../agent/admin/agent-admin-store.js";
 import { listAutomationSpecs } from "../automation/automation-registry.js";
 import { agentWorkspace } from "../state.js";
 import { join } from "node:path";
@@ -104,15 +103,14 @@ function structureAgents(config) {
 }
 
 async function buildStructurePayload(level) {
-  const [graph, loopReg, config, automations] = await Promise.all([
-    loadGraph(), loadGraphLoopRegistry(), loadConfig(), listAutomationSpecs(),
+  const [graph, config, automations] = await Promise.all([
+    loadGraph(), loadConfig(), listAutomationSpecs(),
   ]);
 
   const payload = {
     v: 1,
     level,
     graph: { edges: graph.edges || [] },
-    loops: loopReg.loops || [],
     agents: structureAgents(config),
     automations,
   };

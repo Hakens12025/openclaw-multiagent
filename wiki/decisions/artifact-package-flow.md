@@ -1,5 +1,9 @@
 # 产物随合约整包流转 (Artifact Package Flow)
 
+> ⚠️ **落地形态已升级（v181 / 2026-08-08）**：`upstreamPackages` 从目录路径字符串升格成 `{path, producer, files[], primary}` 对象数组——清单由平台在拷贝时零成本产出并主动递送，agent 不再需要猜文件名。见[产物交接](../concepts/artifact-handoff.md)。以下正文保留当时原貌。
+>
+> ⚠️ **两处核心机制已改（v218 / 2026-08-19）**：① **留存店取消** —— `control-plane/artifacts/<cid>/<producer>/` 与 `saveAgentArtifact`/`preserve_artifact` 站整体删除。封条（seal）落地后树 outbox 就是不可变正本，下游一律直接对它取包（已封包→symlink 零拷贝，未封包→拷当前内容），副本店从 08-16 起再没被读过。② **上游不再按 graph 求** —— 原本按全部入边反查 producer，那是把「投递授权」当成「产物来源」，后果是 08-18 图夹具拆除后评审包投递静默断掉三天。现在上游身份随合约走：`contract.upstreamProducers`，由派工收口（`applyUpstreamProducerPointer`）一次登记。**正文第 9 行「随 contract 沿 graph 流到下游」与第 11 行的留存描述均已作废**，其余（整包、指针、agent 只读自己 inbox）不变。
+
 > 上游 agent 的产物以「包」（全部文件 + manifest）随 contract 流到下游 inbox；agent 只读自己 inbox，系统负责搬运。
 
 ## 决策
@@ -27,7 +31,7 @@ agent 的产物（可能是多个文件）按 `contract+producer` 整包独立�
 ## 影响
 
 - `artifact-store.js`：`saveAgentArtifact`（整包 + manifest）、`copyUpstreamArtifactsToInbox`（整包流入 + 返回 packages）。
-- `agent-end-stage-definitions.js`：`preserve_artifact` 阶段（graph_route 之前）传 `executionObservation.artifactPaths` 整包留存。
+- `agent-end/stage-definitions.js`：`preserve_artifact` 阶段（graph_route 之前）传 `executionObservation.artifactPaths` 整包留存。
 - `runtime-mailbox.js`：routeInbox 整包流入 + 写 `upstreamPackages` 指针。
 - `role-spec-registry.js`：dispatch 指令加"读 upstreamPackages"通用引导（路径真值仍在 contract）。
 - outbox 收集早已支持多文件 + 主交付物（`runtime-mailbox-outbox-helpers.js`），本决策只补"流到下游 inbox"这一缺口。

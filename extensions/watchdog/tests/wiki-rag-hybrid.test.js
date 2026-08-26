@@ -8,8 +8,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { searchWikiRagLexical, lexicalTermsForQuery } from "../lib/operator/wiki-rag-store.js";
-import { rrfFuse } from "../lib/operator/wiki-rag-search.js";
+import { searchWikiRagLexical, lexicalTermsForQuery } from "../lib/knowledge/wiki-rag-store.js";
+import { rrfFuse } from "../lib/knowledge/wiki-rag-search.js";
 
 // ── lexicalTermsForQuery:ASCII 词 + CJK bigram ────────────────────────────────
 
@@ -27,21 +27,21 @@ test("lexicalTermsForQuery：ASCII 整词 + CJK 字符 bigram(中文无空格靠
 
 const INDEX = {
   chunks: [
-    { sourcePath: "concepts/conveyor-belt.md", heading: "传送带原则", text: "传送带:inbox/outbox + graph 授权派工,agent 读 inbox 处理写 outbox", vector: [] },
-    { sourcePath: "concepts/harness.md", heading: "harness", text: "harness 四种模块 guard collector gate normalizer 质量门控", vector: [] },
-    { sourcePath: "concepts/loop.md", heading: "loop", text: "loop 重复派工,LoopSpec maxRounds 收敛", vector: [] },
+    { sourcePath: "wiki/concepts/conveyor-belt.md", heading: "传送带原则", text: "传送带:inbox/outbox + graph 授权派工,agent 读 inbox 处理写 outbox", vector: [] },
+    { sourcePath: "wiki/concepts/harness.md", heading: "harness", text: "harness 四种模块 guard collector gate normalizer 质量门控", vector: [] },
+    { sourcePath: "wiki/concepts/loop.md", heading: "loop", text: "loop 重复派工,LoopSpec maxRounds 收敛", vector: [] },
   ],
 };
 
 test("searchWikiRagLexical：ASCII 术语 query → 命中含该词的 chunk", async () => {
   const r = await searchWikiRagLexical("harness gate 模块", { topK: 3, index: INDEX });
-  assert.equal(r[0].sourcePath, "concepts/harness.md", "harness/gate → harness.md 居首");
+  assert.equal(r[0].sourcePath, "wiki/concepts/harness.md", "harness/gate → harness.md 居首");
   assert.ok(r.every((x) => x.score > 0), "返回项分 > 0");
 });
 
 test("searchWikiRagLexical：中文短语 query → CJK bigram 命中", async () => {
   const r = await searchWikiRagLexical("传送带 inbox 派工", { topK: 3, index: INDEX });
-  assert.equal(r[0].sourcePath, "concepts/conveyor-belt.md", "传送带/inbox → conveyor-belt.md 居首");
+  assert.equal(r[0].sourcePath, "wiki/concepts/conveyor-belt.md", "传送带/inbox → conveyor-belt.md 居首");
 });
 
 test("searchWikiRagLexical：无匹配词 → 空(不返噪声)", async () => {
@@ -51,7 +51,7 @@ test("searchWikiRagLexical：无匹配词 → 空(不返噪声)", async () => {
 
 test("searchWikiRagLexical：输出形状 {sourcePath,heading,text,score}(与向量一致)", async () => {
   const r = await searchWikiRagLexical("loop maxRounds", { topK: 1, index: INDEX });
-  assert.equal(r[0].sourcePath, "concepts/loop.md");
+  assert.equal(r[0].sourcePath, "wiki/concepts/loop.md");
   assert.ok("heading" in r[0] && "text" in r[0] && "score" in r[0]);
 });
 
@@ -84,7 +84,7 @@ test("rrfFuse：空表/null 安全(不抛)", () => {
 });
 
 // ── 查询改写 rewriteQuery(纯函数,进 gate)──────────────────────────────────────
-import { rewriteQuery } from "../lib/operator/wiki-rag-search.js";
+import { rewriteQuery } from "../lib/knowledge/wiki-rag-search.js";
 
 test("rewriteQuery：剥离中文填充词,保留真术语", () => {
   assert.equal(rewriteQuery("我想知道 harness 的四种模块是什么"), "harness 四种模块");

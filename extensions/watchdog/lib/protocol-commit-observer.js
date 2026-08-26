@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { agentWorkspace } from "./state.js";
-import { RUNTIME_RESULT_FILE } from "./protocol-primitives.js";
+import { RUNTIME_RESULT_FILE } from "./protocol/protocol-primitives.js";
 
 function normalizeObservationRecord(value) {
   return value && typeof value === "object" ? value : null;

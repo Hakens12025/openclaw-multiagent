@@ -104,10 +104,13 @@ test("runtimeWakeAgentDetailed prefers hooks launch over heartbeat when hooks tr
   assert.equal(requests[0].method, "POST");
   assert.equal(requests[0].url, "/hooks/agent");
   assert.equal(requests[0].headers.authorization, "Bearer test-hooks-token");
+  // 言面收口 P0(备忘录156 四层②):载荷带 runtime:<agentId> 归属名 + next-heartbeat
+  // (回执不再无归属、不再强拍醒 default agent;守卫 tests/wake-receipt-attribution.test.js)。
   assert.deepEqual(requests[0].body, {
     message: "wake for dispatch",
     agentId: "planner",
-    wakeMode: "now",
+    name: "runtime:planner",
+    wakeMode: "next-heartbeat",
     sessionKey: "agent:planner:main",
   });
   assert.equal(heartbeatCalls.length, 0);
@@ -243,7 +246,6 @@ test("every runtime-owned semantic type is classified as internal wake (GENERIC 
     WAKE_SEMANTIC_TYPE.DIRECT_REQUEST_RESUME,
     WAKE_SEMANTIC_TYPE.SYSTEM_ACTION_WAKE_AGENT,
     WAKE_SEMANTIC_TYPE.ASSIGN_TASK_DISPATCH,
-    WAKE_SEMANTIC_TYPE.REQUEST_REVIEW_DISPATCH,
     WAKE_SEMANTIC_TYPE.TERMINAL_DELIVERY_READY,
     WAKE_SEMANTIC_TYPE.SYSTEM_ACTION_DELIVERY_RESUME,
     WAKE_SEMANTIC_TYPE.HEARTBEAT_POLL,
@@ -340,7 +342,7 @@ test("isRuntimeWakeMessage helper was removed (string-matcher retirement)", asyn
 test("runtime wake source files no longer retain legacy wake prompt wording", async () => {
   const files = [
     join(WATCHDOG_ROOT, "lib", "transport", "runtime-wake-transport.js"),
-    join(WATCHDOG_ROOT, "lib", "routing", "delivery-system-action-transport.js"),
+    join(WATCHDOG_ROOT, "lib", "routing", "delivery", "delivery-system-action-transport.js"),
     join(WATCHDOG_ROOT, "tests", "runtime-diagnosis.js"),
   ];
   const legacyPatterns = [

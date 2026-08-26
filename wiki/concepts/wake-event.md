@@ -41,8 +41,8 @@ WakeEvent → WakeRule → WakeDecision → WakeAction
 ## 和谁交互
 
 - [Automation of Automation](./automation-of-automation.md)：WakeRule/WakeDecision 是自动化治理的一部分
-- [Graph & Edge](./graph-edge.md)：唤醒必须遵守图约束（wake_agent 需要有向边）
-- [Loop](./loop.md)：循环推进触发下一阶段的 agent 唤醒
+- [Graph & Edge](./graph-edge.md)：图管固定管线选路与传送带投递；`wake_agent` **不需要**有向边（v179 解绑，见[决策页](../decisions/dynamic-collaboration-leaves-graph.md)），只校验目标 agent 存在
+- [Loop（已退役）](./loop.md)：历史上由循环推进触发下一阶段唤醒；现在成环时由传送带逐跳投递触发
 
 ## 演化
 

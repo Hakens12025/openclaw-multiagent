@@ -17,7 +17,6 @@ test("execution-layer IDENTITY persona defers IO details to wake + platform docs
     { agentId: "planner-guidance", role: AGENT_ROLE.PLANNER },
     { agentId: "worker-guidance", role: AGENT_ROLE.EXECUTOR },
     { agentId: "researcher-guidance", role: AGENT_ROLE.RESEARCHER },
-    { agentId: "reviewer-guidance", role: AGENT_ROLE.REVIEWER },
   ];
 
   for (const entry of roles) {
@@ -114,6 +113,50 @@ test("bulk workspace guidance sync skips hidden control-plane agents", async () 
       readFile(join(operatorWorkspace, "IDENTITY.md"), "utf8"),
       /ENOENT/,
     );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("heartbeat-driven control-plane agent gets HEARTBEAT.md only (memo149 phase-0)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "openclaw-guidance-heartbeat-"));
+  const vizWorkspace = join(rootDir, "viz-master");
+  const operatorWorkspace = join(rootDir, "operator");
+
+  try {
+    await syncAllRuntimeWorkspaceGuidance({
+      agents: {
+        list: [
+          {
+            id: "viz-master",
+            role: AGENT_ROLE.AGENT,
+            workspace: vizWorkspace,
+            heartbeat: { every: "2h" },
+            binding: {
+              roleRef: AGENT_ROLE.AGENT,
+              workspace: { configured: vizWorkspace },
+            },
+          },
+          {
+            id: "operator",
+            role: AGENT_ROLE.AGENT,
+            workspace: operatorWorkspace,
+            binding: {
+              roleRef: AGENT_ROLE.AGENT,
+              workspace: { configured: operatorWorkspace },
+            },
+          },
+        ],
+      },
+    }, { warn() {} });
+
+    // 心跳驱动的 control-plane agent：补唤醒契约
+    const heartbeat = await readFile(join(vizWorkspace, "HEARTBEAT.md"), "utf8");
+    assert.match(heartbeat, /HEARTBEAT/);
+    // 但不 seed runtime 全套 guidance
+    await assert.rejects(readFile(join(vizWorkspace, "PLATFORM-GUIDE.md"), "utf8"), /ENOENT/);
+    // 无心跳的 control-plane agent：原样跳过（设计不变）
+    await assert.rejects(readFile(join(operatorWorkspace, "HEARTBEAT.md"), "utf8"), /ENOENT/);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

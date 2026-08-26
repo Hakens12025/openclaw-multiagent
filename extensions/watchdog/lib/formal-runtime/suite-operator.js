@@ -20,10 +20,10 @@ import { AGENT_ROLE, listAgentIdsByRole } from "../agent/agent-identity.js";
 import { inspectCliSystemSurface } from "../cli-system/cli-surface-inspector.js";
 import { assertActorOwnsSurface } from "../cli-system/meta-agent-surface-ownership.js";
 
-// 候选限定在 4 个工作角色（不碰 bridge/gateway 绑定），找一对当前不存在的有向边做沙箱对。
+// 候选限定在 3 个工作角色（不碰 bridge/gateway 绑定），找一对当前不存在的有向边做沙箱对。
 export async function resolveOperatorProbeEdgePair() {
   const ids = [];
-  for (const role of [AGENT_ROLE.PLANNER, AGENT_ROLE.RESEARCHER, AGENT_ROLE.EXECUTOR, AGENT_ROLE.REVIEWER]) {
+  for (const role of [AGENT_ROLE.PLANNER, AGENT_ROLE.RESEARCHER, AGENT_ROLE.EXECUTOR]) {
     for (const agentId of listAgentIdsByRole(role)) {
       if (agentId && !ids.includes(agentId)) ids.push(agentId);
     }
@@ -79,7 +79,7 @@ export async function runOperatorSuite(run, context) {
   };
   if (!state.pair) {
     markBlocked(context, Object.values(D), "E-RUNNER-005",
-      "no missing directed pair among role-resolved work agents (planner/researcher/executor/reviewer) — cannot mutate safely");
+      "no missing directed pair among role-resolved work agents (planner/researcher/executor) — cannot mutate safely");
   }
 
   try {

@@ -2,10 +2,9 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { normalizeBoolean, normalizeFiniteNumber, normalizePositiveInteger, normalizeRecord, normalizeString } from "../core/normalize.js";
-import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
-import { normalizeHarnessSelection } from "../harness/harness-registry.js";
+import { normalizeDeliveryTargets } from "../routing/delivery/delivery-targets.js";
 import { atomicWriteFile, withLock } from "../state.js";
-import { buildAgentMainSessionKey } from "../session-keys.js";
+import { buildAgentMainSessionKey } from "../session/session-keys.js";
 import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 
 export const AUTOMATION_STORE = CONTROL_PLANE_PATHS.automationRegistryFile;
@@ -106,8 +105,13 @@ function normalizeAutomationAdapters(value, objective) {
   };
 }
 
+// harness 模块体系已退役（v226 / 2026-08-23，备忘录149）：spec.harness 退化为
+// 纯透传配置袋（不校验、不补默认）。仍保留它的唯一理由：declared-sandbox-guard
+// 的配置面读 contract.automationContext.harness.moduleConfig（D-F 迁移后的
+// 数据形状不变），以及 testMode/profileId 两个治理隔离键的历史形状。
 function normalizeAutomationHarness(value) {
-  return normalizeHarnessSelection(value);
+  const source = normalizeRecord(value, null);
+  return source ? { ...source } : null;
 }
 
 export function normalizeAutomationSpec(value) {
@@ -134,19 +138,9 @@ export function normalizeAutomationSpec(value) {
       ? { targetAgent: source.targetAgent || source.agentId }
       : {}),
   }, objective);
-  const harness = normalizeAutomationHarness({
-    ...(normalizeRecord(source.harness, {})),
-    ...(normalizeString(source.executionMode) ? { mode: source.executionMode } : {}),
-    ...(normalizeString(source.assuranceLevel) ? { assuranceLevel: source.assuranceLevel } : {}),
-    ...(normalizeString(source.harnessProfile || source.harnessProfileId || source.profileId)
-      ? { profileId: source.harnessProfile || source.harnessProfileId || source.profileId }
-      : {}),
-    ...(normalizeRecord(source.harnessCoverage, null)
-      ? { coverage: source.harnessCoverage }
-      : {}),
-  });
+  const harness = normalizeAutomationHarness(source.harness);
 
-  if (!id || !objective || !entry || !harness) return null;
+  if (!id || !objective || !entry) return null;
 
   return {
     id,

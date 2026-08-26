@@ -4,6 +4,10 @@
 > 权威代码：`extensions/watchdog/lib/harness/harness-evidence-vocab.js`
 > 本文档是说明，**代码常量是真值**（冲突以代码为准）。
 
+> **已退役 v226（2026-08-23）**：harness 判定账已全退役（代码全删），裁决与施工单见
+> `use guide/备忘录149_[主]_裁决_阶段012开工与harness全退役_2026-08-20-0130.md` 与
+> `use guide/备忘录150_[主]_评审链删除与reviewer角色退役_2026-08-22-2212.md`。
+> 本页保留作历史设计记录；其中「标准化」思想（声明式模块、证据归一、配置即契约）仍然有效。
 ## 1. 5+1 对象契约（单一 schema）
 
 `harness-module-schema.js` 是 HarnessModule 生命周期对象的**单一权威字段定义**，提供 6 个 validate：

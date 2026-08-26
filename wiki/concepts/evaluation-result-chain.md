@@ -2,6 +2,9 @@
 
 > 从一次执行到能力演化的正式对象链：HarnessRun -> EvaluationResult -> AutomationDecision -> ProfileLifecycle。
 
+> **部分退役 v226（2026-08-23）**：本页所述对象链中的 HarnessRun / EvaluationResult 两环
+> 已随 harness 全退役删除（见 `use guide/备忘录149` / `备忘录150`），AutomationDecision
+> → ProfileLifecycle 治理段仍然存活。本页保留作历史设计记录。
 ## 是什么
 
 四个严格分离的对象，形成从执行到治理的信息流：

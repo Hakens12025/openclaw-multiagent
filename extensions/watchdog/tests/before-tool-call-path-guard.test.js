@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as beforeToolCallHook from "../hooks/before-tool-call.js";
 import { registerRuntimeAgents } from "../lib/agent/agent-identity.js";
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
+import { persistContractById } from "../lib/contract/contracts.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
 import { agentWorkspace, runtimeAgentConfigs } from "../lib/state.js";
 import { clearTrackingStore, rememberTrackingState } from "../lib/store/tracker-store.js";
 import { CONTROL_PLANE_PATHS } from "../lib/control-plane/control-plane-paths.js";
@@ -95,7 +96,7 @@ test("contract session without tracker still requires own inbox contract read fi
   const agentId = `worker-path-guard-session-fallback-${Date.now()}`;
   const contractId = `TC-session-fallback-${Date.now()}`;
   const sessionKey = `agent:${agentId}:contract:${contractId}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   registerRuntimeAgents({
     agents: {
       list: [
@@ -110,7 +111,7 @@ test("contract session without tracker still requires own inbox contract read fi
   });
 
   try {
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "say hello",
       assignee: agentId,
@@ -139,7 +140,7 @@ test("contract session without tracker still requires own inbox contract read fi
     assert.match(result?.blockReason || "", /inbox\/contract\.json/u);
     assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
   } finally {
-    await rm(contractPath, { force: true });
+    if (contractPath) await rm(contractPath, { force: true });
     await rm(agentWorkspace(agentId), { recursive: true, force: true });
   }
 });
@@ -148,7 +149,7 @@ test("contract session without tracker still blocks contract.output reads before
   const agentId = `worker-path-guard-output-fallback-${Date.now()}`;
   const contractId = `TC-output-fallback-${Date.now()}`;
   const sessionKey = `agent:${agentId}:contract:${contractId}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const contractOutput = join(CONTROL_PLANE_PATHS.outputDir, `${contractId}.md`);
   registerRuntimeAgents({
     agents: {
@@ -164,7 +165,7 @@ test("contract session without tracker still blocks contract.output reads before
   });
 
   try {
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "say hello",
       assignee: agentId,
@@ -203,14 +204,14 @@ test("contract session without tracker still blocks contract.output reads before
     assert.match(result?.blockReason || "", /contract\.output/u);
     assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
   } finally {
-    await rm(contractPath, { force: true });
+    if (contractPath) await rm(contractPath, { force: true });
     await rm(agentWorkspace(agentId), { recursive: true, force: true });
   }
 });
 
 test("planner relative inbox reads are allowed by before_tool_call path guard", async () => {
   const contractId = `TC-planner-relative-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   registerRuntimeAgents({
     agents: {
       list: [
@@ -229,7 +230,7 @@ test("planner relative inbox reads are allowed by before_tool_call path guard", 
   const handler = getHandler("before_tool_call");
 
   try {
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "plan this",
       assignee: "planner",
@@ -252,7 +253,7 @@ test("planner relative inbox reads are allowed by before_tool_call path guard", 
 
     assert.equal(result?.block, undefined);
   } finally {
-    await rm(contractPath, { force: true });
+    if (contractPath) await rm(contractPath, { force: true });
   }
 });
 
@@ -538,6 +539,113 @@ test("contract-backed session may read contract.output after it exists", async (
     assert.equal(result?.block, undefined);
   } finally {
     await rm(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+// 上游别名锚(批④刀4):inbox/upstream/<producer> 链接化后,经链读上游物理落在
+// 产者树 outbox——2b/2c 的物理锚集须含链目标;非自己上游的树路径仍在锚外照常拦。
+function buildUpstreamLinkFixtureState({ agentId, sessionKey }) {
+  const trackingState = createTrackingState({ sessionKey, agentId, parentSession: null });
+  trackingState.contract = {
+    id: "TC-upstream-link",
+    assignee: agentId,
+    output: join(agentWorkspace(agentId), "output", "TC-upstream-link.md"),
+    status: "running",
+  };
+  trackingState.toolCallTotal = 1;
+  trackingState.ownInboxContractReadAt = Date.now();
+  trackingState.toolCalls.push({ tool: "read", label: "阅读: contract.json", ts: Date.now() });
+  rememberTrackingState(sessionKey, trackingState);
+}
+
+test("contract-backed session reads its own upstream through the staged tree link", async () => {
+  const agentId = `worker-upstream-link-${Date.now()}`;
+  const sessionKey = `agent:${agentId}:contract:test`;
+  const treeRoot = join(tmpdir(), `upstream-link-tree-${Date.now()}`);
+  const treeOutbox = join(treeRoot, "participants", "planner", "outbox-TC-upstream-link");
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: agentId,
+          role: "executor",
+          workspace: `~/.openclaw/workspaces/${agentId}`,
+          model: { primary: "demo/worker" },
+        },
+      ],
+    },
+  });
+
+  try {
+    await mkdir(treeOutbox, { recursive: true });
+    await writeFile(join(treeOutbox, "report.md"), "上游正本", "utf8");
+    await mkdir(join(agentWorkspace(agentId), "inbox", "upstream"), { recursive: true });
+    await symlink(treeOutbox, join(agentWorkspace(agentId), "inbox", "upstream", "planner"), "dir");
+    buildUpstreamLinkFixtureState({ agentId, sessionKey });
+
+    const { api, getHandler } = createHookApi();
+    beforeToolCallHook.register(api, logger);
+    const handler = getHandler("before_tool_call");
+
+    const result = await handler(
+      { toolName: "read", params: { path: "inbox/upstream/planner/report.md" } },
+      { agentId, sessionKey },
+    );
+    assert.equal(result?.block, undefined, "经平台 staging 的上游链读取应放行(物理目标=授权别名)");
+  } finally {
+    await rm(agentWorkspace(agentId), { recursive: true, force: true });
+    await rm(treeRoot, { recursive: true, force: true });
+  }
+});
+
+test("planner reads its own upstream link target while unlinked tree paths stay outside its scope", async () => {
+  const agentId = `planner-upstream-link-${Date.now()}`;
+  const sessionKey = `agent:${agentId}:contract:test`;
+  const treeRoot = join(tmpdir(), `upstream-link-tree-planner-${Date.now()}`);
+  const treeOutbox = join(treeRoot, "participants", "worker", "outbox-TC-upstream-link");
+  const foreignOutbox = join(treeRoot, "participants", "other", "outbox-TC-foreign");
+  registerRuntimeAgents({
+    agents: {
+      list: [
+        {
+          id: agentId,
+          role: "planner",
+          workspace: `~/.openclaw/workspaces/${agentId}`,
+          model: { primary: "demo/planner" },
+        },
+      ],
+    },
+  });
+
+  try {
+    await mkdir(treeOutbox, { recursive: true });
+    await writeFile(join(treeOutbox, "report.md"), "上游正本", "utf8");
+    await mkdir(foreignOutbox, { recursive: true });
+    await writeFile(join(foreignOutbox, "secret.md"), "别人的树产物", "utf8");
+    await mkdir(join(agentWorkspace(agentId), "inbox", "upstream"), { recursive: true });
+    await symlink(treeOutbox, join(agentWorkspace(agentId), "inbox", "upstream", "worker"), "dir");
+    buildUpstreamLinkFixtureState({ agentId, sessionKey });
+
+    const { api, getHandler } = createHookApi();
+    beforeToolCallHook.register(api, logger);
+    const handler = getHandler("before_tool_call");
+
+    const allowed = await handler(
+      { toolName: "read", params: { path: "inbox/upstream/worker/report.md" } },
+      { agentId, sessionKey },
+    );
+    assert.equal(allowed?.block, undefined, "planner 经自己的上游链读取应放行");
+
+    const blocked = await handler(
+      { toolName: "read", params: { path: join(foreignOutbox, "secret.md") } },
+      { agentId, sessionKey },
+    );
+    assert.equal(blocked?.block, true, "非自己上游的树路径应照常拦");
+    assert.match(blocked?.blockReason || "", /路径限制/u);
+    assertPositiveAgentVisibleBlockReason(blocked?.blockReason || "");
+  } finally {
+    await rm(agentWorkspace(agentId), { recursive: true, force: true });
+    await rm(treeRoot, { recursive: true, force: true });
   }
 });
 
@@ -988,7 +1096,7 @@ test("contract-backed session blocks tool-error payload writes into contract.out
         content: JSON.stringify({
           status: "error",
           tool: "write",
-          error: "[LOOP DETECTED] runtime 已关闭本轮工具通道；请用普通文本给出最终结果。",
+          error: "[EXECUTION HALTED] runtime 已关闭本轮工具通道;请用普通文本给出最终结果。",
         }),
       },
     },
@@ -1123,7 +1231,7 @@ test("contract session fallback blocks tool-error payload writes into contract.o
   const agentId = `worker-output-payload-fallback-${Date.now()}`;
   const contractId = `TC-output-payload-fallback-${Date.now()}`;
   const sessionKey = `agent:${agentId}:contract:${contractId}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const contractOutput = join(CONTROL_PLANE_PATHS.outputDir, `${contractId}.md`);
   registerRuntimeAgents({
     agents: {
@@ -1139,7 +1247,7 @@ test("contract session fallback blocks tool-error payload writes into contract.o
   });
 
   try {
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "say hello",
       assignee: agentId,
@@ -1185,7 +1293,44 @@ test("contract session fallback blocks tool-error payload writes into contract.o
     assert.match(result?.blockReason || "", /工具错误|控制载荷/u);
     assertPositiveAgentVisibleBlockReason(result?.blockReason || "");
   } finally {
-    await rm(contractPath, { force: true });
+    if (contractPath) await rm(contractPath, { force: true });
     await rm(agentWorkspace(agentId), { recursive: true, force: true });
   }
+});
+
+// 逃生门锁(2026-08-18 live 实证 TC-…495631):信封缺席(TOCTOU 竞态)时 first-read 闸的
+// 指令不可满足,若连 submit_output 也拦住,agent 连"我干不了这活"都申报不出去 —— 平台
+// 拿不到 status:failed,只剩一段受阻正文,最终被判成假成功。平台服务族只能动自己,
+// 放行它与 2a 白名单闸的既有豁免同款理由。
+test("first-read guard exempts the platform service escape hatch (submit_output stays callable)", async () => {
+  const agentId = `worker-escape-hatch-${Date.now()}`;
+  const contractId = `TC-escape-hatch-${Date.now()}`;
+  const sessionKey = `agent:${agentId}:contract:${contractId}`;
+  registerRuntimeAgents({
+    agents: {
+      list: [{ id: agentId, role: "executor", workspace: `~/.openclaw/workspaces/${agentId}`, model: { primary: "demo/worker" } }],
+    },
+  });
+  await persistContractById({ id: contractId, task: "escape hatch", assignee: agentId, status: "running" }, logger);
+
+  const trackingState = createTrackingState({ sessionKey, agentId, parentSession: null });
+  // 关键前提:本轮从未成功读到 inbox/contract.json(信封缺席)
+  assert.equal(Number.isFinite(trackingState.ownInboxContractReadAt), false);
+  rememberTrackingState(sessionKey, trackingState);
+
+  const { api, getHandler } = createHookApi();
+  beforeToolCallHook.register(api, logger);
+  const handler = getHandler("before_tool_call");
+
+  const blockedRead = await handler(
+    { toolName: "read", params: { path: "some/other/file.md" } },
+    { agentId, sessionKey },
+  );
+  assert.equal(blockedRead?.block, true, "普通工具照旧被 first-read 闸拦");
+
+  const escapeHatch = await handler(
+    { toolName: "submit_output", params: { status: "failed", reason: "inbox/contract.json missing" } },
+    { agentId, sessionKey },
+  );
+  assert.notEqual(escapeHatch?.block, true, "逃生门必须始终可用 — 拦住它就没人能申报失败");
 });

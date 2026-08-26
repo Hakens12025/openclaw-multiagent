@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { withLock } from "../../lib/state-file-utils.js";
+import { withLock } from "../../lib/state/state-file-utils.js";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

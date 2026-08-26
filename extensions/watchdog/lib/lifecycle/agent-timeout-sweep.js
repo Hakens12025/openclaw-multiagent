@@ -15,9 +15,9 @@ import { listTrackingEntries } from "../store/tracker-store.js";
 import { getRuntimeAgentConfig } from "../agent/agent-identity.js";
 import { handleCrashRecovery } from "./crash-recovery.js";
 import { finalizeAgentSession, SESSION_FINALIZE_MODE } from "./runtime-lifecycle.js";
-import { isAgentEndInFlight } from "./agent-end-lifecycle.js";
+import { isAgentEndInFlight } from "../session/session-phase-store.js";
 import { runtimeWakeAgent } from "../transport/runtime-wake-transport.js";
-import { MAX_RETRY_COUNT, RETRY_DELAYS, RUNNING_TRACKER_STALE_SILENCE_MS } from "../state-constants.js";
+import { MAX_RETRY_COUNT, RETRY_DELAYS, RUNNING_TRACKER_STALE_SILENCE_MS } from "../state/state-constants.js";
 
 // 硬超时下限 60s：避免误配 0/极小值导致瞬杀（getAgentTimeoutMs 已对 <=0 返回 null=不硬杀）。
 const MIN_AGENT_TIMEOUT_MS = 60_000;

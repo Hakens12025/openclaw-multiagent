@@ -2,9 +2,9 @@
 
 import { sseClients } from "../state.js";
 import { getAgentIdentitySnapshot } from "../agent/agent-identity.js";
-import { getEnvelopeType } from "../protocol-primitives.js";
-import { buildLifecycleStageTruth } from "../lifecycle-stage-truth.js";
-import { resolveTrackingWorkItem } from "../tracking-work-item.js";
+import { getEnvelopeType } from "../protocol/protocol-primitives.js";
+import { buildLifecycleStageTruth } from "../stage/lifecycle-stage-truth.js";
+import { resolveTrackingWorkItem } from "../contract/tracking-work-item.js";
 
 export function addSseClient(response) {
   if (!response) return;
@@ -34,6 +34,8 @@ export function buildProgressPayload(t) {
   const workItem = resolveTrackingWorkItem(t);
   const contract = t.contract || null;
   const actorIdentity = getAgentIdentitySnapshot(t?.agentId);
+  // stageProjection 只在无 canonical stagePlan 时作 phases/total 的推导底料,
+  // 原始投影对象随读面树化停止随载荷下发(work_items 快照仍带该字段)。
   const stageProjection = t.stageProjection || null;
   const stageTruth = buildLifecycleStageTruth(contract);
   const stagePlan = stageTruth.stagePlan || null;
@@ -86,14 +88,9 @@ export function buildProgressPayload(t) {
     systemAction: workItem.systemAction || null,
     runtimeDiagnostics: workItem.runtimeDiagnostics || null,
     ioObservation: t.ioObservation || workItem.ioObservation || null,
-    artifactKind: workItem.artifactKind || null,
-    artifactDomain: workItem.artifactDomain || null,
-    artifactSource: workItem.artifactSource || null,
-    artifactRequest: workItem.artifactRequest || null,
     cursor: t.cursor ?? null,
     pct: Number.isFinite(t.pct) ? t.pct : null,
     estimatedPhase: t.estimatedPhase || null,
-    stageProjection,
     stagePlan,
     stageRuntime,
     phases,

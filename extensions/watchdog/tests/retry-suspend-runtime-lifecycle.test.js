@@ -42,7 +42,7 @@ mock.module("../lib/transport/sse.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-runtime-state.js", {
+mock.module("../lib/routing/dispatch/dispatch-runtime-state.js", {
   namedExports: {
     hasDispatchTarget: (agentId) => dispatchTargetStateMap.has(agentId),
     isDispatchTargetBusy: (agentId) => {
@@ -56,7 +56,7 @@ mock.module("../lib/routing/dispatch-runtime-state.js", {
   },
 });
 
-mock.module("../lib/channel-notify.js", {
+mock.module("../lib/transport/channel-notify.js", {
   namedExports: {
     qqTypingStop: (contractId) => {
       qqTypingStopCalls.push(contractId);
@@ -74,7 +74,7 @@ mock.module("../lib/store/tracker-store.js", {
   },
 });
 
-mock.module("../lib/loop/loop-detection.js", {
+mock.module("../lib/runtime/execution-hard-stop-registry.js", {
   namedExports: {
     clearSession: (sessionKey) => {
       clearLoopSessionCalls.push(sessionKey);
@@ -83,7 +83,7 @@ mock.module("../lib/loop/loop-detection.js", {
   },
 });
 
-mock.module("../lib/stage-projection.js", {
+mock.module("../lib/stage/stage-projection.js", {
   namedExports: {
     refreshTrackingProjection: async () => {},
   },
@@ -99,7 +99,7 @@ mock.module("../lib/store/task-history-store.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-graph-policy.js", {
+mock.module("../lib/routing/dispatch/dispatch-graph-policy.js", {
   namedExports: {
     onAgentDone: async (...args) => {
       onAgentDoneCalls.push(args);

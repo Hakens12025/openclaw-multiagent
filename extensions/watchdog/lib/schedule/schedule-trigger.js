@@ -1,9 +1,9 @@
 import { getScheduleSpec } from "./schedule-registry.js";
 import { dispatchAcceptIngressMessage } from "../ingress/dispatch-entry.js";
-import { listLifecycleWorkItems } from "../contracts.js";
+import { listLifecycleWorkItems } from "../contract/contracts.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
 import { isActiveContractStatus } from "../core/runtime-status.js";
-import { buildAgentMainSessionKey } from "../session-keys.js";
+import { buildAgentMainSessionKey } from "../session/session-keys.js";
 import {
   PENDING_SIGNAL_KINDS,
   registerPendingSignal,

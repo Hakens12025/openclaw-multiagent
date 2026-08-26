@@ -1,16 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtempSync } from 'node:fs';
+import { mkdir, readFile, rm } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
+
+// 批② 迁树:本文件含全店枚举断言(a2a 建约 diff / work-items 目录),树店按文件级
+// 沙箱隔离,免跨测试文件残留污染(惰性种子每次 IO 时生效,见 lib/archive/
+// thread-tree-store.js;先例:delivery-pump.test.js 的票据店沙箱)。
+const THREADS_SANDBOX = mkdtempSync(join(tmpdir(), 'openclaw-admin-surface-threads-'));
+process.env.OPENCLAW_THREADS_DIR = THREADS_SANDBOX;
+process.env.OPENCLAW_CONTRACT_INDEX_FILE = join(THREADS_SANDBOX, 'contract-index.jsonl');
 
 import { register as registerApiRoutes } from '../routes/api.js';
 import { formatA2ATaskSendResponse, register as registerA2ARoutes } from '../routes/a2a.js';
 import { loadGraph } from '../lib/agent/agent-graph.js';
-import { saveGraph } from '../lib/agent/agent-graph-mutations.js';
+import { saveGraph as saveGraphUnattributed } from '../lib/agent/agent-graph-mutations.js';
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: 'test:admin-surface-canonical-api.test.js' });
 import { cfg, CONTRACTS_DIR, runtimeAgentConfigs } from '../lib/state.js';
-import { getContractPath, persistContractById, readContractSnapshotById } from '../lib/contracts.js';
-import { clearContractStore } from '../lib/store/contract-store.js';
+import { getContractPath, persistContractById, readContractSnapshotById } from '../lib/contract/contracts.js';
+import { clearContractStore, listTreeContractPaths } from '../lib/store/contract-store.js';
 import { clearTaskHistory } from '../lib/store/task-history-store.js';
 import { ADMIN_SURFACES } from '../lib/admin/admin-surface-catalog.js';
 import { SURFACE_INPUT_FIELDS } from '../lib/admin/admin-surface-input-fields.js';
@@ -25,12 +37,12 @@ import {
   clearDispatchQueue,
   releaseDispatchTargetContract,
   syncDispatchTargets,
-} from '../lib/routing/dispatch-runtime-state.js';
+} from '../lib/routing/dispatch/dispatch-runtime-state.js';
 import { runGlobalTestEnvironmentSerial } from '../lib/formal-runtime/test-locks.js';
 import {
   dispatchOutgoingStateMap,
   dispatchTargetStateMap,
-} from '../lib/state-collections.js';
+} from '../lib/state/state-collections.js';
 import {
   clearTrackingStore,
   getTrackingState,
@@ -108,25 +120,6 @@ function restoreRuntimeAgentConfigs(snapshot) {
   }
 }
 
-test('runtime.loop.start route rejects legacy alias payload keys', async () => {
-  const routes = buildRegisteredRoutes();
-  const handler = routes.get('/watchdog/runtime/loop/start');
-  assert.equal(typeof handler, 'function');
-
-  const req = buildRequest('/watchdog/runtime/loop/start', {
-    loopId: 'legacy-loop',
-    task: 'legacy payload task',
-    entryAgentId: 'researcher',
-    source: 'legacy-runtime-loop-start',
-  });
-  const res = buildResponse();
-
-  await handler(req, res);
-  const response = res.snapshot();
-
-  assert.equal(response.status, 400);
-  assert.match(response.json?.error || '', /missing requestedTask/);
-});
 
 test('agents.delete route requires canonical agentId', async () => {
   const routes = buildRegisteredRoutes();
@@ -297,7 +290,8 @@ test('a2a tasks/send does not register payload-selected reply agent as actionabl
 
   const prefix = 'TC-';
   await mkdir(CONTRACTS_DIR, { recursive: true });
-  const before = new Set(await readdir(CONTRACTS_DIR));
+  // 批② 迁树:建约正本落树内,diff 树店快照(旧平铺目录只剩 COMPAT 读面)
+  const before = new Set(await listTreeContractPaths());
   const originalGraph = await loadGraph();
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
@@ -369,14 +363,17 @@ test('a2a tasks/send does not register payload-selected reply agent as actionabl
     assert.equal(hasPendingSignal('worker'), false);
     assert.equal(hasPendingSignal('controller'), false);
 
-    const after = new Set(await readdir(CONTRACTS_DIR));
-    const created = [...after].find((name) => !before.has(name) && name.startsWith(prefix));
-    assert.ok(created, 'expected a2a route to create a contract snapshot');
-    const contractPath = join(CONTRACTS_DIR, created);
-    const persisted = JSON.parse(await readFile(contractPath, 'utf8'));
-    assert.equal(persisted.dispatchOwnerAgentId, 'controller');
+    const after = await listTreeContractPaths();
+    const createdPath = after.find(
+      (contractPath) => !before.has(contractPath) && basename(contractPath).startsWith(prefix),
+    );
+    assert.ok(createdPath, 'expected a2a route to create a contract snapshot');
+    const persisted = JSON.parse(await readFile(createdPath, 'utf8'));
+    // 账物分离 batch2:owner 不再写进合约正本(零读者死重量);它只当 ingress 内部路由
+    // 入参存在,正确解析的可观测结果是 assignee 落到对的首跳。
+    assert.equal(persisted.dispatchOwnerAgentId, undefined);
     assert.equal(persisted.assignee, 'planner');
-    await rm(contractPath, { force: true });
+    await rm(createdPath, { force: true });
   } finally {
     await releaseDispatchTargetContract({ agentId: 'planner', logger: null }).catch(() => {});
     await clearDispatchQueue(null).catch(() => {});
@@ -407,14 +404,14 @@ test('a2a task detail does not expose internal clarification text', async () => 
   assert.equal(typeof handler, 'function');
 
   const contractId = `TC-A2A-CLARIFICATION-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
 
   try {
     await persistContractById({
       id: contractId,
       task: 'needs input',
       assignee: 'planner',
-      status: CONTRACT_STATUS.AWAITING_INPUT,
+      // AWAITING_INPUT 已删除;锁的实质不变:内部说明文本不得经 a2a 外泄。
+      status: CONTRACT_STATUS.FAILED,
       output: `/tmp/${contractId}.md`,
       clarification: 'runtime_result write failed; please inspect contract.output',
       phases: ['run'],
@@ -430,11 +427,12 @@ test('a2a task detail does not expose internal clarification text', async () => 
     const response = res.snapshot();
 
     assert.equal(response.status, 200);
-    assert.equal(response.json?.status, 'input-required');
+    assert.equal(response.json?.status, 'failed');
     assert.equal('clarification' in response.json, false);
     assert.doesNotMatch(JSON.stringify(response.json), /runtime_result|contract\.output/);
   } finally {
-    await rm(contractPath, { force: true });
+    // 批② 迁树:清理按 rm 时点重解析正本(persist 后索引已指树内)
+    await rm(getContractPath(contractId) ?? "", { force: true }).catch(() => {});
     clearContractStore();
   }
 });
@@ -456,6 +454,9 @@ test('operator catalog work-items route hides control-layer work items', async (
   clearContractStore();
   await rm(CONTRACTS_DIR, { recursive: true, force: true });
   await mkdir(CONTRACTS_DIR, { recursive: true });
+  // 批② 迁树:树店(文件级沙箱)一并清空,枚举断言不受同文件先行测试残留干扰
+  await rm(THREADS_SANDBOX, { recursive: true, force: true });
+  await mkdir(THREADS_SANDBOX, { recursive: true });
 
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
   const now = Date.now();
@@ -525,7 +526,6 @@ test('tests terminalize route is runtime-owned and clears contract tracking stat
   assert.equal(typeof handler, 'function');
 
   const contractId = `TC-ROUTE-TERMINALIZE-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
   const sessionKey = `agent:planner:contract:${contractId}`;
   const originalRuntimeConfigs = new Map(runtimeAgentConfigs);
 
@@ -594,7 +594,7 @@ test('tests terminalize route is runtime-owned and clears contract tracking stat
     clearTrackingStore();
     dispatchTargetStateMap.clear();
     restoreRuntimeAgentConfigs(originalRuntimeConfigs);
-    await rm(contractPath, { force: true });
+    await rm(getContractPath(contractId) ?? "", { force: true }).catch(() => {});
   }
 });
 

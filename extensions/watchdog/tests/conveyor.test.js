@@ -10,31 +10,32 @@ import { registerRuntimeAgents } from "../lib/agent/agent-identity.js";
 import {
   dispatchSendDirectRequest,
   dispatchSendExecutionContract,
-} from "../lib/routing/dispatch-transport.js";
-import { routeInbox } from "../runtime-mailbox.js";
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
+} from "../lib/routing/dispatch/dispatch-transport.js";
+import { routeInbox } from "../lib/routing/mailbox/runtime-mailbox.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 import {
   listDispatchTargetIds,
   syncDispatchTargets,
   syncDispatchTargetsFromRuntime,
-} from "../lib/routing/dispatch-runtime-state.js";
+} from "../lib/routing/dispatch/dispatch-runtime-state.js";
 import {
   clearTrackingStore,
   rememberTrackingState,
 } from "../lib/store/tracker-store.js";
 import { runtimeAgentConfigs } from "../lib/state.js";
-import { SYSTEM_ACTION_DELIVERY_IDS } from "../lib/routing/delivery-protocols.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
-import { cleanupAgentEndTransport } from "../lib/lifecycle/agent-end-transport.js";
+import { SYSTEM_ACTION_DELIVERY_IDS } from "../lib/routing/delivery/delivery-protocols.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
+import { cleanupAgentEndTransport } from "../lib/lifecycle/agent-end/transport.js";
 import { CONTROL_PLANE_PATHS } from "../lib/control-plane/control-plane-paths.js";
-import { createDirectRequestEnvelope } from "../lib/protocol-primitives.js";
+import { resolveAgentGraphFile } from "../lib/agent/agent-graph.js";
+import { createDirectRequestEnvelope } from "../lib/protocol/protocol-primitives.js";
 import {
   ensureRuntimeDirectEnvelopeInbox,
   enqueueRuntimeDirectEnvelope,
   rehydrateRuntimeDirectEnvelopePendingSignals,
-} from "../lib/runtime-direct-envelope-queue.js";
+} from "../lib/routing/runtime-direct-envelope-queue.js";
 import {
   clearAllPendingSignals,
   listPendingSignals,
@@ -60,15 +61,19 @@ function registerTestRuntimeAgent(agentId, overrides = {}) {
   });
 }
 
+// 用例自建拓扑。路径必须走 resolveAgentGraphFile()——与运行时读侧同源:模块级
+// CONTROL_PLANE_PATHS.agentGraphFile 会写到生产图,而被测代码读的是种子沙箱图,
+// 建的边看不见,派工被授权闸拒(2026-08-18 沙箱化时由 7 个 dispatchSend* 用例抓出)。
 async function withTestGraph(edges, fn) {
   return runGlobalTestEnvironmentSerial(async () => {
-    const snapshot = await snapshotFile(CONTROL_PLANE_PATHS.agentGraphFile);
-    await mkdir(dirname(CONTROL_PLANE_PATHS.agentGraphFile), { recursive: true });
-    await writeFile(CONTROL_PLANE_PATHS.agentGraphFile, JSON.stringify({ edges }, null, 2), "utf8");
+    const graphFile = resolveAgentGraphFile();
+    const snapshot = await snapshotFile(graphFile);
+    await mkdir(dirname(graphFile), { recursive: true });
+    await writeFile(graphFile, JSON.stringify({ edges }, null, 2), "utf8");
     try {
       return await fn();
     } finally {
-      await restoreFile(CONTROL_PLANE_PATHS.agentGraphFile, snapshot);
+      await restoreFile(graphFile, snapshot);
     }
   });
 }
@@ -175,7 +180,7 @@ test("dispatchSendDirectRequest promotes active inbox, wakes target, and emits i
           sessionKey: "agent:researcher:contract:TC-CONVEYOR-ACTIVE",
         },
         dispatchAlert: {
-          route: "loop",
+          route: "graph",
           stageName: "researcher",
         },
       });
@@ -196,7 +201,7 @@ test("dispatchSendDirectRequest promotes active inbox, wakes target, and emits i
     assert.equal(dispatchEvent?.data?.contractId, contract.id);
     assert.equal(dispatchEvent?.data?.from, "worker-runtime");
     assert.equal(dispatchEvent?.data?.assignee, "researcher");
-    assert.equal(dispatchEvent?.data?.route, "loop");
+    assert.equal(dispatchEvent?.data?.route, "graph");
     assert.equal(dispatchEvent?.data?.stageName, "researcher");
   } finally {
     sse.close();
@@ -302,7 +307,7 @@ test("runtime direct envelope queue rejects non-direct contracts before persiste
 
 test("runtime direct envelope queue serializes enqueue and promotion per inbox", async () => {
   const source = await readFile(
-    new URL("../lib/runtime-direct-envelope-queue.js", import.meta.url),
+    new URL("../lib/routing/runtime-direct-envelope-queue.js", import.meta.url),
     "utf8",
   );
 
@@ -568,7 +573,7 @@ test("dispatchSendExecutionContract derives execution-contract wake text when ca
   const config = await primeRuntimeAgents();
   const workerId = await resolveConfiguredWorkerId(config);
   const contractId = `TC-CONVEYOR-DEFAULT-WAKE-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const workerInboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalWorkerInbox = await snapshotFile(workerInboxPath);
   const heartbeatCalls = [];
@@ -577,7 +582,7 @@ test("dispatchSendExecutionContract derives execution-contract wake text when ca
 
   try {
     await unlink(workerInboxPath).catch(() => {});
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "derive default execution wake semantics",
       assignee: null,
@@ -795,7 +800,7 @@ test("dispatchSendExecutionContract stages shared contract into worker inbox, wa
   const workerId = `conveyor-worker-${Date.now()}`;
   const workspace = join(tmpdir(), `openclaw-${workerId}`);
   const contractId = `TC-CONVEYOR-DISPATCH-RUNTIME-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   registerTestRuntimeAgent(workerId, { workspace });
   const workerInboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalWorkerInbox = await snapshotFile(workerInboxPath);
@@ -806,7 +811,7 @@ test("dispatchSendExecutionContract stages shared contract into worker inbox, wa
 
   try {
     await unlink(workerInboxPath).catch(() => {});
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "dispatch runtime conveyor regression",
       assignee: null,
@@ -858,7 +863,12 @@ test("dispatchSendExecutionContract stages shared contract into worker inbox, wa
 
     const workerInboxContract = JSON.parse(await readFile(workerInboxPath, "utf8"));
     assert.equal(workerInboxContract.id, contractId);
-    assert.equal(workerInboxContract.assignee, workerId);
+    // 账物分离 batch1:assignee 已从 inbox 投影白名单移除(inbox 文件零系统读者——
+    // 归属判定读的是树正本 contract.assignee,见 runtime-mailbox-inbox-handlers.js:229
+    // 走 readCachedContractSnapshotById;SSE inbox_dispatch 的 assignee 取 targetAgent,
+    // 见 dispatch-transport.js:66)。归属真值仍在 result.contract(:863)与事件(:873)上,
+    // inbox 文件不再冗余带它。
+    assert.equal(workerInboxContract.assignee, undefined);
 
     const dispatchEvent = sse.events.find(
       (entry) => entry.event === "alert" && entry.data?.type === "inbox_dispatch",
@@ -880,7 +890,7 @@ test("dispatchSendExecutionContract fails closed when no wake transport is avail
   const config = await primeRuntimeAgents();
   const workerId = await resolveConfiguredWorkerId(config);
   const contractId = `TC-CONVEYOR-NO-WAKE-TRANSPORT-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const workerInboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalWorkerInbox = await snapshotFile(workerInboxPath);
   const originalApiRef = apiRef;
@@ -890,7 +900,7 @@ test("dispatchSendExecutionContract fails closed when no wake transport is avail
   try {
     setApiRef(null);
     await unlink(workerInboxPath).catch(() => {});
-    await persistContractSnapshot(contractPath, {
+    contractPath = await persistContractById({
       id: contractId,
       task: "shared contract must not silently skip wake transport",
       assignee: null,
@@ -935,7 +945,7 @@ test("routeInbox does not restage a running worker contract while another live w
   const config = await primeRuntimeAgents();
   const workerId = await resolveConfiguredWorkerId(config);
   const contractId = `TC-CONVEYOR-LIVE-TRACKER-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const inboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalInbox = await snapshotFile(inboxPath);
 
@@ -967,7 +977,8 @@ test("routeInbox does not restage a running worker contract while another live w
     path: contractPath,
   };
 
-  await persistContractSnapshot(contractPath, contract, logger);
+  contractPath = await persistContractById(contract, logger);
+  trackingState.contract.path = contractPath;
   await mkdir(join(agentWorkspace(workerId), "inbox"), { recursive: true });
   await writeFile(inboxPath, JSON.stringify(contract, null, 2), "utf8");
   rememberTrackingState(trackingState.sessionKey, trackingState);
@@ -991,7 +1002,7 @@ test("routeInbox restages the pending worker contract for the same resumed sessi
   const config = await primeRuntimeAgents();
   const workerId = await resolveConfiguredWorkerId(config);
   const contractId = `TC-CONVEYOR-RESUME-SAME-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const inboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalInbox = await snapshotFile(inboxPath);
 
@@ -1023,7 +1034,8 @@ test("routeInbox restages the pending worker contract for the same resumed sessi
     path: contractPath,
   };
 
-  await persistContractSnapshot(contractPath, contract, logger);
+  contractPath = await persistContractById(contract, logger);
+  trackingState.contract.path = contractPath;
   await mkdir(join(agentWorkspace(workerId), "inbox"), { recursive: true });
   await unlink(inboxPath).catch(() => {});
   rememberTrackingState(trackingState.sessionKey, trackingState);
@@ -1049,7 +1061,7 @@ test("routeInbox exact contract hint stages despite unrelated unclaimed running 
   const workerId = await resolveConfiguredWorkerId(config);
   const ghostContractId = `TC-CONVEYOR-GHOST-${Date.now()}`;
   const contractId = `TC-CONVEYOR-EXACT-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = null;
   const inboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalInbox = await snapshotFile(inboxPath);
 
@@ -1077,7 +1089,7 @@ test("routeInbox exact contract hint stages despite unrelated unclaimed running 
     parentSession: null,
   });
 
-  await persistContractSnapshot(contractPath, contract, logger);
+  contractPath = await persistContractById(contract, logger);
   await mkdir(join(agentWorkspace(workerId), "inbox"), { recursive: true });
   await unlink(inboxPath).catch(() => {});
   dispatchTargetStateMap.set(workerId, {
@@ -1116,8 +1128,8 @@ test("routeInbox exact contract hint does not overwrite another bound running tr
   const workerId = await resolveConfiguredWorkerId(config);
   const activeContractId = `TC-CONVEYOR-BOUND-${Date.now()}`;
   const exactContractId = `TC-CONVEYOR-EXACT-BLOCKED-${Date.now()}`;
-  const activeContractPath = getContractPath(activeContractId);
-  const exactContractPath = getContractPath(exactContractId);
+  let activeContractPath = null;
+  let exactContractPath = null;
   const inboxPath = join(agentWorkspace(workerId), "inbox", "contract.json");
   const originalInbox = await snapshotFile(inboxPath);
 
@@ -1156,8 +1168,9 @@ test("routeInbox exact contract hint does not overwrite another bound running tr
     path: activeContractPath,
   };
 
-  await persistContractSnapshot(activeContractPath, activeContract, logger);
-  await persistContractSnapshot(exactContractPath, exactContract, logger);
+  activeContractPath = await persistContractById(activeContract, logger);
+  activeTrackingState.contract.path = activeContractPath;
+  exactContractPath = await persistContractById(exactContract, logger);
   await mkdir(join(agentWorkspace(workerId), "inbox"), { recursive: true });
   await writeFile(inboxPath, JSON.stringify(activeContract, null, 2), "utf8");
   rememberTrackingState(activeTrackingState.sessionKey, activeTrackingState);

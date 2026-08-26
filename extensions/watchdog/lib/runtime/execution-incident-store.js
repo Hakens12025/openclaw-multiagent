@@ -20,6 +20,12 @@ const ROOT_FAULT_PRIORITY = Object.freeze({
   mixed_fault: 6,
 });
 
+// FIX(A6-incident-ttl): store had no TTL and no size ceiling -> unbounded growth over process lifetime.
+// TTL is idle-based (measured from updatedAt) so an actively-amplified incident stays live; the LRU
+// cap bounds the absolute count regardless of activity. Mirrors pending-signal-registry's TTL style.
+export const INCIDENT_TTL_MS = 30 * 60 * 1000; // 30 minutes idle since last update
+export const MAX_INCIDENTS = 500;
+
 const incidents = new Map();
 const contractIndex = new Map();
 const epochIndex = new Map();
@@ -76,6 +82,47 @@ function registerIndexes(primaryKey, incident) {
   if (sessionKey) sessionIndex.set(sessionKey, primaryKey);
 }
 
+// FIX(A6-incident-ttl): duplicated index cleanup (was inline in clearExecutionIncident) -> single
+// deletion path reused by clear / TTL sweep / LRU eviction (one-path principle, single truth).
+function deleteIncidentEntry(primaryKey) {
+  const existing = incidents.get(primaryKey) || null;
+  if (!existing) return false;
+  incidents.delete(primaryKey);
+  if (existing.contractId) contractIndex.delete(existing.contractId);
+  if (existing.epochKey) epochIndex.delete(existing.epochKey);
+  if (existing.sessionKey) sessionIndex.delete(existing.sessionKey);
+  return true;
+}
+
+// FIX(A6-incident-ttl): expiry derived from updatedAt+TTL, not a redundant stored field -> single truth.
+function isExpiredIncident(incident, now) {
+  return Boolean(incident)
+    && typeof incident.updatedAt === "number"
+    && now - incident.updatedAt >= INCIDENT_TTL_MS;
+}
+
+// FIX(A6-incident-ttl): TTL sweep -> reap every entry idle past INCIDENT_TTL_MS.
+function sweepExpiredIncidents(now) {
+  let removed = 0;
+  for (const [primaryKey, incident] of incidents.entries()) {
+    if (isExpiredIncident(incident, now)) {
+      deleteIncidentEntry(primaryKey);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+// FIX(A6-incident-ttl): hard ceiling -> evict oldest-written until size <= MAX_INCIDENTS. Map
+// iterates in insertion order and upsert re-seats touched keys to the tail, so head == LRU victim.
+function enforceIncidentCap() {
+  while (incidents.size > MAX_INCIDENTS) {
+    const oldestKey = incidents.keys().next().value;
+    if (oldestKey === undefined) break;
+    deleteIncidentEntry(oldestKey);
+  }
+}
+
 export function resolveExecutionIncidentKey(query = {}) {
   return resolvePrimaryKey(query)
     || normalizeString(query.contractId)
@@ -84,16 +131,21 @@ export function resolveExecutionIncidentKey(query = {}) {
     || null;
 }
 
-export function getExecutionIncident(query = {}) {
+export function getExecutionIncident(query = {}, { now = Date.now() } = {}) { // FIX(A6-incident-ttl): optional clock seam (defaults to Date.now, callers unchanged)
   const primaryKey = resolvePrimaryKey(query);
-  return primaryKey ? cloneIncident(incidents.get(primaryKey) || null) : null;
+  if (!primaryKey) return null;
+  const incident = incidents.get(primaryKey) || null;
+  if (isExpiredIncident(incident, now)) return null; // FIX(A6-incident-ttl): hide expired reads (mirrors pending-signal isActiveEntry)
+  return cloneIncident(incident);
 }
 
-export function listExecutionIncidents() {
-  return [...incidents.values()].map((incident) => cloneIncident(incident));
+export function listExecutionIncidents({ now = Date.now() } = {}) { // FIX(A6-incident-ttl): optional clock seam; existing no-arg callers unchanged
+  return [...incidents.values()]
+    .filter((incident) => !isExpiredIncident(incident, now)) // FIX(A6-incident-ttl): exclude expired-but-not-yet-swept entries
+    .map((incident) => cloneIncident(incident));
 }
 
-export function upsertExecutionIncident(input = {}) {
+export function upsertExecutionIncident(input = {}, { now = Date.now() } = {}) { // FIX(A6-incident-ttl): clock seam via 2nd optional arg; single-arg callers unchanged
   const normalized = {
     contractId: normalizeString(input.contractId),
     epochKey: normalizeString(input.epochKey),
@@ -108,12 +160,16 @@ export function upsertExecutionIncident(input = {}) {
   };
 
   const primaryKey = resolvePrimaryKey(normalized) || choosePrimaryKey(normalized);
-  const current = incidents.get(primaryKey) || null;
+  // FIX(A6-incident-ttl/review): the read paths (get/list) hide expired incidents, so the
+  // merge path must too — otherwise a new fault reusing the same key silently RESURRECTS a
+  // dead incident's stale createdAt / firstFaultCode / pinned rootFault / amplifiers.
+  const existing = incidents.get(primaryKey) || null;
+  const current = isExpiredIncident(existing, now) ? null : existing;
   const mergedAmplifiers = normalizeAmplifiers([
     ...(Array.isArray(current?.amplifiers) ? current.amplifiers : []),
     ...normalized.amplifiers,
   ]);
-  const now = Date.now();
+  // FIX(A6-incident-ttl): `now` now supplied by the param above (was `const now = Date.now();`)
 
   const next = {
     key: primaryKey,
@@ -131,22 +187,23 @@ export function upsertExecutionIncident(input = {}) {
     updatedAt: now,
   };
 
+  incidents.delete(primaryKey);   // FIX(A6-incident-ttl): re-seat touched key to Map tail -> insertion order == write recency (LRU)
   incidents.set(primaryKey, next);
   registerIndexes(primaryKey, next);
+  sweepExpiredIncidents(now);      // FIX(A6-incident-ttl): reap idle entries on every write -> self-bounding, no external pruner needed
+  enforceIncidentCap();            // FIX(A6-incident-ttl): enforce MAX_INCIDENTS LRU ceiling
   return cloneIncident(next);
+}
+
+// FIX(A6-incident-ttl): explicit TTL sweep for admin/tests, mirroring prunePendingSignals.
+export function pruneExecutionIncidents({ now = Date.now() } = {}) {
+  return sweepExpiredIncidents(now);
 }
 
 export function clearExecutionIncident(query = {}) {
   const primaryKey = resolvePrimaryKey(query);
-  if (!primaryKey) {
-    return false;
-  }
-  const existing = incidents.get(primaryKey) || null;
-  incidents.delete(primaryKey);
-  if (existing?.contractId) contractIndex.delete(existing.contractId);
-  if (existing?.epochKey) epochIndex.delete(existing.epochKey);
-  if (existing?.sessionKey) sessionIndex.delete(existing.sessionKey);
-  return true;
+  if (!primaryKey) return false;
+  return deleteIncidentEntry(primaryKey); // FIX(A6-incident-ttl): reuse single deletion path instead of inline index cleanup
 }
 
 export function clearAllExecutionIncidents() {

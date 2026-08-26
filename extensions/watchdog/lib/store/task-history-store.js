@@ -1,7 +1,7 @@
 // lib/task-history-store.js — Encapsulated access to taskHistory[]
 
-import { taskHistory } from "../state-collections.js";
-import { MAX_HISTORY } from "../state-constants.js";
+import { taskHistory } from "../state/state-collections.js";
+import { MAX_HISTORY } from "../state/state-constants.js";
 
 export function recordTaskHistory(entry) {
   taskHistory.push({ ...entry, endMs: Date.now() });

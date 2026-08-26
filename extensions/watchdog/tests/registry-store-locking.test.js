@@ -10,7 +10,7 @@ import {
   deleteAgentJoinSpec,
   summarizeAgentJoinRegistry,
   upsertAgentJoinSpec,
-} from "../lib/agent/agent-join-registry.js";
+} from "../lib/agent/admin/agent-join-registry.js";
 
 function buildScheduleSpec(id, expr, label) {
   return {

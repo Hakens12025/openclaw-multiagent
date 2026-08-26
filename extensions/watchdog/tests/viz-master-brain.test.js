@@ -8,10 +8,10 @@ import assert from "node:assert/strict";
 // spreads the real llm-planner exports so parsePlannerJson etc. survive. Needs
 // --experimental-test-module-mocks.
 
-import * as realPlanner from "../lib/llm-planner.js";
-import * as realCapability from "../lib/capability/capability-registry.js";
+import * as realPlanner from "../lib/llm/llm-planner.js";
+import * as realCapability from "../lib/management/capability-registry.js";
 import * as realChartRegistry from "../lib/control-plane/chart-registry.js";
-import * as realWikiSearch from "../lib/operator/wiki-rag-search.js";
+import * as realWikiSearch from "../lib/knowledge/wiki-rag-search.js";
 
 // A config with one openai-completions provider so resolveOperatorBrainModel resolves baseUrl+apiKey
 // (so the brain reaches the planner mock instead of throwing "provider is not ready").
@@ -32,7 +32,7 @@ const FAKE_CONFIG = {
 let plannerScript = [];
 let plannerCalls = [];
 
-mock.module("../lib/llm-planner.js", {
+mock.module("../lib/llm/llm-planner.js", {
   namedExports: {
     ...realPlanner,
     callOpenAICompatiblePlanner: async (args) => {
@@ -44,7 +44,7 @@ mock.module("../lib/llm-planner.js", {
   },
 });
 
-mock.module("../lib/capability/capability-registry.js", {
+mock.module("../lib/management/capability-registry.js", {
   namedExports: {
     ...realCapability,
     loadOpenClawConfig: async () => FAKE_CONFIG,
@@ -59,7 +59,7 @@ mock.module("../lib/control-plane/chart-registry.js", {
 });
 
 // searchWiki never throws in production (degraded → empty); keep it empty + offline here.
-mock.module("../lib/operator/wiki-rag-search.js", {
+mock.module("../lib/knowledge/wiki-rag-search.js", {
   namedExports: {
     ...realWikiSearch,
     searchWiki: async () => ({ results: [] }),

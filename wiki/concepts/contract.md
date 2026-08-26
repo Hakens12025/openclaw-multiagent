@@ -12,7 +12,7 @@ Contract 是 OpenClaw 中一切工作的基本载体。每个 contract 代表一
 - `contractId` — 唯一标识
 - `dispatchChain` — 消息源链路记录，用于自动注入 replyTo
 
-**Agent 身份判定**：通过 agentId 硬判定（KNOWN_GATEWAYS 白名单），不依赖 LLM 自报身份。
+**Agent 身份判定**：走 binding policy 的 `policies.gateway` / `ingressSource`（见 `lib/admin/catalog/agents-apply.js`），不依赖 LLM 自报身份。旧的 `KNOWN_GATEWAYS` 白名单常量已不存在。
 
 **生命周期**：
 ```

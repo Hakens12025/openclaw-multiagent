@@ -2,6 +2,9 @@
 
 > 去特化重构：从专用 agent 角色到通用评估能力 + EvaluationResult 合约。
 
+> **部分退役 v226（2026-08-23）**：本页所述对象链中的 HarnessRun / EvaluationResult 两环
+> 已随 harness 全退役删除（见 `use guide/备忘录149` / `备忘录150`），AutomationDecision
+> → ProfileLifecycle 治理段仍然存活。本页保留作历史设计记录。
 ## 是什么
 
 "Evaluator" 在系统中曾承载三重语义，导致严重耦合。去特化（de-specialization）的目标是将其拆解为独立关注点。
@@ -16,7 +19,7 @@
 
 ### 硬编码严重程度（备忘录 88）
 
-系统中存在 **40+ 处硬编码引用**（比 contractor 的 19 处更严重），分布在：
+**去特化已完成**（2026-08-09 实测 `rg '"evaluator"' lib -g '*.js'` = **0 处**，零 agent-id 硬编码）。当年的 40+ 处分布在：
 - Pipeline 层
 - Automation 层
 - Harness 层
@@ -88,7 +91,7 @@ Contractor 的 `executionPolicy` 模式可直接复用于 evaluator 去特化。
 
 - **设计方向**: 明确
 - **executionPolicy 模式**: 来自 contractor，可复用
-- **实现**: 未开始
+- **实现**: 已落地 —— `buildEvaluationResult` 在 `lib/harness/evaluator-result.js`，由 `lib/automation/automation-finalize.js:159` 消费，被 `tests/w3-truth-convergence.test.js` 钉死
 - **来源**: 备忘录 76, 88, 89, 94
 
 相关概念: [evaluation-result-chain](evaluation-result-chain.md) | [god-role-elimination](god-role-elimination.md) | [agent-binding](agent-binding.md)

@@ -8,7 +8,7 @@ const calls = {
   getTrackingState: [],
 };
 
-mock.module("../lib/lifecycle/agent-end-lifecycle.js", {
+mock.module("../lib/lifecycle/agent-end/lifecycle.js", {
   namedExports: {
     runAgentEndLifecycle: async (input) => {
       calls.lifecycle.push(input);
@@ -16,7 +16,7 @@ mock.module("../lib/lifecycle/agent-end-lifecycle.js", {
   },
 });
 
-mock.module("../lib/protocol-commit-reconcile.js", {
+mock.module("../lib/protocol/protocol-commit-reconcile.js", {
   namedExports: {
     clearProtocolCommitReconcile: (sessionKey) => {
       calls.clearReconcile.push(sessionKey);

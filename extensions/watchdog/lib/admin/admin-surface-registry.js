@@ -2,7 +2,7 @@ import { ADMIN_SURFACES } from "./admin-surface-catalog.js";
 import { SURFACE_INPUT_FIELDS } from "./admin-surface-input-fields.js";
 import {
   hasAdminSurfaceOperationHandler,
-} from "./admin-surface-operations.js";
+} from "./operations/admin-surface-operations.js";
 import {
   SURFACE_DEFAULT_PAYLOADS,
   SURFACE_PLAN_HINTS,
@@ -212,7 +212,7 @@ function buildVerificationCapability(surface, { executable = hasAdminSurfaceOper
   return {
     supported,
     defaultEnabled: supported,
-    presetId: supported ? "dispatch" : null,
+    presetId: supported ? "single" : null,
     cleanMode: supported ? "session-clean" : null,
   };
 }

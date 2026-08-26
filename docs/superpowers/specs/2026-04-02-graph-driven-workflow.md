@@ -1,5 +1,7 @@
 # Graph-Driven Workflow Engine
 
+> ⚠️ **历史快照,勿当现状读**(标注于 2026-08-09)。此后已落地:动态协作不查图边(v179)、协作主路从 `[ACTION]` 标记换成 FC 工具、采集不再要求 `outbox/runtime_result.json` 提交令牌(v181)、`upstreamPackages` 升格为 `{path,producer,files[],primary}` 对象、`_manifest.json` 机制已删除。正文保留当时原貌。
+
 ## Goal
 
 将 agent 间的任务分派从硬编码链路改为 graph edge 驱动。graph edge 是执行路径的唯一真相源，前端动画和后端路由都从 graph 读取。

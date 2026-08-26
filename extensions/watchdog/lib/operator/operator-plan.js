@@ -4,7 +4,7 @@ import {
 } from "../cli-system/cli-surface-registry.js";
 import { isOperatorExecutableSurfaceId } from "./operator-surface-policy.js";
 import { normalizeOrderedStringArray, normalizeRecord, normalizeString, uniqueStrings } from "../core/normalize.js";
-import { listAgentRegistry } from "../capability/capability-registry.js";
+import { listAgentRegistry } from "../management/capability-registry.js";
 
 export const OPERATOR_PLAN_INTENTS = Object.freeze([
   "create_agent",
@@ -109,25 +109,6 @@ function collectPlanDerivedFieldsFromStep(step, derived, edges) {
 
   if (surfaceId === "graph.edge.add" || surfaceId === "graph.edge.delete") {
     collectEdgeDerivedFields(edges, payload);
-    return;
-  }
-
-  if (surfaceId === "graph.loop.compose") {
-    const agentIds = normalizeOrderedStringArray(payload.agents);
-    if (agentIds.length > 0) {
-      derived.agentIds = agentIds;
-    }
-    return;
-  }
-
-  if (surfaceId === "graph.loop.repair" || surfaceId === "runtime.loop.interrupt") {
-    mergeDerivedValue(derived, "loopId", payload.loopId);
-    return;
-  }
-
-  if (surfaceId === "runtime.loop.resume") {
-    mergeDerivedValue(derived, "loopId", payload.loopId);
-    mergeDerivedValue(derived, "startStage", payload.startStage);
   }
 }
 
@@ -252,7 +233,7 @@ export function normalizeOperatorPlan(plan) {
   };
 }
 
-// E2 — feasibility pre-flight. A graph/loop/group step that references an agent which neither
+// E2 — feasibility pre-flight. A graph/group step that references an agent which neither
 // already exists nor is created by an EARLIER step in the same plan would half-apply then throw.
 // collectReferencedAgentIds returns the agent ids a step depends on (accepts array or newline/comma
 // string forms, since compose surfaces have no input-field alias-normalization for agentsText).
@@ -265,13 +246,13 @@ function idsFromField(value) {
 function collectReferencedAgentIds(step) {
   const sid = normalizeString(step?.surfaceId);
   const p = normalizeRecord(step?.payload);
-  // Only STRUCTURE-CREATING surfaces are checked: a dangling edge/loop/group member half-applies the
+  // Only STRUCTURE-CREATING surfaces are checked: a dangling edge/group member half-applies the
   // structure then throws. agents.* mutations + edge.delete are single ops that fail cleanly at the
   // handler (no half-built structure), so they are intentionally out of scope — avoids false rejects.
   if (sid === "graph.edge.add") {
     return [normalizeString(p.from), normalizeString(p.to)].filter(Boolean);
   }
-  if (sid === "graph.loop.compose" || sid === "graph.group.compose") {
+  if (sid === "graph.group.compose") {
     return uniqueStrings([...idsFromField(p.agents), ...idsFromField(p.agentsText), ...idsFromField(p.members)]);
   }
   return [];
@@ -329,6 +310,15 @@ export function normalizeOperatorBrainPlanResult(brainResult, requestText) {
     }
     return acc;
   }, []);
+  // Anti-forgery choke point: provenance (the accept-stage 防伪对照 verdict) is CODE-attested by
+  // the dashboard verified-accept path, never LLM-authored. Every brain-planned channel flows
+  // through here, so stripping it here closes them all. The verified-accept path calls
+  // normalizeOperatorPlan directly and is deliberately NOT stripped.
+  for (const step of steps) {
+    if (step.payload && typeof step.payload === "object" && "provenance" in step.payload) {
+      delete step.payload.provenance;
+    }
+  }
   const intent = steps.length > 0
     ? (rawIntent && rawIntent !== "advice_only" && rawIntent !== "unsupported" ? rawIntent : "platform_mutation")
     // 0 surviving steps: if we DROPPED bad steps, the model tried to build but nothing was executable →

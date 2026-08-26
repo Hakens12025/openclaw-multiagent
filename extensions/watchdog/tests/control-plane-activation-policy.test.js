@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { canAutoWakeForTaskRuntime } from "../lib/agent/agent-activation-policy.js";
 import { runtimeAgentConfigs } from "../lib/state.js";
 import { hasActionableHeartbeatWork } from "../lib/heartbeat-gate.js";
-import { dispatchSendDirectRequest } from "../lib/routing/dispatch-transport.js";
+import { dispatchSendDirectRequest } from "../lib/routing/dispatch/dispatch-transport.js";
 import { runtimeWakeAgentDetailed } from "../lib/transport/runtime-wake-transport.js";
 
 const logger = { info() {}, warn() {}, error() {} };

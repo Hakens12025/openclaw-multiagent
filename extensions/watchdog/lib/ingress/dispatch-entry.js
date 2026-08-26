@@ -5,9 +5,9 @@ import {
   dispatchCreateExecutionContractEntry,
   dispatchResolveIngressReplyTarget,
 } from "./dispatch-execution-contract-entry.js";
-import { normalizeIngressDirective } from "../protocol-primitives.js";
+import { normalizeIngressDirective } from "../protocol/protocol-primitives.js";
 import { normalizeIngressPhases } from "./ingress-classification.js";
-import { normalizeRouteMetadata } from "../route-metadata.js";
+import { normalizeRouteMetadata } from "../routing/route-metadata.js";
 
 export {
   normalizeIngressPhases,
@@ -25,6 +25,9 @@ export async function dispatchAcceptIngressMessage(message, {
   returnContext = null,
   serviceSession = null,
   systemActionDeliveryTicket = null,
+  // 谱系(批①):不带默认值 —— undefined=触发点(建约侧铸新);显式传入(含 null)=
+  // 派生点继承结果原样透传。给 null 默认会把触发点误判成"旧约派生",永远铸不出谱系。
+  lineage,
   ingressDirective = null,
   intentType = null,
   phases = null,
@@ -61,6 +64,7 @@ export async function dispatchAcceptIngressMessage(message, {
     serviceSession: normalizedRouteMetadata.serviceSession,
     routeMetadataDiagnostics: normalizedRouteMetadata.routeMetadataDiagnostics,
     systemActionDeliveryTicket,
+    lineage,
     phases: resolvedPhases,
     api,
     logger,

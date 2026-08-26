@@ -2,8 +2,6 @@ import { createHash } from "node:crypto";
 
 import { normalizeRecord, normalizeString, normalizePositiveInteger, normalizeFiniteNumber } from "../core/normalize.js";
 import { CONTRACT_STATUS } from "../core/runtime-status.js";
-// failure_class → rework 策略归一到 harness-evidence-vocab（单一权威清单），此处复用不重建。
-import { FAILURE_CLASS_STRATEGIES } from "../harness/harness-evidence-vocab.js";
 // governance 唯一合流点（修死链 c）：所有 governance 读点经 resolveGovernance，
 // 让 runtime.governanceSnapshot 真正被消费（非死对象）。
 import { resolveGovernance } from "./resolve-governance.js";
@@ -13,14 +11,14 @@ export { normalizePositiveInteger, normalizeFiniteNumber };
 
 const VALID_ACTIONS = new Set(["continue", "rework", "conclude", "pause", "abandon"]);
 
-// real[no-progress]：跨轮内容级 spin 守卫。loop-detection.js 已覆盖「同一轮内重复 tool-call」，
+// real[no-progress]：跨轮内容级 spin 守卫。execution-hard-stop-registry.js 已覆盖「同一轮内重复 tool-call」，
 // maxRounds/earlyStopPatience 覆盖「轮数上限/分数无改善」，但都拦不住「连续多轮产出一字不差」——
 // 这会在 maxRounds 很大时白烧 token（=钱）。此守卫在产物指纹连续 NO_PROGRESS_REPEAT_LIMIT 次
 // 不变时提前收敛（金融级成本控制）。阈值=连续 2 次重复（产物跨 3 轮不变），保守避免单次巧合误触。
 const NO_PROGRESS_REPEAT_LIMIT = 2;
 
 // 产物内容指纹：仅对非空产物计算（空/过短由 handoff 校验 + fail 路径管，不参与 spin 检测）。
-// 字符串原样、对象稳定序列化后 md5；与 loop-detection.js 的哈希策略一致。
+// 字符串原样、对象稳定序列化后 md5；与 execution-hard-stop-registry.js 的哈希策略一致。
 function fingerprintArtifact(artifact) {
   if (artifact == null) return null;
   const text = typeof artifact === "string" ? artifact : JSON.stringify(artifact);
@@ -76,32 +74,6 @@ export function computeImprovementState(spec, runtime, score, artifact, round) {
   };
 }
 
-function buildReworkGuidance(reviewerResult) {
-  if (!reviewerResult) return null;
-
-  const failureClass = normalizeString(reviewerResult.failureClass) || null;
-  const reworkTarget = normalizeString(reviewerResult.reworkTarget) || null;
-  const findings = Array.isArray(reviewerResult.findings) ? reviewerResult.findings : [];
-
-  const actionableFindings = findings
-    .filter((f) => f && f.message)
-    .map((f) => ({
-      category: normalizeString(f.category) || "general",
-      severity: normalizeString(f.severity) || "info",
-      message: normalizeString(f.message),
-    }));
-
-  if (!failureClass && !reworkTarget && actionableFindings.length === 0) return null;
-
-  return {
-    failureClass,
-    reworkTarget,
-    actionableFindings,
-    strategy: (failureClass && FAILURE_CLASS_STRATEGIES[failureClass])
-      || (actionableFindings.length > 0 ? "address_findings_and_retry" : "generic_retry"),
-  };
-}
-
 export function normalizeAutomationDecision(raw) {
   const source = normalizeRecord(raw, null);
   if (!source) return null;
@@ -120,20 +92,22 @@ export function normalizeAutomationDecision(raw) {
     improvementState: normalizeRecord(source.improvementState, null),
     reworkGuidance: normalizeRecord(source.reworkGuidance, null),
     ts: Number.isFinite(source.ts) ? source.ts : Date.now(),
-    // Preserve the runtime decision triplet consumed by automation state, summaries, and harness projections.
+    // Preserve the runtime decision triplet consumed by automation state and summaries.
     decision: normalizeString(source.decision)?.toLowerCase() || action,
     status: normalizeString(source.status)?.toLowerCase() || null,
     nextWakeAt: Number.isFinite(source.nextWakeAt) ? source.nextWakeAt : null,
   };
 }
 
+// 评价臂已删（2026-08-26 死码清理）：evaluationResult 入参与 verdict/continueHint
+// 分支随 harness 判定链全退役（v226）后生产恒不可达——唯一生产调用方
+// automation-finalize.js 恒传 null。决策主干 = enabled/mode 门 + 指纹 spin 守卫 +
+// 预算（maxRounds/earlyStopPatience）+ terminalStatus/wakePolicy。
 export function deriveDecision(spec, runtime, {
   round,
   terminalStatus,
   score,
   noImprovementStreak,
-  reviewerResult = null,
-  evaluationResult = null,
   improvementState = null,
 }, now = Date.now()) {
   const wakePolicy = normalizeRecord(spec?.wakePolicy, {});
@@ -146,10 +120,6 @@ export function deriveDecision(spec, runtime, {
   const wakeOnFailure = wakePolicy.onFailure === true;
 
   const base = { round, score: normalizeFiniteNumber(score, null), ts: now };
-  // evaluationResult is the canonical derived object; reviewerResult is the legacy fallback
-  const effectiveEval = evaluationResult || reviewerResult;
-  const verdict = effectiveEval?.verdict || null;
-  const reworkGuidance = buildReworkGuidance(reviewerResult);
 
   function emit(decision, status, nextWakeAt, reason, action) {
     return normalizeAutomationDecision({
@@ -158,10 +128,8 @@ export function deriveDecision(spec, runtime, {
       status,
       nextWakeAt,
       reason,
-      verdict,
       improvementState: improvementState || null,
-      reworkGuidance: (action === "rework" || (decision === "continue" && reason?.includes("rework")))
-        ? reworkGuidance : null,
+      reworkGuidance: null,
       ...base,
     });
   }
@@ -170,32 +138,16 @@ export function deriveDecision(spec, runtime, {
     return emit("paused", "paused", null, "automation_disabled", "pause");
   }
 
-  if (terminalStatus === CONTRACT_STATUS.AWAITING_INPUT) {
-    return emit("paused", "paused", null, "awaiting_input", "pause");
-  }
 
   if (["once", "oneshot", "one_shot", "single"].includes(mode)) {
     return emit("completed", "completed", null, "single_round_mode", "conclude");
   }
 
-  // real[14]：失败的最终轮不得被预算用尽（max_rounds / early_stop）洗白成 completed。
-  // 在预算结论之前先短路 fail/regressed（复用下方 reviewer_fail 语义）。
-  // wakeOnFailure 时仍走下方重试路径（耗尽时重试已无意义，abandon 正确）。
-  if (effectiveEval && (effectiveEval.verdict === "fail" || effectiveEval.verdict === "regressed") && !wakeOnFailure) {
-    return emit("error", "error", null, "reviewer_fail", "abandon");
-  }
-
   // real[no-progress]：跨轮内容级 spin —— 产物指纹连续 NO_PROGRESS_REPEAT_LIMIT 次不变 → 提前止损。
-  // 置于 fail 短路之后：!wakeOnFailure 的失败已在上面 abandon；走到这里仍重复的失败只可能是
-  // wakeOnFailure=true 的「重试中」失败——它若卡死重复同样 abandon（不洗白成 completed，遵守 real[14]）。
-  // 非失败的重复 = 卡住但有效 → conclude。置于 maxRounds 之前：maxRounds 很大时本守卫更早收敛省 token。
+  // 重复 = 卡住但有效 → conclude。置于 maxRounds 之前：maxRounds 很大时本守卫更早收敛省 token。
   const repeatStreak = normalizePositiveInteger(improvementState?.repeatStreak, 0);
   if (NO_PROGRESS_REPEAT_LIMIT > 0 && repeatStreak >= NO_PROGRESS_REPEAT_LIMIT) {
-    const failing = effectiveEval
-      && (effectiveEval.verdict === "fail" || effectiveEval.verdict === "regressed");
-    return failing
-      ? emit("error", "error", null, "no_progress_repeat_failing", "abandon")
-      : emit("completed", "completed", null, "no_progress_repeat", "conclude");
+    return emit("completed", "completed", null, "no_progress_repeat", "conclude");
   }
 
   if (maxRounds > 0 && round >= maxRounds) {
@@ -205,25 +157,6 @@ export function deriveDecision(spec, runtime, {
   // real[22]：不再要求数值分存在；streak 现对 qualitative loop 也会累加，knob 真正生效。
   if (earlyStopPatience > 0 && noImprovementStreak >= earlyStopPatience) {
     return emit("completed", "completed", null, "early_stop_patience", "conclude");
-  }
-
-  if (effectiveEval && effectiveEval.verdict !== "inconclusive") {
-    const hint = effectiveEval.continueHint;
-    if (hint === "rework") {
-      return emit("continue", "idle", buildNextWakeAt(spec, now), "reviewer_rework", "rework");
-    }
-    if (hint === "pause") {
-      return emit("paused", "paused", null, "reviewer_pause", "pause");
-    }
-    if (hint === "conclude") {
-      return emit("completed", "completed", null, "reviewer_conclude", "conclude");
-    }
-    if (effectiveEval.verdict === "fail" || effectiveEval.verdict === "regressed") {
-      if (wakeOnFailure) {
-        return emit("continue", "idle", buildNextWakeAt(spec, now), "reviewer_fail_retry", "rework");
-      }
-      return emit("error", "error", null, "reviewer_fail", "abandon");
-    }
   }
 
   if (terminalStatus === CONTRACT_STATUS.FAILED && !wakeOnFailure) {

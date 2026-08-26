@@ -1,0 +1,68 @@
+/* app.css — 应用级壳样式：任务头带(三区导航上方)。
+   画风承接老页 mission-header:深色面板带 + 橙色底边 + OC 徽章 + 等宽遥测时钟。 */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: var(--bg-dark);
+  border-bottom: 3px solid var(--active);
+  padding: 10px var(--sp-4);
+}
+.hdr-badge {
+  width: 44px; height: 44px;
+  border: 2px solid var(--active);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--active);
+  letter-spacing: 0.1em;
+  flex: none;
+}
+.hdr-badge::after {
+  content: "";
+  position: absolute;
+  top: -5px; right: -5px;
+  width: 8px; height: 8px;
+  border-top: 2px solid var(--active);
+  border-right: 2px solid var(--active);
+}
+.hdr-titles { min-width: 0; }
+.hdr-title {
+  color: var(--on-dark);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  letter-spacing: 0.15em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hdr-sub {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.2em;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hdr-readout {
+  margin-left: auto;
+  text-align: right;
+  color: var(--on-dark);
+  font-family: var(--font-mono);
+  flex: none;
+}
+.hdr-clock {
+  display: block;
+  font-size: 20px;
+  color: var(--active);
+  letter-spacing: 0.08em;
+}
+.hdr-clock-label {
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  letter-spacing: 0.2em;
+}

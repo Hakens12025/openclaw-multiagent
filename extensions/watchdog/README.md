@@ -6,19 +6,20 @@
 ## 第一原则
 - **硬路径(代码)**:路由(inbox/outbox/delivery)、状态机(contract / graph-backed loop)、调度(传送带 dispatch / 排队 / 唤醒)、安全(before_tool_call 拦截)、质量门控。
 - **软路径(LLM)**:任务理解与拆解、内容产出、自然语言回复。
-- **传送带原则**:dispatch/loop 里禁止硬编码 agentId/角色;graph edge = 授权,不是时序;结果回传走 replyTo。
+- **传送带原则**:dispatch/loop 里禁止硬编码 agentId/角色;graph edge = 固定管线定义 + 传送带投递授权,不是时序,**也不是协作授权**(agent 主动调 `assign_task`/`request_review`/`wake_agent` 不查图边,授权单源是 `collaboration-intent-policy` 角色表);结果回传走 replyTo。
 
 ## 架构
 **运行时身体(持有业务真值)**:contract / graph / loop / dispatch / delivery / agent。
 
-**四关节自治链(北极星,正在收口)** —— 不是顶层域,是身体之上的控制/演化关节:
+**自治链(北极星)** —— 不是顶层域,是身体之上的控制/演化关节。
+(harness(工具)关节已于 v226 / 2026-08-23 全退役,裁决见备忘录149/150;
+HarnessRun/EvaluationResult 两环同批消失,「标准化」设计思想保留在 wiki/concepts/harness.md):
 
 ```
-Harness(工具) ── CLI-system(手) ── Operator(脑) ── Automation(最终目标)
-HarnessRun ───────► EvaluationResult ──► AutomationDecision ──► ProfileLifecycle(扩展点)
+CLI-system(手) ── Operator(脑) ── Automation(最终目标)
+                  AutomationDecision ──► ProfileLifecycle
 ```
 
-- **Harness = 工具**:拼图化执行塑形(guard/collector/gate/normalizer),只发 `HarnessRun`/证据;不碰协作/delivery/loop/治理真值。
 - **CLI-system = 手**:**系统正式可操作表面层**(hook/observe/inspect/apply/verify)= 驾驶舱/仪表盘/检修口/合规操作面。**系统CLI化** = 散落表面收口成同一层。
 - **Operator = 脑**:治理消费(读 formal truth+surface → inspect/apply/verify);**不绕过 CLI-system 直写真值**。
 - **Automation = 最终目标**:脑-手-工具闭环成熟后自然长出的自治能力。
@@ -32,7 +33,6 @@ lib/                  业务逻辑(域模块)
   routing/ transport/ 传送带 dispatch + delivery + wake
   loop/ stage-*       graph-backed loop + stage 真值
   lifecycle/ runtime/ hook 生命周期 + 执行观测
-  harness/            执行塑形工具(工具)
   cli-system/         正式可操作表面(手)
   operator/           治理消费(脑)
   automation/ schedule/ 自治演化(目标)
@@ -64,6 +64,6 @@ node test-runner.js --list              # 打印 live 预设表
 报告 `~/.openclaw/test-reports/devtool-<presetId>-<ts>.txt`(failures-first) + `.json`(机器镜像)。
 
 ## 文档
-- `wiki/concepts/` — 编译知识(WHY),四关节见 harness/cli-system/operator/automation-of-automation + evaluation-result-chain
+- `wiki/concepts/` — 编译知识(WHY),关节见 cli-system/operator/automation-of-automation；harness.md 为已退役历史设计记录(v226)
 - `use guide/` — 历史备忘录(RAW),四层联动见备忘录 110-115
 - `docs/system-blocks/` — 11 个维护板块 handoff

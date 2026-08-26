@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { unlink } from "node:fs/promises";
 
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 import { dispatchTargetStateMap } from "../lib/state.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
-import { commitSemanticTerminalState } from "../lib/terminal-commit.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
+import { commitSemanticTerminalState } from "../lib/routing/terminal-commit.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 
 const logger = {
@@ -21,7 +21,7 @@ test.afterEach(() => {
 
 test("commitSemanticTerminalState releases dispatch ownership for terminal contract", async () => {
   const contractId = `TC-TERMINAL-DISPATCH-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
 
   try {
     const contract = {
@@ -33,7 +33,7 @@ test("commitSemanticTerminalState releases dispatch ownership for terminal contr
       updatedAt: Date.now(),
       output: `/tmp/${contractId}.md`,
     };
-    await persistContractSnapshot(contractPath, contract, logger);
+    contractPath = await persistContractById(contract, logger);
 
     dispatchTargetStateMap.set("worker", {
       busy: true,

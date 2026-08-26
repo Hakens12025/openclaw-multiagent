@@ -14,11 +14,11 @@ import { join } from "node:path";
 
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 import { getAdminSurfaceInputFields } from "../lib/admin/admin-surface-registry.js";
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
-import { searchKb } from "../lib/operator/knowledge-base.js";
-import { removeKnowledgeBase } from "../lib/operator/knowledge-base-registry.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
+import { searchKb } from "../lib/knowledge/knowledge-base.js";
+import { removeKnowledgeBase } from "../lib/knowledge/knowledge-base-registry.js";
 import { knowledgeBaseIndexFile } from "../lib/control-plane/control-plane-paths.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try { await embedText("probe", {}); ollamaUp = true; } catch { ollamaUp = false; }

@@ -6,9 +6,15 @@
  *   2. inspect.agent_workflows surface 合规 + 经 surface 等价
  *   3. inspect.agent_sessions：倒序 / 字段 / 缺失兜底 / surface 合规
  *   4. inspect.session_transcript：消息解析 / 文件提取与解析 / persistent 判定 / surface 合规
+ *      producedFiles 两条读序都锁在树 outbox 正本目录：封包轮（seal 给清单/主交付物/元数据）
+ *      与未封包轮（列目录本身，无封条 → manifest=null）。
+ *      注：control-plane/artifacts 副本店整店退役后，原「artifacts store 回退」一例已改写为
+ *      未封包轮树 outbox 一例（同一组页面契约断言：available/files/正文/截断/排序/manifest 形状），
+ *      「树优先于 store」的读序断言随 store 消失而失去对象，替换为「seal.files 是清单权威、
+ *      目录里未列入封条的文件不上页」——这才是封包轮与未封包轮今天真正的分野。
  *   5. POST /watchdog/reveal-file：白名单内放行（mock exec）/ 白名单外 / .. 逃逸 / 405 / 401
- *   6. snapshotInboxToTrace：快照落盘 / 抛错不冒泡（cleanup 不被破坏）
- *   6b. snapshotOutputToTrace：产出件复制 / 覆盖 / 缺失 no-op / 抛错吞掉 / agent_end 接入
+ *   6. snapshotInboxToRunTree：快照落盘（run 树 participants/）/ 抛错不冒泡（cleanup 不被破坏）
+ *   6b. snapshotOutputToRunTree：产出件复制 / 覆盖 / 缺失 no-op / 抛错吞掉 / agent_end 接入
  *
  * 含时间戳/真实运行态的等价比较已剔时间戳；transcript 用临时 fixture 避免依赖运行态。
  */
@@ -26,12 +32,14 @@ import {
 } from "../lib/agent/agent-session-store.js";
 import { readSessionTranscript } from "../lib/agent/agent-session-transcript.js";
 import { readSessionSystemPrompt } from "../lib/agent/agent-session-system-prompt.js";
-import { artifactDir, artifactPackageDir, ARTIFACT_MANIFEST_FILE } from "../lib/lifecycle/artifact-store.js";
 import {
   revealFileInFinder,
   isPathWithinAllowedRoots,
 } from "../lib/agent/agent-reveal-file.js";
-import { snapshotInboxToTrace, snapshotOutputToTrace } from "../lib/lifecycle/workflow-trace-snapshot.js";
+import { snapshotInboxToRunTree, snapshotOutputToRunTree } from "../lib/lifecycle/run-tree-snapshot.js";
+import { participantOutboxDirFor, recordContractHome, resolveThreadsRoot } from "../lib/archive/thread-tree-store.js";
+import { writeOutboxSeal } from "../lib/archive/outbox-seal.js";
+import { RUNTIME_RESULT_FILE } from "../lib/protocol/protocol-primitives.js";
 
 import {
   inspectCliSystemSurface,
@@ -210,6 +218,11 @@ test("readSessionTranscript：消息解析 + 文件提取/解析 + persistent �
   const dir = join(OC_ROOT, "agents", agentId, "sessions");
   await mkdir(dir, { recursive: true });
 
+  // 合约正本落树店（contract-index 登记 → resolveSharedContractPathById 可解析）
+  const contractId = `tc-xyz-${Date.now()}`;
+  const lineage = { threadId: `t-wf-${Date.now()}`, runId: "r-wf" };
+  await recordContractHome(contractId, lineage);
+
   // 落一个真实存在的 output 正本，用于 persistent=true 校验
   const outputName = `__wf_test_${Date.now()}__.md`;
   const outputDir = join(OC_ROOT, "control-plane", "output");
@@ -254,7 +267,7 @@ test("readSessionTranscript：消息解析 + 文件提取/解析 + persistent �
 
   try {
     // 直接调用，传 contractId 以解析 inbox contract 正本
-    const tr = await readSessionTranscript(agentId, sessionId, { contractId: "tc-xyz" });
+    const tr = await readSessionTranscript(agentId, sessionId, { contractId });
     assert.equal(tr.agentId, agentId);
     assert.equal(tr.sessionId, sessionId);
     // 3 条 message（session 行 + 损坏行被滤）
@@ -272,10 +285,14 @@ test("readSessionTranscript：消息解析 + 文件提取/解析 + persistent �
     assert.equal(u2.toolResults[0].tool, "t1");
     assert.match(u2.toolResults[0].contentText, /control-plane\/output/);
 
-    // referencedFiles：inbox contract（kind=contract，解析到 contracts 正本）
+    // referencedFiles：inbox contract（kind=contract，经 contract-index 解析到树店正本）
     const contractRef = tr.referencedFiles.find((f) => f.kind === "contract");
     assert.ok(contractRef, "应抽出 inbox contract 引用");
-    assert.match(contractRef.resolvedPath, /control-plane\/contracts\/tc-xyz\.json$/, "应解析到 contracts 正本");
+    assert.match(
+      contractRef.resolvedPath,
+      new RegExp(`runs/${lineage.runId}/contracts/${contractId}\\.json$`),
+      "应解析到树店合约正本",
+    );
 
     // output 引用（kind=output，解析到 control-plane/output，persistent=true 因正本存在）
     const outputRef = tr.referencedFiles.find((f) => f.kind === "output" && f.resolvedPath.endsWith(outputName));
@@ -306,10 +323,14 @@ test("readSessionTranscript：真实 .jsonl 格式(toolCall/arguments + 独立 t
   const outputPath = join(outputDir, outputName);
   await writeFile(outputPath, "body", "utf8");
   const inboxPath = join(OC_ROOT, "workspaces", agentId, "inbox", "contract.json");
-  // 正本用大写 TC-REAL.json,但 contractId 传小写 tc-real —— 验证大小写不敏感解析(sessionKey 会小写 contractId)
-  const contractsDir = join(OC_ROOT, "control-plane", "contracts");
+  // 正本用大写 TC-REAL-*，但 contractId 传小写 —— 验证索引键侧小写归一(sessionKey 会小写 contractId)，
+  // 路径侧仍用登记原串（树店文件名保留大写）
+  const upperId = `TC-REAL-${Date.now()}`;
+  const lineage = { threadId: `t-wfreal-${Date.now()}`, runId: "r-wfreal" };
+  await recordContractHome(upperId, lineage);
+  const contractsDir = join(resolveThreadsRoot(), lineage.threadId, "runs", lineage.runId, "contracts");
   await mkdir(contractsDir, { recursive: true });
-  const contractFile = join(contractsDir, "TC-REAL.json");
+  const contractFile = join(contractsDir, `${upperId}.json`);
   await writeFile(contractFile, "{}", "utf8");
 
   const lines = [
@@ -328,7 +349,7 @@ test("readSessionTranscript：真实 .jsonl 格式(toolCall/arguments + 独立 t
   await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((l) => JSON.stringify(l)).join("\n"), "utf8");
 
   try {
-    const tr = await readSessionTranscript(agentId, sessionId, { contractId: "tc-real" });
+    const tr = await readSessionTranscript(agentId, sessionId, { contractId: upperId.toLowerCase() });
     const asst = tr.messages.find((m) => m.role === "assistant");
     assert.ok(asst, "应有 assistant 消息");
     assert.equal(asst.toolCalls.length, 2, "应抽出 2 个 toolCall(来自 toolCall/arguments)");
@@ -342,10 +363,14 @@ test("readSessionTranscript：真实 .jsonl 格式(toolCall/arguments + 独立 t
 
     const contractRef = tr.referencedFiles.find((f) => f.kind === "contract");
     assert.ok(contractRef, "应从 toolCall arguments.path 抽出 inbox contract 引用");
-    // 小写 contractId(sessionKey 来)解析到正本;macOS 大小写不敏感 FS 下 existsSync 命中大写 TC-REAL.json,
-    // 故 persistent=true、reveal(open -R)可打开(case-sensitive FS 下 resolveCaseInsensitive 扫到实际大小写)。
-    assert.match(contractRef.resolvedPath, /control-plane\/contracts\/tc-real\.json$/i, "应解析到 contracts 正本(大小写不敏感)");
-    assert.equal(contractRef.persistent, true, "正本存在(大小写不敏感命中)→ persistent=true → 可 reveal");
+    // 小写 contractId(sessionKey 来)经索引小写键命中,路径用登记原串(大写文件名),
+    // 故 persistent=true、reveal(open -R)可打开(大小写归一只在索引键侧,不进路径)。
+    assert.match(
+      contractRef.resolvedPath,
+      new RegExp(`runs/${lineage.runId}/contracts/${upperId}\\.json$`),
+      "应经索引解析到树店正本(路径保留登记原串大小写)",
+    );
+    assert.equal(contractRef.persistent, true, "树店正本存在 → persistent=true → 可 reveal");
     const outputRef = tr.referencedFiles.find((f) => f.kind === "output" && f.resolvedPath.endsWith(outputName));
     assert.ok(outputRef, "应抽出 output 引用");
     assert.equal(outputRef.persistent, true, "output 正本存在 → persistent=true");
@@ -353,7 +378,7 @@ test("readSessionTranscript：真实 .jsonl 格式(toolCall/arguments + 独立 t
     await rm(join(OC_ROOT, "agents", agentId), { recursive: true, force: true });
     await rm(join(OC_ROOT, "workspaces", agentId), { recursive: true, force: true });
     await rm(outputPath, { force: true });
-    await rm(contractFile, { force: true });
+    await rm(join(resolveThreadsRoot(), lineage.threadId), { recursive: true, force: true });
   }
 });
 
@@ -392,29 +417,78 @@ test("readSessionSystemPrompt：合约会话 → source=contract-session-overrid
   }
 });
 
-test("readSessionTranscript：producedFiles 读持久产物包（artifacts/<cid>/<agent>/，含正文+主交付物）", async () => {
+test("readSessionTranscript：producedFiles 未封包轮读树 outbox 目录本身（无封条 → manifest=null，控制载荷不上页）", async () => {
   const cid = `tc-produced-${Date.now()}`;
   const agentId = "planner";
-  const dir = artifactPackageDir(cid, agentId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "report.md"), "# 报告正文", "utf8");
-  await writeFile(join(dir, "data.json"), '{"k":1}', "utf8");
-  await writeFile(join(dir, ARTIFACT_MANIFEST_FILE), JSON.stringify({
-    contractId: cid, producer: agentId, producedAt: "2026-01-01T00:00:00.000Z",
-    primary: "report.md", files: ["report.md", "data.json"],
-  }), "utf8");
+  const lineage = { threadId: `t-produced-unsealed-${Date.now()}`, runId: "r-1" };
+  await recordContractHome(cid, lineage);
+  // 仍在跑 / 崩溃轮 / 采集失败：树 outbox 正本目录在，但没有 seal.json
+  const treeOutbox = participantOutboxDirFor(lineage, agentId, cid);
+  await mkdir(treeOutbox, { recursive: true });
+  await writeFile(join(treeOutbox, "report.md"), "# 报告正文", "utf8");
+  await writeFile(join(treeOutbox, "data.json"), '{"k":1}', "utf8");
+  await writeFile(join(treeOutbox, RUNTIME_RESULT_FILE), '{"status":"completed"}', "utf8");
   try {
     const tr = await readSessionTranscript(agentId, "__nofile__", { contractId: cid });
-    assert.equal(tr.producedFiles.available, true, "产物包应可用");
-    assert.equal(tr.producedFiles.files.length, 2, "两个产物文件（manifest 不计入）");
+    assert.equal(tr.producedFiles.available, true, "未封包也应可用（目录本身就是正本）");
+    assert.equal(tr.producedFiles.files.length, 2, "两个产物文件（控制载荷不计入）");
+    assert.equal(
+      tr.producedFiles.files.some((f) => f.name === RUNTIME_RESULT_FILE),
+      false,
+      "runtime_result.json 是控制载荷，不是交付物",
+    );
     const report = tr.producedFiles.files.find((f) => f.name === "report.md");
     assert.ok(report, "应含 report.md");
-    assert.equal(report.primary, true, "report.md 是主交付物");
     assert.equal(report.content, "# 报告正文", "正文应内显");
-    assert.equal(tr.producedFiles.files[0].name, "report.md", "主交付物应排前");
-    assert.equal(tr.producedFiles.manifest.producer, agentId);
+    assert.equal(report.chars, "# 报告正文".length);
+    assert.equal(report.truncated, false);
+    assert.equal(report.primary, false, "无封条 → 无主交付物，全员 primary:false");
+    assert.ok(
+      report.path.endsWith(join(`outbox-${cid}`, "report.md")),
+      "数据源必须是树 outbox 正本目录本身（页面看到的是产物本身，不是某处副本）",
+    );
+    assert.equal(tr.producedFiles.manifest, null, "无封条 → 无 producer/producedAt/summary/primary 这组元数据");
   } finally {
-    await rm(artifactDir(cid), { recursive: true, force: true });
+    await rm(join(resolveThreadsRoot(), lineage.threadId), { recursive: true, force: true });
+  }
+});
+
+test("readSessionTranscript：producedFiles 封包轮以 seal 为清单权威（seal.files 之外的文件不上页 + 主交付物排前）", async () => {
+  const cid = `tc-produced-tree-${Date.now()}`;
+  const agentId = "planner";
+  const lineage = { threadId: `t-produced-${Date.now()}`, runId: "r-1" };
+  await recordContractHome(cid, lineage);
+  const treeOutbox = participantOutboxDirFor(lineage, agentId, cid);
+  await mkdir(treeOutbox, { recursive: true });
+  await writeFile(join(treeOutbox, "report.md"), "# 树内报告", "utf8");
+  await writeFile(join(treeOutbox, "data.json"), '{"k":2}', "utf8");
+  // 目录里躺着但封条没列的文件：封包轮读序以 seal.files 为准，它不该上页
+  await writeFile(join(treeOutbox, "scratch.txt"), "草稿", "utf8");
+  await writeOutboxSeal(treeOutbox, {
+    contractId: cid,
+    sessionKey: `agent:${agentId}:contract:${cid}`,
+    collectedAt: Date.now(),
+    primary: "report.md",
+    files: ["report.md", "data.json"],
+    declaredStatus: "completed",
+  });
+  try {
+    const tr = await readSessionTranscript(agentId, "__nofile__", { contractId: cid });
+    assert.equal(tr.producedFiles.available, true, "sealed 树 outbox 应可用");
+    assert.equal(tr.producedFiles.files.length, 2, "清单来自 seal.files（不是目录列表）");
+    assert.equal(
+      tr.producedFiles.files.some((f) => f.name === "scratch.txt"),
+      false,
+      "封条未列的文件不算采集事实，不上页",
+    );
+    assert.equal(tr.producedFiles.files[0].name, "report.md", "主交付物排前");
+    assert.equal(tr.producedFiles.files[0].primary, true);
+    assert.equal(tr.producedFiles.files[0].content, "# 树内报告", "正文来自树内正本");
+    assert.equal(tr.producedFiles.manifest.producer, agentId);
+    assert.equal(tr.producedFiles.manifest.primary, "report.md");
+    assert.ok(typeof tr.producedFiles.manifest.producedAt === "string", "producedAt 由 seal.collectedAt 演算");
+  } finally {
+    await rm(join(resolveThreadsRoot(), lineage.threadId), { recursive: true, force: true });
   }
 });
 
@@ -576,129 +650,189 @@ test("GET /watchdog/inspect：非 inspect 家族 surface 拒绝 → 403（不允
   assert.equal(res.statusCode, 403, "非 inspect 家族应 403");
 });
 
-// ── 6. snapshotInboxToTrace ────────────────────────────────────────────────────
+// ── 6. snapshotInboxToRunTree ──────────────────────────────────────────────────
 
-test("snapshotInboxToTrace：有 contractId 时快照 inbox 文件落到 trace 目录", async () => {
+const SNAPSHOT_LINEAGE = { threadId: "t-wfsnap", runId: "r-1-wfsnap" };
+
+function snapshotParticipantDir(agentId) {
+  return join(
+    resolveThreadsRoot(),
+    SNAPSHOT_LINEAGE.threadId,
+    "runs",
+    SNAPSHOT_LINEAGE.runId,
+    "participants",
+    agentId,
+  );
+}
+
+async function cleanupSnapshotThread() {
+  await rm(join(resolveThreadsRoot(), SNAPSHOT_LINEAGE.threadId), { recursive: true, force: true });
+}
+
+test("snapshotInboxToRunTree：有谱系+contractId 时快照 inbox 文件落到 participants/<agent>/inbox-<cid>/", async () => {
   const srcRoot = await mkdtemp(join(tmpdir(), "wf-inbox-"));
   await writeFile(join(srcRoot, "contract.json"), JSON.stringify({ id: "tc-snap" }), "utf8");
   await writeFile(join(srcRoot, "note.md"), "hi", "utf8");
 
   const contractId = `tc-snap-${Date.now()}`;
   const agentId = "worker-snap";
-  const traceBase = join(OC_ROOT, "control-plane", "workflow-trace", contractId);
   try {
-    const result = await snapshotInboxToTrace({ contractId, agentId, inboxDir: srcRoot });
+    const result = await snapshotInboxToRunTree({
+      lineage: SNAPSHOT_LINEAGE, contractId, agentId, inboxDir: srcRoot,
+    });
     assert.equal(result.snapshotted, true);
     const { existsSync, readFileSync } = await import("node:fs");
-    const dest = join(traceBase, agentId, "inbox");
+    const dest = join(snapshotParticipantDir(agentId), `inbox-${contractId}`);
+    assert.equal(result.dest, dest, "dest 应为 participants/<agent>/inbox-<cid>/");
     assert.equal(existsSync(join(dest, "contract.json")), true, "contract.json 应被快照");
     assert.equal(existsSync(join(dest, "note.md")), true, "note.md 应被快照");
     assert.equal(readFileSync(join(dest, "note.md"), "utf8"), "hi");
   } finally {
     await rm(srcRoot, { recursive: true, force: true });
-    await rm(traceBase, { recursive: true, force: true });
+    await cleanupSnapshotThread();
   }
 });
 
-test("snapshotInboxToTrace：缺 contractId / agentId / inboxDir → no-op（不抛）", async () => {
-  assert.deepEqual(await snapshotInboxToTrace({ agentId: "a", inboxDir: "/x" }), { snapshotted: false, dest: null });
-  assert.deepEqual(await snapshotInboxToTrace({ contractId: "c", inboxDir: "/x" }), { snapshotted: false, dest: null });
-  assert.deepEqual(await snapshotInboxToTrace({ contractId: "c", agentId: "a" }), { snapshotted: false, dest: null });
-  assert.deepEqual(await snapshotInboxToTrace({}), { snapshotted: false, dest: null });
+test("snapshotInboxToRunTree：inbox/upstream 链条目物化为内容自足副本（dereference）", async () => {
+  const srcRoot = await mkdtemp(join(tmpdir(), "wf-inbox-link-"));
+  const linkTarget = await mkdtemp(join(tmpdir(), "wf-inbox-target-"));
+  await writeFile(join(linkTarget, "report.md"), "上游正本", "utf8");
+  await mkdir(join(srcRoot, "upstream"), { recursive: true });
+  const { symlink } = await import("node:fs/promises");
+  await symlink(linkTarget, join(srcRoot, "upstream", "planner"), "dir");
+
+  const contractId = `tc-snap-link-${Date.now()}`;
+  const agentId = "worker-snap-link";
+  try {
+    const result = await snapshotInboxToRunTree({
+      lineage: SNAPSHOT_LINEAGE, contractId, agentId, inboxDir: srcRoot,
+    });
+    assert.equal(result.snapshotted, true);
+    const { lstatSync, readFileSync } = await import("node:fs");
+    const destDir = join(snapshotParticipantDir(agentId), `inbox-${contractId}`, "upstream", "planner");
+    assert.equal(lstatSync(destDir).isSymbolicLink(), false, "快照条目应是物化目录,非链");
+    assert.equal(readFileSync(join(destDir, "report.md"), "utf8"), "上游正本", "证据面内容自足,独立于产者 run 的 GC");
+  } finally {
+    await rm(srcRoot, { recursive: true, force: true });
+    await rm(linkTarget, { recursive: true, force: true });
+    await cleanupSnapshotThread();
+  }
 });
 
-test("snapshotInboxToTrace：源不存在时抛错（由调用方 try/catch 吞掉，验证不破坏 cleanup 契约）", async () => {
+test("snapshotInboxToRunTree：缺 lineage / contractId / agentId / inboxDir → no-op（不抛）", async () => {
+  assert.deepEqual(await snapshotInboxToRunTree({ lineage: SNAPSHOT_LINEAGE, agentId: "a", inboxDir: "/x" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotInboxToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId: "c", inboxDir: "/x" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotInboxToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId: "c", agentId: "a" }), { snapshotted: false, dest: null });
+  // 无谱系（=无合约轮次）无 run 家 → 不快照
+  assert.deepEqual(await snapshotInboxToRunTree({ contractId: "c", agentId: "a", inboxDir: "/x" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotInboxToRunTree({}), { snapshotted: false, dest: null });
+});
+
+test("snapshotInboxToRunTree：源不存在时抛错（由调用方 try/catch 吞掉，验证不破坏 cleanup 契约）", async () => {
   // 源目录不存在 → cp 抛错。验证错误冒泡到调用方（调用方负责吞）。
-  await assert.rejects(
-    () => snapshotInboxToTrace({
-      contractId: "tc-missing",
-      agentId: "w",
-      inboxDir: join(tmpdir(), `__never_exists_${Date.now()}__`),
-    }),
-    "源不存在应抛错（调用方 try/catch 兜底，不影响 unlink）",
-  );
+  try {
+    await assert.rejects(
+      () => snapshotInboxToRunTree({
+        lineage: SNAPSHOT_LINEAGE,
+        contractId: "tc-missing",
+        agentId: "w",
+        inboxDir: join(tmpdir(), `__never_exists_${Date.now()}__`),
+      }),
+      "源不存在应抛错（调用方 try/catch 兜底，不影响 unlink）",
+    );
+  } finally {
+    await cleanupSnapshotThread();
+  }
 });
 
 // cleanup 接入点：cleanupAgentEndTransport 包了 try/catch，快照抛错不冒泡
 test("agent-end-transport：快照调用包在 try/catch（快照失败不破坏清理）", async () => {
   const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../lib/lifecycle/agent-end-transport.js", import.meta.url), "utf8");
-  assert.match(src, /snapshotInboxToTrace/, "应接入 snapshotInboxToTrace");
+  const src = await readFile(new URL("../lib/lifecycle/agent-end/transport.js", import.meta.url), "utf8");
+  assert.match(src, /snapshotInboxToRunTree/, "应接入 snapshotInboxToRunTree");
   // 快照调用必须在 cleanInbox（unlink 发生处）之前
-  const snapIdx = src.indexOf("snapshotInboxToTrace");
+  const snapIdx = src.indexOf("snapshotInboxToRunTree");
   const cleanIdx = src.indexOf("await cleanInbox");
   assert.ok(snapIdx >= 0 && cleanIdx >= 0 && snapIdx < cleanIdx, "快照必须在 cleanInbox 之前");
   // 快照段必须在 try/catch 内
-  assert.match(src, /try\s*\{[\s\S]*snapshotInboxToTrace[\s\S]*\}\s*catch/, "快照应包在 try/catch 内");
+  assert.match(src, /try\s*\{[\s\S]*snapshotInboxToRunTree[\s\S]*\}\s*catch/, "快照应包在 try/catch 内");
 });
 
-// ── 6b. snapshotOutputToTrace（产出件快照）────────────────────────────────────
+// ── 6b. snapshotOutputToRunTree（产出件快照）──────────────────────────────────
 
-test("snapshotOutputToTrace：复制产出件到 workflow-trace/<cid>/output.md", async () => {
+test("snapshotOutputToRunTree：复制产出件到 participants/<agent>/delivery-<cid>.md", async () => {
   const srcRoot = await mkdtemp(join(tmpdir(), "wf-output-"));
   const outputPath = join(srcRoot, "tc-x.md");
   await writeFile(outputPath, "用户最终件", "utf8");
 
   const contractId = `tc-outsnap-${Date.now()}`;
-  const traceBase = join(OC_ROOT, "control-plane", "workflow-trace", contractId);
+  const agentId = "worker-outsnap";
   try {
-    const result = await snapshotOutputToTrace({ contractId, outputPath });
+    const result = await snapshotOutputToRunTree({
+      lineage: SNAPSHOT_LINEAGE, contractId, agentId, outputPath,
+    });
     assert.equal(result.snapshotted, true);
     const { existsSync, readFileSync } = await import("node:fs");
-    const dest = join(traceBase, "output.md");
-    assert.equal(result.dest, dest, "dest 应为 workflow-trace/<cid>/output.md");
+    const dest = join(snapshotParticipantDir(agentId), `delivery-${contractId}.md`);
+    assert.equal(result.dest, dest, "dest 应为 participants/<agent>/delivery-<cid>.md");
     assert.equal(existsSync(dest), true, "产出件应被快照");
     assert.equal(readFileSync(dest, "utf8"), "用户最终件");
   } finally {
     await rm(srcRoot, { recursive: true, force: true });
-    await rm(traceBase, { recursive: true, force: true });
+    await cleanupSnapshotThread();
   }
 });
 
-test("snapshotOutputToTrace：覆盖写（last-writer-wins，末位 agent 跑完即最终件）", async () => {
+test("snapshotOutputToRunTree：覆盖写（last-writer-wins，重跑覆盖为最新件）", async () => {
   const srcRoot = await mkdtemp(join(tmpdir(), "wf-output-"));
   const outputPath = join(srcRoot, "tc-x.md");
   const contractId = `tc-outover-${Date.now()}`;
-  const traceBase = join(OC_ROOT, "control-plane", "workflow-trace", contractId);
+  const agentId = "worker-outover";
   try {
     await writeFile(outputPath, "FIRST", "utf8");
-    await snapshotOutputToTrace({ contractId, outputPath });
+    await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId, agentId, outputPath });
     await writeFile(outputPath, "SECOND", "utf8");
-    await snapshotOutputToTrace({ contractId, outputPath });
+    await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId, agentId, outputPath });
     const { readFileSync } = await import("node:fs");
-    assert.equal(readFileSync(join(traceBase, "output.md"), "utf8"), "SECOND", "应覆盖为最新内容");
+    assert.equal(
+      readFileSync(join(snapshotParticipantDir(agentId), `delivery-${contractId}.md`), "utf8"),
+      "SECOND",
+      "应覆盖为最新内容",
+    );
   } finally {
     await rm(srcRoot, { recursive: true, force: true });
-    await rm(traceBase, { recursive: true, force: true });
+    await cleanupSnapshotThread();
   }
 });
 
-test("snapshotOutputToTrace：产出件不存在 / 缺 contractId → no-op（不抛）", async () => {
+test("snapshotOutputToRunTree：产出件不存在 / 缺 lineage / contractId / agentId → no-op（不抛）", async () => {
   // 产出件不存在
   assert.deepEqual(
-    await snapshotOutputToTrace({ contractId: "tc-x", outputPath: join(tmpdir(), `__no_output_${Date.now()}__.md`) }),
+    await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId: "tc-x", agentId: "a", outputPath: join(tmpdir(), `__no_output_${Date.now()}__.md`) }),
     { snapshotted: false, dest: null },
   );
-  // 缺 contractId / outputPath
-  assert.deepEqual(await snapshotOutputToTrace({ outputPath: "/x.md" }), { snapshotted: false, dest: null });
-  assert.deepEqual(await snapshotOutputToTrace({ contractId: "tc-x" }), { snapshotted: false, dest: null });
-  assert.deepEqual(await snapshotOutputToTrace({}), { snapshotted: false, dest: null });
+  // 缺 contractId / agentId / outputPath / lineage
+  assert.deepEqual(await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, agentId: "a", outputPath: "/x.md" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId: "tc-x", outputPath: "/x.md" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId: "tc-x", agentId: "a" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotOutputToRunTree({ contractId: "tc-x", agentId: "a", outputPath: "/x.md" }), { snapshotted: false, dest: null });
+  assert.deepEqual(await snapshotOutputToRunTree({}), { snapshotted: false, dest: null });
 });
 
-test("snapshotOutputToTrace：内部抛错被吞（绝不破坏 agent_end）", async () => {
+test("snapshotOutputToRunTree：内部抛错被吞（绝不破坏 agent_end）", async () => {
   // 传入非法 outputPath 类型不应抛（内部 try/catch 兜底）
-  const result = await snapshotOutputToTrace({ contractId: "tc-x", outputPath: 12345 });
+  const result = await snapshotOutputToRunTree({ lineage: SNAPSHOT_LINEAGE, contractId: "tc-x", agentId: "a", outputPath: 12345 });
   assert.deepEqual(result, { snapshotted: false, dest: null }, "非法入参应 no-op 不抛");
 });
 
-// agent_end 接入点：cleanupAgentEndTransport 接入 snapshotOutputToTrace 且包 try/catch
-test("agent-end-transport：接入 snapshotOutputToTrace 且包 try/catch（不破坏清理）", async () => {
+// agent_end 接入点：cleanupAgentEndTransport 接入 snapshotOutputToRunTree 且包 try/catch
+test("agent-end-transport：接入 snapshotOutputToRunTree 且包 try/catch（不破坏清理）", async () => {
   const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../lib/lifecycle/agent-end-transport.js", import.meta.url), "utf8");
-  assert.match(src, /snapshotOutputToTrace/, "应接入 snapshotOutputToTrace");
+  const src = await readFile(new URL("../lib/lifecycle/agent-end/transport.js", import.meta.url), "utf8");
+  assert.match(src, /snapshotOutputToRunTree/, "应接入 snapshotOutputToRunTree");
   // outputPath 来源：executionObservation?.primaryOutputPath || trackingState?.contract?.output
   assert.match(src, /primaryOutputPath/, "outputPath 应取 executionObservation.primaryOutputPath");
   assert.match(src, /contract\?\.output/, "outputPath 兜底应取 trackingState.contract.output");
   // 产出件快照段包在 try/catch 内
-  assert.match(src, /try\s*\{[\s\S]*snapshotOutputToTrace[\s\S]*\}\s*catch/, "产出件快照应包在 try/catch 内");
+  assert.match(src, /try\s*\{[\s\S]*snapshotOutputToRunTree[\s\S]*\}\s*catch/, "产出件快照应包在 try/catch 内");
 });

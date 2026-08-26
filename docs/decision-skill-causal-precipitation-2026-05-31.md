@@ -3,6 +3,10 @@
 > Primary Block：`automation-governance` | 日期：2026-05-31
 > 用户精炼设计：skill 不存产物全文，存**验证过的因果对错边界**（When/Pro/Con），每条 pro/con 挂 evidence 来源。
 
+> **已退役 v226（2026-08-23）**：harness 判定账已全退役（代码全删），裁决与施工单见
+> `use guide/备忘录149_[主]_裁决_阶段012开工与harness全退役_2026-08-20-0130.md` 与
+> `use guide/备忘录150_[主]_评审链删除与reviewer角色退役_2026-08-22-2212.md`。
+> 本页保留作历史设计记录；其中「标准化」思想（声明式模块、证据归一、配置即契约）仍然有效。
 ## 1. 触发点（file:line）
 
 `automation-finalize.js` `finalizeAutomationRound` 尾段（`nextRuntime` 算完、`onAlert`/return 前）。

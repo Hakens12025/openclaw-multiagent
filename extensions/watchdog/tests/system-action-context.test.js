@@ -4,9 +4,12 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:system-action-context.test.js" });
 import { SYSTEM_ACTION_STATUS } from "../lib/core/runtime-status.js";
-import { INTENT_TYPES } from "../lib/protocol-primitives.js";
+import { INTENT_TYPES } from "../lib/protocol/protocol-primitives.js";
 import { agentWorkspace, runtimeAgentConfigs } from "../lib/state.js";
 import { systemActionDispatch } from "../lib/system-action/system-action-runtime.js";
 import { WAKE_SEMANTIC_TYPE } from "../lib/transport/runtime-wake-envelope.js";
@@ -217,7 +220,7 @@ test("systemActionDispatch assign_task uses unified semantic wake reason when ca
   }
 }));
 
-test("systemActionDispatch wake_agent and assign_task cannot bypass missing graph edges", async () => runGlobalTestEnvironmentSerial(async () => {
+test("systemActionDispatch wake_agent and assign_task ignore graph topology but reject unknown and self targets", async () => runGlobalTestEnvironmentSerial(async () => {
   const suffix = `${Date.now()}`;
   const sourceAgent = `system-action-denied-source-${suffix}`;
   const targetAgent = `system-action-denied-target-${suffix}`;
@@ -262,15 +265,30 @@ test("systemActionDispatch wake_agent and assign_task cannot bypass missing grap
       },
     }, context);
 
-    assert.equal(wakeResult?.status, SYSTEM_ACTION_STATUS.INVALID_STATE);
-    assert.match(wakeResult?.error || "", /graph disallows wake_agent/);
-    assert.equal(assignResult?.status, SYSTEM_ACTION_STATUS.INVALID_STATE);
-    assert.match(assignResult?.error || "", /graph disallows assign_task/);
-    assert.equal(heartbeatCalls.length, 0);
-    await assert.rejects(
-      readFile(join(agentWorkspace(targetAgent), "inbox", "contract.json"), "utf8"),
-      /ENOENT/,
-    );
+    // 图是固定管线的定义,不是动态协作的闸:空图不该拦住 agent 自己发起的协作。
+    assert.notEqual(wakeResult?.status, SYSTEM_ACTION_STATUS.INVALID_STATE, wakeResult?.error || "");
+    assert.notEqual(assignResult?.status, SYSTEM_ACTION_STATUS.INVALID_STATE, assignResult?.error || "");
+    assert.ok(heartbeatCalls.length > 0, "wake_agent 应当真的把目标叫醒");
+    const staged = await readFile(join(agentWorkspace(targetAgent), "inbox", "contract.json"), "utf8");
+    assert.match(staged, /TC-/, "assign_task 应当把工单投进目标 inbox");
+
+    // 但目标必须真实存在——打错名字要在受理时刻拿到结构化拒绝,而不是受理成功后静默失败。
+    const unknownResult = await systemActionDispatch({
+      type: INTENT_TYPES.ASSIGN_TASK,
+      params: { targetAgent: `no-such-agent-${suffix}`, message: "typo target" },
+    }, context);
+    assert.equal(unknownResult?.status, SYSTEM_ACTION_STATUS.INVALID_STATE);
+    assert.match(unknownResult?.error || "", /unknown target agent/);
+
+    // 协作的对象是别人:自指在三个动作上都退化成自递归或空转。评审自指还多一层
+    // 结构后果——被审包落 participants/<源>/outbox-<评审cid>/,源与 reviewer 同一个
+    // agent 时那正是它本轮的采集 outbox,被审包会被封进它自己的交付。
+    const selfResult = await systemActionDispatch({
+      type: INTENT_TYPES.ASSIGN_TASK,
+      params: { targetAgent: sourceAgent, message: "self target" },
+    }, context);
+    assert.equal(selfResult?.status, SYSTEM_ACTION_STATUS.INVALID_PARAMS);
+    assert.match(selfResult?.error || "", /is the caller itself/);
   } finally {
     restoreRuntimeAgentConfigs(originalRuntimeConfigs);
     await saveGraph(originalGraph);

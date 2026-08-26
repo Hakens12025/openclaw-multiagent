@@ -1,5 +1,7 @@
 # 决策稿:双文件 per-session 包流转(产物随 contract 流转)
 
+> ⚠️ **历史快照,勿当现状读**(标注于 2026-08-09)。此后已落地:动态协作不查图边(v179)、协作主路从 `[ACTION]` 标记换成 FC 工具、采集不再要求 `outbox/runtime_result.json` 提交令牌(v181)、`upstreamPackages` 升格为 `{path,producer,files[],primary}` 对象、`_manifest.json` 机制已删除。正文保留当时原貌。
+
 > 日期 2026-05-31 · 状态 **待用户敲定**(敲定后重构传送带) · 起点 v112-stable
 > 触发:工作流页暴露协作断裂——planner 产物没流到 worker(worker 没读、产物被覆盖);用户重申最初设计="系统按图传文件,agent 只读自己 inbox,产物双文件 per-session 流转"。
 

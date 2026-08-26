@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { composeGraphGroup } from "../lib/admin/admin-surface-graph-operations.js";
+import { composeGraphGroup } from "../lib/admin/operations/admin-surface-graph-operations.js";
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:graph-group-compose.test.js" });
 import { clearActiveGroupSession } from "../lib/agent/group-session-store.js";
 
 const logger = { info() {}, warn() {}, error() {} };

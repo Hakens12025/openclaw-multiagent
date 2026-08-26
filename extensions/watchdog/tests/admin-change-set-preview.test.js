@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeVerificationStatus } from "../lib/admin/admin-change-set-history.js";
-import { buildAdminChangeSetPreview } from "../lib/admin/admin-change-set-preview.js";
+import { normalizeVerificationStatus } from "../lib/admin/change-sets/admin-change-set-history.js";
+import { buildAdminChangeSetPreview } from "../lib/admin/change-sets/admin-change-set-preview.js";
 
 test("normalizeVerificationStatus treats finalizing test runs as running", () => {
   assert.equal(

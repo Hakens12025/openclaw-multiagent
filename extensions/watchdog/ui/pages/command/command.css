@@ -1,0 +1,128 @@
+/* command.css — 指挥台布局：顶读数带 + 三栏 grid（左工作项 260 / 中编排图 1fr / 右 PULSE 300） */
+.command-page {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--ink);
+  background-color: var(--bg);
+  /* 功能性工程网格线（老页同款）:1px 线网,非材质渐变 */
+  background-image:
+    linear-gradient(rgba(139, 115, 85, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 115, 85, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  min-height: calc(100vh - 40px);
+}
+.command-title {
+  font-size: var(--fs-title);
+  margin: 0 0 var(--sp-2) 0;
+  letter-spacing: 1px;
+}
+.stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 28px;
+  align-items: center;
+  background: var(--bg-3);
+  border: var(--border);
+  border-bottom: 3px solid var(--active);
+  padding: 8px 16px;
+  margin-bottom: var(--sp-3);
+}
+.stat-item { display: flex; align-items: baseline; gap: 8px; }
+.stat-label {
+  font-size: var(--fs-label);
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+.stat-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--ink);
+}
+.stat-value.is-active { color: var(--active); }
+.stat-value.is-queue { color: var(--amber); }
+.stat-value.is-done { color: var(--ok); }
+.stat-value.is-alert, .stat-value.is-alertable { color: var(--alert); }
+.stat-value.is-events { color: var(--info); }
+.stat-value.is-muted { color: var(--muted); }
+.stat-lamp {
+  display: inline-block;
+  width: 10px; height: 10px;
+  background: var(--alert);
+  align-self: center;
+}
+.stat-lamp.is-on { background: var(--ok); animation: stat-lamp-blink 2s infinite; }
+@keyframes stat-lamp-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.command-grid {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  gap: var(--sp-3);
+  align-items: start;
+}
+.col-workitems, .col-pulse {
+  background: var(--bg-2);
+  border: var(--border);
+  border-top: 3px solid var(--active);
+  padding: var(--sp-2);
+}
+.zone-nav {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 3px solid var(--active);
+  background: var(--bg-dark);
+  font-family: var(--font-mono);
+}
+.zone-link {
+  color: var(--on-dark);
+  text-decoration: none;
+  font-size: var(--fs-body);
+  letter-spacing: 0.08em;
+  padding: var(--sp-1) var(--sp-2);
+}
+.zone-link.current {
+  background: var(--active);
+  color: var(--bg-dark);
+}
+body { margin: 0; background: var(--bg); }
+
+/* 工作项栏 */
+.wi-title {
+  font-size: var(--fs-label);
+  letter-spacing: 1px;
+  border-bottom: var(--border);
+  padding-bottom: var(--sp-1);
+  margin-bottom: var(--sp-2);
+}
+.wi-group { margin-bottom: var(--sp-2); }
+.wi-group-head {
+  font-size: var(--fs-micro);
+  color: var(--line-soft);
+  border-bottom: 1px dashed var(--line-soft);
+  margin-bottom: var(--sp-1);
+}
+.wi-card {
+  border: var(--border);
+  padding: var(--sp-1) var(--sp-2);
+  margin-bottom: var(--sp-1);
+  cursor: pointer;
+}
+/* 工作项卡按状态包边(2026-08-26 用户裁决):运行=蓝 / 已完成=绿 / 失败=红;
+   排队(pending/draft)保持默认墨框。 */
+.wi-card.status-running { border-color: var(--info); }
+.wi-card.status-completed { border-color: var(--ok); }
+.wi-card.status-failed { border-color: var(--alert); }
+.wi-id { font-size: var(--fs-label); font-weight: bold; }
+.wi-pct { float: right; font-size: var(--fs-label); color: var(--active); }
+.wi-task {
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wi-empty {
+  color: var(--line-soft);
+  font-size: var(--fs-label);
+  border: 1px dashed var(--line-soft);
+  padding: var(--sp-2);
+}

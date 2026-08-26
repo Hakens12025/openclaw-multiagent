@@ -28,7 +28,9 @@ Pipeline 曾是系统最初的编排中心，但统一协议建立后已完全�
 - dispatch graph policy 职责明确为纯投递，不做决策。
 - 代码量净减少约 1700 行。
 
-**当前状态**：半完成（备忘录98）。旧引擎仍在 loop-session-store facade 背后运行。
+**当前状态**：**已完成**（2026-08-09 核实）。`pipeline-engine*` 全库零文件。
+
+> 🛑 **后续（2026-08-18）**：接收 pipeline 职责的 `loop-session` 本身也已整体退役——`lib/loop/` 七文件全删。编排职责现在只剩 dispatch graph policy 一条：传送带按图边解下一跳，成环时沿回边继续。见 [Loop（已退役页）](../concepts/loop.md)。
 
 ## 出处
 

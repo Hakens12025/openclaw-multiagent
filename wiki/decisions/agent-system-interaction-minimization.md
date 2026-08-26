@@ -1,5 +1,7 @@
 # Agent-System 交互最小化
 
+> ⚠️ **部分被取代（v179 / 2026-08-08）**：正文里「`[ACTION]` 是 Agent→System 的唯一命令通道」这半已由 FC 工具主路取代（见 [动态协作不查图边](./dynamic-collaboration-leaves-graph.md)、[平台/Agent 解耦](../concepts/platform-agent-decoupling.md)）。**原则本体（agent 写内容、系统提取结构、不依赖自报）仍然成立**，且工具比标记更符合它——agent 不必事先知道任何语法。以下正文保留当时原貌。
+
 > 核心设计指标 #12：Agent 写内容，System 提取结构。System 响应可观察信号，不依赖 agent 自报。
 
 ## 决策

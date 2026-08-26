@@ -8,8 +8,8 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { OC } from "../state-paths.js";
-import { listArchivedSessions } from "../lifecycle/session-archive.js";
+import { OC } from "../state/state-paths.js";
+import { listSessionHomes } from "../archive/session-home-index.js";
 
 function sessionsFile(agentId) {
   return join(OC, "agents", agentId, "sessions", "sessions.json");
@@ -57,9 +57,10 @@ async function readLiveSessions(agentId) {
 /**
  * 读取指定 agent 的 session 摘要列表（按 updatedAt 倒序）。
  *
- * 合并 live sessions.json 条目 + archive index.json 历史条目，
+ * 合并 live sessions.json 条目 + session-index（run 树归档的 id→home 索引，
+ * 树上 participants/{agent}/session-*.jsonl 是真值）历史条目，
  * 按 sessionId 去重（live 优先，取其 updatedAt/model/totalTokens）。
- * 这样即使 live 被 session-clean 清掉，archive 里的历史 session 仍能列出。
+ * 这样即使 live 被 session-clean 清掉，树内归档的历史 session 仍能列出。
  *
  * 全程兜底：任一源缺失/损坏 → 当作空，不抛。
  *
@@ -74,9 +75,14 @@ export async function listAgentSessions(agentId) {
   if (!normalizedAgentId) return [];
 
   const liveSessions = await readLiveSessions(normalizedAgentId);
-  const archivedSessions = await listArchivedSessions(normalizedAgentId);
+  let archivedSessions = [];
+  try {
+    archivedSessions = listSessionHomes(normalizedAgentId);
+  } catch {
+    archivedSessions = [];
+  }
 
-  // sessionId → 条目；live 先入并占位，archive 仅补 live 缺失的历史项。
+  // sessionId → 条目；live 先入并占位，归档索引仅补 live 缺失的历史项。
   const bySessionId = new Map();
   for (const entry of liveSessions) {
     if (entry.sessionId) bySessionId.set(entry.sessionId, entry);
@@ -85,11 +91,9 @@ export async function listAgentSessions(agentId) {
     if (!archived.sessionId || bySessionId.has(archived.sessionId)) continue;
     bySessionId.set(archived.sessionId, {
       sessionId: archived.sessionId,
-      sessionKey: typeof archived.sessionKey === "string" ? archived.sessionKey : "",
-      contractId: typeof archived.contractId === "string" && archived.contractId
-        ? archived.contractId
-        : parseContractIdFromSessionKey(archived.sessionKey),
-      updatedAt: Number.isFinite(archived.updatedAt) ? archived.updatedAt : 0,
+      sessionKey: typeof archived.sessionKey === "string" && archived.sessionKey ? archived.sessionKey : "",
+      contractId: parseContractIdFromSessionKey(archived.sessionKey),
+      updatedAt: Number.isFinite(archived.ts) ? archived.ts : 0,
       model: null,
       totalTokens: null,
     });

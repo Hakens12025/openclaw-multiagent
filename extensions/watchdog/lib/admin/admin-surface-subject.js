@@ -94,30 +94,6 @@ export function buildAdminSurfaceSubject(surface) {
   if (surfaceId === "runtime.reset") {
     return { kind: "runtime", scope: "global", selectorKey: null, aspect: "reset" };
   }
-  if (surfaceId === "runtime.loop.start") {
-    return {
-      kind: "loop",
-      scope: "instance",
-      selectorKey: "loopId",
-      aspect: "start",
-    };
-  }
-  if (surfaceId === "runtime.loop.interrupt" || surfaceId === "runtime.loop.resume") {
-    return {
-      kind: "loop_session",
-      scope: "instance",
-      selectorKey: "loopId",
-      aspect: surfaceId.slice("runtime.loop.".length),
-    };
-  }
-  if (surfaceId === "graph.loop.repair") {
-    return {
-      kind: "loop",
-      scope: "instance",
-      selectorKey: "loopId",
-      aspect: "repair",
-    };
-  }
   if (surfaceId.startsWith("graph.")) {
     return {
       kind: "graph",

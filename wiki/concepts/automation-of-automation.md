@@ -68,6 +68,6 @@ unknown -> provisional -> experimental -> stable -> (retired)
 
 - 方向：稳定
 - 实现：**核心回路已闭合**（HarnessRun→EvaluationResult→AutomationDecision→ProfileLifecycle 全段实接，证据见 [四关节自治闭环](self-governance-loop.md)）
-- 余项：operator 经 CLI-system 的治理闭环（P5）、Agent-Group 空间原语（P6b）
+- 余项：**均已完成** —— P5（operator 经 CLI-system 的治理闭环：`cli-surface-executor.js` + operatorExecutable surface 已在位）、P6b（Agent-Group 空间原语：`lib/agent/agent-group-spec.js` v119 宏展开落地）
 
 相关概念: [evaluation-result-chain](evaluation-result-chain.md) | [harness](harness.md) | [system-layering](system-layering.md)

@@ -49,7 +49,7 @@ export async function executeOperatorExecutablePlan({
 } = {}) {
   const normalizedPlan = normalizeOperatorPlan(plan);
 
-  // E2 — feasibility pre-flight: reject a plan whose graph/loop/group steps reference an agent that
+  // E2 — feasibility pre-flight: reject a plan whose graph/group steps reference an agent that
   // neither already exists nor is created by an earlier step in the SAME plan (dangling edge → half-apply).
   // Runs BEFORE the dryRun return so a PREVIEW also surfaces infeasibility (not only the live execute path).
   await assertOperatorPlanAgentFeasibility(normalizedPlan);
@@ -77,24 +77,6 @@ export async function executeOperatorExecutablePlan({
       summary: normalizedPlan.summary,
       plan: normalizedPlan,
       requiresExplicitConfirm: needsConfirm.map((step) => ({ surfaceId: step.surfaceId, title: step.title })),
-    };
-  }
-
-  // ⑮ Designer-only boundary as a HARD gate (not just the operator-brain prompt): operator DESIGNS
-  // structure + agent content; it never RUNS the user's concrete task. runtime.loop.start/resume is a
-  // downstream user/ingress action, never an operator build step. Block it here so a misbehaving planner
-  // cannot smuggle a run into a build plan — the README's "designer-only / suggest-only" claim now holds
-  // in code, not prose. (A composed-but-not-running loop is the correct end state of an operator build.)
-  const designerOnlyViolations = normalizedPlan.steps.filter(
-    (step) => step.surfaceId === "runtime.loop.start" || step.surfaceId === "runtime.loop.resume",
-  );
-  if (designerOnlyViolations.length > 0) {
-    return {
-      ok: false,
-      blocked: "operator_is_designer_only",
-      summary: normalizedPlan.summary,
-      plan: normalizedPlan,
-      designerOnlyViolations: designerOnlyViolations.map((step) => ({ surfaceId: step.surfaceId, title: step.title })),
     };
   }
 
@@ -185,7 +167,7 @@ export async function executeOperatorExecutablePlan({
   // apply (not per-step). A verify run is a full system suite that validates the resulting state, and
   // startTestRun rejects a concurrent launch — per-step would make every step after the first report
   // failed_to_start. runPlanVerificationsAfterApply dedupes; today all apply surfaces share preset
-  // "dispatch" → exactly one verify per plan. Reads/launches verify only; never touches the gate itself.
+  // "single" → exactly one verify per plan. Reads/launches verify only; never touches the gate itself.
   const verifications = await runPlanVerificationsAfterApply({
     surfaceIds: normalizedPlan.steps.map((step) => step.surfaceId),
     logger,

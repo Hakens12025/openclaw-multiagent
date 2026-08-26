@@ -1,6 +1,6 @@
-// tests/suite-link-units.test.js — suite-link / suite-loop 纯逻辑单测
-// 覆盖：case 归一化、期望评估、上游双布局探测（临时目录）、阶段→CheckResult 映射（stub deps）、
-// 以及 suite-loop 的选环/预算回显/收敛/轮次纯判定。无网络、无 gateway。
+// tests/suite-link-units.test.js — suite-link 纯逻辑单测
+// 覆盖：case 归一化、期望评估、上游到达探测（临时目录 fixture）、阶段→CheckResult 映射（stub deps）。
+// 无网络、无 gateway。
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -18,13 +18,6 @@ import {
   probeUpstreamPackages,
   runLinkCase,
 } from "../lib/formal-runtime/suite-link.js";
-import {
-  LOOP_STAGE_DESCRIPTORS,
-  evaluateBudgetEcho,
-  evaluateLoopConvergence,
-  evaluateLoopRounds,
-  selectLoopTarget,
-} from "../lib/formal-runtime/suite-loop.js";
 import { createCheckContext } from "../lib/formal-runtime/checks/check-runner.js";
 
 // ── 公共 stub ────────────────────────────────────────────────────────────────
@@ -48,8 +41,10 @@ function stubDeps(overrides = {}) {
     terminalize: async () => ({ ok: true }),
     readContract: async () => ({ id: "TC-test-1", status: "completed", output: "/tmp/out.md" }),
     resolveOutputPath: () => "/tmp/out.md",
+    readSealedPrimary: () => null,
     readFileText: async () => "LRU LFU FIFO ".repeat(40),
-    probeUpstream: async () => ({ found: true, locations: ["artifacts/<cid>/a1/ (2 files, manifest)"] }),
+    probeUpstream: async () => ({ found: true, locations: ["trace:a2:inbox/upstream/a1/ (2 files, pointer lists it)"], mismatches: [] }),
+    ensureCaseEdge: async () => null, // multiHop 边搭建走注入面,单测不打真 HTTP
     ...overrides,
   };
 }
@@ -102,46 +97,132 @@ test("evaluateLinkExpectation: pass / size fail / keyword fail", () => {
   assert.match(missing.evidence, /missing keywords: alpha/);
 });
 
-// ── probeUpstreamPackages（临时目录双布局）────────────────────────────────────
+// ── probeUpstreamPackages（contract 作用域的下游到达证据）──────────────────────
+// 树内快照形状（snapshotInboxToRunTree 写，run 家经 contract-index 解析后以 participantsDir 传入）：
+//   participants/<agentId>/inbox-<cid>/contract.json      → { id, upstreamPackages:[{path,producer,files,primary}] }
+//   participants/<agentId>/inbox-<cid>/upstream/planner/… → manifest.json + brief.md
+// fixture 按这个形状搭。
 
-test("probeUpstreamPackages: detects producer-subdir, flat, and inbox layouts", async (t) => {
+// 造一个 inbox：contract.json（可选 upstreamPackages 指针）+ upstream/<producer>/ 若干文件。
+async function makeInbox(inboxDir, { contractId = null, packages = null, producers = {} } = {}) {
+  await mkdir(inboxDir, { recursive: true });
+  if (contractId) {
+    const contract = { id: contractId, task: "t", status: "running" };
+    if (packages) contract.upstreamPackages = packages;
+    await writeFile(join(inboxDir, "contract.json"), JSON.stringify(contract, null, 2), "utf8");
+  }
+  for (const [producer, files] of Object.entries(producers)) {
+    await mkdir(join(inboxDir, "upstream", producer), { recursive: true });
+    for (const name of files) await writeFile(join(inboxDir, "upstream", producer, name), "x", "utf8");
+  }
+  return inboxDir;
+}
+
+test("probeUpstreamPackages: run-tree snapshot for the cid is the primary evidence", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "suite-link-probe-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  // 布局 A：artifacts/<cid>/<producer>/ + manifest
-  const pkgDir = join(root, "artifacts-a", "producer-x");
-  await mkdir(pkgDir, { recursive: true });
-  await writeFile(join(pkgDir, "manifest.json"), "{}", "utf8");
-  await writeFile(join(pkgDir, "report.md"), "hi", "utf8");
-  const a = await probeUpstreamPackages({ artifactsContractDir: join(root, "artifacts-a") });
-  assert.equal(a.found, true);
-  assert.match(a.locations.join("|"), /producer-x\/ \(2 files, manifest\)/);
-
-  // 布局 B：artifacts/<cid>/ 直接放文件（实测旧样本）
-  const flatDir = join(root, "artifacts-b");
-  await mkdir(flatDir, { recursive: true });
-  await writeFile(join(flatDir, "loose.md"), "hi", "utf8");
-  const b = await probeUpstreamPackages({ artifactsContractDir: flatDir });
-  assert.equal(b.found, true);
-  assert.match(b.locations.join("|"), /flat \(1 files\)/);
-
-  // 布局 C：inbox/upstream/<producer>/
-  const inboxDir = join(root, "ws-agent", "inbox");
-  await mkdir(join(inboxDir, "upstream", "planner-1"), { recursive: true });
-  await writeFile(join(inboxDir, "upstream", "planner-1", "brief.md"), "brief", "utf8");
-  const c = await probeUpstreamPackages({
-    artifactsContractDir: join(root, "nonexistent"),
-    inboxRoots: [{ agentId: "agent-1", inboxDir }],
+  const participantsDir = join(root, "participants");
+  await makeInbox(join(participantsDir, "planner", "inbox-TC-1"), { contractId: "TC-1" }); // 上游自己没收包
+  await makeInbox(join(participantsDir, "worker", "inbox-TC-1"), {
+    contractId: "TC-1",
+    packages: [{ path: "upstream/planner/", producer: "planner", files: ["brief.md", "manifest.json"], primary: "brief.md" }],
+    producers: { planner: ["manifest.json", "brief.md"] },
   });
-  assert.equal(c.found, true);
-  assert.match(c.locations.join("|"), /agent-1:inbox\/upstream\/planner-1\/ \(1 files\)/);
 
-  // 双布局都没有 → found:false
-  const none = await probeUpstreamPackages({
-    artifactsContractDir: join(root, "nope"),
-    inboxRoots: [{ agentId: "agent-1", inboxDir: join(root, "nope-inbox") }],
+  const probe = await probeUpstreamPackages({ contractId: "TC-1", participantsDir });
+  assert.equal(probe.found, true);
+  assert.equal(probe.locations.length, 1);
+  assert.match(probe.locations[0], /tree:worker:inbox-TC-1\/upstream\/planner\/ \(2 files, pointer lists it\)/);
+  assert.deepEqual(probe.mismatches, []);
+});
+
+test("probeUpstreamPackages: producer-side outbox alone never satisfies the probe", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "suite-link-probe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // 产者侧整包齐全（participants/planner/outbox-TC-1/ 是产物正本落点），但没有任何
+  // 下游 inbox 收到它 → 必须 found:false。产者侧目录无论下游是否收到都存在，证明不了
+  // 投递；旧探测读产者侧（当时是 control-plane/artifacts/<cid>/，该副本店已整店退役）
+  // 正是这样误判通过的。participantsDir 刻意指向真有 planner 目录的根：探测扫参与者时
+  // 只能认 inbox-<cid>/，不得把同级的 outbox-<cid>/ 算成到达证据。
+  const participantsDir = join(root, "participants");
+  const producerOutbox = join(participantsDir, "planner", "outbox-TC-1");
+  await mkdir(producerOutbox, { recursive: true });
+  await writeFile(join(producerOutbox, "brief.md"), "brief", "utf8");
+  await writeFile(join(producerOutbox, "seal.json"), JSON.stringify({ contractId: "TC-1" }), "utf8");
+
+  const probe = await probeUpstreamPackages({
+    contractId: "TC-1",
+    participantsDir, // 有产者 outbox，无任何 inbox-TC-1 快照
+    inboxRoots: [{ agentId: "worker", inboxDir: join(root, "ws", "worker", "inbox") }],
   });
-  assert.deepEqual(none, { found: false, locations: [] });
+  assert.equal(probe.found, false);
+  assert.deepEqual(probe.locations, []);
+});
+
+test("probeUpstreamPackages: live inbox counts only when its contract.json id matches the cid", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "suite-link-probe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // 上一个 contract 的残留包：目录满，但 contract.json 指向 TC-OLD。
+  const staleInbox = await makeInbox(join(root, "ws", "worker", "inbox"), {
+    contractId: "TC-OLD",
+    packages: [{ path: "upstream/planner/", producer: "planner", files: ["brief.md", "manifest.json"], primary: "brief.md" }],
+    producers: { planner: ["brief.md"] },
+  });
+  const inboxRoots = [{ agentId: "worker", inboxDir: staleInbox }];
+  const participantsDir = join(root, "participants");
+
+  const stale = await probeUpstreamPackages({ contractId: "TC-NEW", participantsDir, inboxRoots });
+  assert.equal(stale.found, false, "另一个 contract 的残留包不得让本 contract 的检查通过");
+
+  // 同一份目录换成本 contract 的 contract.json → 认（快照尚未落盘的时间窗）。
+  // 这一处刻意留字符串形态,覆盖 COMPAT 分支(改动落地前写下的在飞合约)。
+  await makeInbox(staleInbox, { contractId: "TC-NEW", packages: ["upstream/planner/"] });
+  const current = await probeUpstreamPackages({ contractId: "TC-NEW", participantsDir, inboxRoots });
+  assert.equal(current.found, true);
+  assert.match(current.locations[0], /live:worker:inbox\/upstream\/planner\/ \(1 files, pointer lists it\)/);
+
+  // 没有 cid 就无从定界 → 一律不看 live inbox。
+  const unscoped = await probeUpstreamPackages({ contractId: null, participantsDir, inboxRoots });
+  assert.equal(unscoped.found, false);
+});
+
+test("probeUpstreamPackages: a package the upstreamPackages pointer omits is reported as a mismatch", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "suite-link-probe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const participantsDir = join(root, "participants");
+  await makeInbox(join(participantsDir, "worker", "inbox-TC-1"), {
+    contractId: "TC-1",
+    packages: [{ path: "upstream/planner/", producer: "planner", files: ["brief.md", "manifest.json"], primary: "brief.md" }],
+    producers: { planner: ["brief.md"], ghost: ["stray.md"] },
+  });
+
+  const probe = await probeUpstreamPackages({ contractId: "TC-1", participantsDir });
+  assert.equal(probe.found, true);
+  assert.equal(probe.locations.length, 1);
+  assert.match(probe.locations[0], /planner\//);
+  assert.equal(probe.mismatches.length, 1);
+  assert.match(probe.mismatches[0], /ghost\/ \(1 files\) is absent from the upstreamPackages pointer/);
+});
+
+test("probeUpstreamPackages: without a pointer the directory alone is accepted; empty dirs are not", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "suite-link-probe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const participantsDir = join(root, "participants");
+  await makeInbox(join(participantsDir, "worker", "inbox-TC-1"), { contractId: "TC-1", producers: { planner: ["brief.md"] } });
+  const noPointer = await probeUpstreamPackages({ contractId: "TC-1", participantsDir });
+  assert.equal(noPointer.found, true);
+  assert.match(noPointer.locations[0], /pointer absent/);
+
+  // 空的 upstream/<producer>/（copyUpstreamArtifactsToInbox 一个文件都没搬进来）不算送达。
+  // 同一 participants 根：inbox 快照目录名嵌 cid，TC-2 的扫描不会误读 TC-1 的包。
+  await makeInbox(join(participantsDir, "worker", "inbox-TC-2"), { contractId: "TC-2", producers: { planner: [] } });
+  const empty = await probeUpstreamPackages({ contractId: "TC-2", participantsDir });
+  assert.equal(empty.found, false);
 });
 
 // ── buildLinkStageDescriptors ───────────────────────────────────────────────
@@ -170,12 +251,12 @@ test("runLinkCase happy path emits all stage checks as pass", async () => {
   assert.equal(result.contractId, "TC-test-1");
   assert.deepEqual(ctx.checks.map((c) => c.status), ["pass", "pass", "pass", "pass", "pass", "pass"]);
   assert.match(ctx.checks[2].evidence, /agents=\[a1,a2\]/);
-  assert.match(ctx.checks[5].evidence, /manifest/);
+  assert.match(ctx.checks[5].evidence, /trace:a2:inbox\/upstream\/a1\//);
   assert.equal(ctx.summarize().verdict, "PASS");
 });
 
 test("runLinkCase: inject failure fails E-DISPATCH-001 and blocks the rest", async () => {
-  const ctx = createCheckContext({ presetId: "dispatch" });
+  const ctx = createCheckContext({ presetId: "single" });
   await runLinkCase(ctx, PIPELINE_CASE, { deps: stubDeps({ inject: async () => ({ ok: false, error: "refused" }) }) });
   assert.equal(ctx.checks[0].status, "fail");
   assert.equal(ctx.checks[0].code, "E-DISPATCH-001");
@@ -186,7 +267,7 @@ test("runLinkCase: inject failure fails E-DISPATCH-001 and blocks the rest", asy
 });
 
 test("runLinkCase: no contract found fails E-CONTRACT-001", async () => {
-  const ctx = createCheckContext({ presetId: "dispatch" });
+  const ctx = createCheckContext({ presetId: "single" });
   await runLinkCase(ctx, { id: "s", message: "m" }, { deps: stubDeps({ observeContract: async () => null }) });
   assert.deepEqual(ctx.checks.map((c) => [c.status, c.code || null]), [
     ["pass", null],
@@ -196,7 +277,7 @@ test("runLinkCase: no contract found fails E-CONTRACT-001", async () => {
 });
 
 test("runLinkCase: timeout terminalizes and fails E-CONTRACT-002 with SSE tail evidence", async () => {
-  const ctx = createCheckContext({ presetId: "dispatch" });
+  const ctx = createCheckContext({ presetId: "single" });
   let terminalized = null;
   await runLinkCase(ctx, { id: "s", message: "m" }, {
     deps: stubDeps({
@@ -213,7 +294,7 @@ test("runLinkCase: timeout terminalizes and fails E-CONTRACT-002 with SSE tail e
 });
 
 test("runLinkCase: failed terminal overrides to E-CONTRACT-003", async () => {
-  const ctx = createCheckContext({ presetId: "dispatch" });
+  const ctx = createCheckContext({ presetId: "single" });
   await runLinkCase(ctx, { id: "s", message: "m" }, {
     deps: stubDeps({ waitForTerminal: async () => ({ status: "failed", timedOut: false, lastStatus: "failed", agents: [], lastSseNote: null }) }),
   });
@@ -223,7 +304,11 @@ test("runLinkCase: failed terminal overrides to E-CONTRACT-003", async () => {
 
 test("runLinkCase: missing output mirror fails E-CONTRACT-004; validation miss fails E-CONTRACT-007; upstream miss fails E-CONTRACT-006", async () => {
   const mirrorCtx = createCheckContext({ presetId: "pipeline" });
-  await runLinkCase(mirrorCtx, PIPELINE_CASE, { deps: stubDeps({ resolveOutputPath: () => null }) });
+  // 判据三序全空:树封包缺席 + contract.output 未设 + 快照产物投影为空 → E-CONTRACT-004
+  await runLinkCase(mirrorCtx, PIPELINE_CASE, { deps: stubDeps({
+    readContract: async () => ({ id: "TC-test-1", status: "completed" }),
+    resolveOutputPath: () => null,
+  }) });
   const mirror = mirrorCtx.checks.find((c) => c.id.endsWith("output-mirrored"));
   assert.equal(mirror.status, "fail");
   assert.equal(mirror.code, "E-CONTRACT-004");
@@ -244,51 +329,7 @@ test("runLinkCase: missing output mirror fails E-CONTRACT-004; validation miss f
 
 test("buildDefaultLinkDeps exposes every stage observer (stub surface contract)", () => {
   const deps = buildDefaultLinkDeps(null);
-  for (const key of ["now", "sleep", "cleanState", "inject", "createBudget", "observeContract", "waitForTerminal", "terminalize", "readContract", "resolveOutputPath", "readFileText", "probeUpstream"]) {
+  for (const key of ["now", "sleep", "cleanState", "inject", "createBudget", "observeContract", "waitForTerminal", "terminalize", "readContract", "resolveOutputPath", "readSealedPrimary", "readFileText", "probeUpstream"]) {
     assert.equal(typeof deps[key], "function", `deps.${key} must be a function`);
   }
-});
-
-// ── suite-loop 纯判定 ────────────────────────────────────────────────────────
-
-test("selectLoopTarget prefers registered active loop, falls back to cycle, else null", () => {
-  const fromLoop = selectLoopTarget({
-    loops: [{ id: "L1", active: true, nodes: ["r1", "w1"], entryAgentId: "r1" }],
-    cycles: [["x", "y"]],
-    graphNodeIds: ["r1", "w1", "x", "y"],
-  });
-  assert.equal(fromLoop.source, "registered_loop:L1");
-  assert.deepEqual(fromLoop.agents, ["r1", "w1"]);
-  assert.equal(fromLoop.entryAgentId, "r1");
-
-  const fromCycle = selectLoopTarget({
-    loops: [{ id: "L2", active: false, nodes: ["a", "b"] }],
-    cycles: [["ghost", "y"], ["a", "b"]],
-    graphNodeIds: ["a", "b", "y"],
-  });
-  assert.equal(fromCycle.source, "graph_cycle");
-  assert.deepEqual(fromCycle.agents, ["a", "b"]);
-
-  assert.equal(selectLoopTarget({ loops: [], cycles: [], graphNodeIds: [] }), null);
-});
-
-test("evaluateBudgetEcho / evaluateLoopConvergence / evaluateLoopRounds verdicts", () => {
-  assert.equal(evaluateBudgetEcho({ resolvedBudget: { maxRounds: 1 }, budgetSource: { maxRounds: "declared" } }, 1).ok, true);
-  assert.equal(evaluateBudgetEcho({ resolvedBudget: { maxRounds: 3 }, budgetSource: { maxRounds: "default" } }, 1).ok, false);
-  assert.match(evaluateBudgetEcho(null, 1).evidence, /missing/);
-
-  assert.equal(evaluateLoopConvergence(null).converged, false);
-  const governed = evaluateLoopConvergence({ status: "concluded", concludeReason: "loop_budget_exhausted:max_rounds", round: 1 });
-  assert.equal(governed.converged, true);
-  assert.match(governed.evidence, /loop_budget_exhausted:max_rounds/);
-  assert.equal(evaluateLoopConvergence({ status: "failed", concludeReason: "loop_start_dispatch_failed" }).converged, false);
-
-  assert.equal(evaluateLoopRounds({ round: 1, budget: { usedRounds: 1 } }, 1).ok, true);
-  assert.equal(evaluateLoopRounds({ round: 2, budget: { usedRounds: 2 } }, 1).ok, false);
-  assert.equal(evaluateLoopRounds(null, 1).ok, false);
-});
-
-test("LOOP_STAGE_DESCRIPTORS ids/codes are well-formed for skip and blocked marking", () => {
-  assert.equal(LOOP_STAGE_DESCRIPTORS.length, 7);
-  assert.ok(LOOP_STAGE_DESCRIPTORS.every((s) => /^loop\.[^\s]+$/.test(s.id) && /^E-LOOP-\d{3}$/.test(s.code)));
 });

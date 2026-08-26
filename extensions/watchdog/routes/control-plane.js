@@ -1,7 +1,8 @@
 // routes/control-plane.js — ⑤ Operator control plane HTTP surface.
 // Exposes the structure-snapshot (rollback foundation) + structure-share-code (portable
 // scoped codes) modules over HTTP. Token-auth like admin-change-sets. No new admin surface —
-// snapshot/rollback are control-plane composite ops (re-write 4 truths via 4 writers), not a
+// snapshot/rollback are control-plane composite ops (re-write 3 truths via 3 writers —
+// config/bindings, graph, automations; see structure-snapshot.js restoreStructureSnapshot), not a
 // single templated surface; share codes are read/transform-only.
 
 import {

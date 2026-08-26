@@ -2,9 +2,9 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { normalizeBoolean, normalizeRecord, normalizeString } from "../core/normalize.js";
-import { normalizeDeliveryTargets } from "../routing/delivery-targets.js";
+import { normalizeDeliveryTargets } from "../routing/delivery/delivery-targets.js";
 import { atomicWriteFile, withLock } from "../state.js";
-import { buildAgentMainSessionKey } from "../session-keys.js";
+import { buildAgentMainSessionKey } from "../session/session-keys.js";
 import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 
 export const SCHEDULE_STORE = CONTROL_PLANE_PATHS.scheduleRegistryFile;

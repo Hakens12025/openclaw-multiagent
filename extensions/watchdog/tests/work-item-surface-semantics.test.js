@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { unlink } from "node:fs/promises";
 
 import { buildOperatorSnapshot } from "../lib/operator/operator-snapshot.js";
-import { getContractPath, persistContractById } from "../lib/contracts.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { evictContractSnapshotByPath } from "../lib/store/contract-store.js";
 import { clearTrackingStore, rememberTrackingState } from "../lib/store/tracker-store.js";
 import {
@@ -118,40 +118,6 @@ test("draft relations ignore legacy draft execution work items", () => {
   const relations = buildDraftRelations(drafts, workItems, [], []);
 
   assert.equal(relations.get("ACS-WORK-ITEM-DRAFT")?.activeWorkItems.length, 0);
-});
-
-test("operator snapshot retains work item backing semantics for artifact-backed sessions", async () => {
-  const now = Date.now();
-  const sessionKey = `agent:reviewer:surface-semantics:${now}`;
-
-  try {
-    rememberTrackingState(sessionKey, {
-      sessionKey,
-      agentId: "reviewer",
-      status: "running",
-      startMs: now - 2000,
-      artifactContext: {
-        kind: "code_review",
-        request: {
-          instruction: "确认 operator snapshot 暴露 artifact-backed work item 语义",
-          requestedAt: now - 2500,
-        },
-        protocol: {
-          transport: "code_review.json",
-          intentType: "request_review",
-        },
-      },
-    });
-
-    const snapshot = await buildOperatorSnapshot({ listLimit: 10 });
-    const item = snapshot.workItems.active.find((entry) => entry?.id === `artifact:code_review:${sessionKey}`);
-
-    assert.ok(item, "expected artifact-backed work item in operator snapshot");
-    assert.equal(item?.workItemKind, "artifact_backed");
-    assert.equal(item?.taskType, "request_review");
-  } finally {
-    clearTrackingStore();
-  }
 });
 
 test("operator snapshot exposes unified ioObservation for active work items", async () => {

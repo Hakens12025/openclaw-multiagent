@@ -10,11 +10,18 @@
 
 - **12.1 — 系统观察，不听自述：** 系统通过可观测信号（文件写入、工具调用、执行轨迹）判断 Agent 状态，不依赖 Agent 自我报告
 - **12.2 — Agent 写内容，系统提取结构：** Agent 写 markdown/自然语言，系统从中提取结构（`[BLOCKING]` → critical severity, `## Phase 1` → stagePlan, file exists → completed）
-- **12.3 — 必须驱动时，减轻压力：** CLI 化（`system_command("wake researcher")`），或轻结构自然语言（`[ACTION] wake researcher — need research`）
+- **12.3 — 必须驱动时，减轻压力：** 最轻的形态是**工具调用**（`assign_task(targetAgent, task)`）——schema 自带、拒绝当场返回；工具不可用时才退到轻结构自然语言（`[ACTION] wake researcher — need research`）
 
-**[ACTION] 标记系统：**
-- `[ACTION]` markers 取代 system_action.json，成为 Agent→System 的唯一命令通道
+**命令通道的三级梯子**（按形式的自完善程度分级，不是按 `channel` 枚举）：
+
+| 级 | 形态 | 例 |
+|---|---|---|
+| **L1** | 工具调用（**主路**） | `assign_task({targetAgent, task})` |
+| L2 | 结构化 JSON 标记 | `[ACTION] {"type":"assign_task","params":{…}}` |
+| L3 | 动词简写自然语言 | `[ACTION] delegate researcher — 查一下 X` |
+
 - 三种标记解析器：action、stage、finding（备忘录96）
+- v179 起 L1 是主路，L2/L3 是降级路。标记语法**不进主提示词**——实测两条并列时，已持有工具的 agent 会退回去写标记
 
 **已删除的反模式：**
 - 旧多文件结构化回执和下一步声明协议 — 全部删除
@@ -44,7 +51,8 @@
 3. 备忘录95：审计发现 27+ 连接点，启动精简
 4. 备忘录96：引入三种标记解析器（action/stage/finding）
 5. 连接点降至 3+2 个活跃接口
+6. **v179：协作主路从标记换成 FC 工具**。原则本体（agent 写内容、系统提取结构）不变，变的是"最轻的驱动形态"这一档——工具比标记更轻，因为 agent 不需要事先知道任何语法（源: 备忘录135、[平台/Agent 解耦](./platform-agent-decoupling.md)）
 
 ## 当前状态
 
-**永久原则。[ACTION] markers 已实现。** Workspace 清理持续进行中。旧的结构化文件驱动模式已全部删除。
+**永久原则。** 命令通道已从"标记唯一"演进为"工具主路 + 标记降级"。旧的结构化文件驱动模式已全部删除。

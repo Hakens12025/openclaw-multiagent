@@ -49,7 +49,7 @@ mock.module("../lib/ingress/dispatch-entry.js", {
   },
 });
 
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
     listLifecycleWorkItems: async () => workItems,
   },

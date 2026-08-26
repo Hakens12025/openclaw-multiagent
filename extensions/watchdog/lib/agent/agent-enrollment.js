@@ -2,18 +2,18 @@
 
 import { basename, join, resolve } from "node:path";
 
-import { readJsonFile } from "../state-file-utils.js";
+import { readJsonFile } from "../state/state-file-utils.js";
 import {
   resolveDefaultHeartbeatEvery,
   resolveDefaultModel,
-} from "./agent-admin-defaults.js";
-import { syncExistingAgentWorkspaceProfile } from "./agent-admin-context.js";
+} from "./admin/agent-admin-defaults.js";
+import { syncExistingAgentWorkspaceProfile } from "./admin/agent-admin-context.js";
 import {
   loadConfig,
   normalizeSkillPayload,
   runAgentAdminWrite,
   saveConfig,
-} from "./agent-admin-store.js";
+} from "./admin/agent-admin-store.js";
 import {
   normalizeStoredAgentModelRef,
   readStoredAgentBinding,
@@ -25,7 +25,7 @@ import {
   loadAgentCardProjection,
 } from "../effective-profile-composer.js";
 import { normalizeBoolean, normalizeString, uniqueStrings } from "../core/normalize.js";
-import { defaultAgentWorkspace } from "../state-agent-helpers.js";
+import { defaultAgentWorkspace } from "../state/state-agent-helpers.js";
 import { assertRuntimeAgentIdIsNotReserved } from "./agent-plane-policy.js";
 
 import {

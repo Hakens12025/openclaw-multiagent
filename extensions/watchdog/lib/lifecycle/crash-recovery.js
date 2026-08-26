@@ -1,10 +1,16 @@
-import { mkdir, readdir, readFile, stat, unlink } from "node:fs/promises";
-import { join } from "node:path";
-import { agentWorkspace, atomicWriteFile, CONTRACTS_DIR } from "../state.js";
+import { lstat, mkdir, readdir, readFile, readlink, rm, stat, unlink } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
+import { agentWorkspace, atomicWriteFile } from "../state.js";
+import { listRuntimeAgentIds } from "../agent/agent-identity.js";
+import { clearContractStore, listTreeContractPaths } from "../store/contract-store.js";
+import { rebuildContractIndex, resolveThreadsRoot } from "../archive/thread-tree-store.js";
+import { deriveRunOpenContracts, runHasEventForContract } from "../archive/run-event-recorder.js";
+import { listPendingDeliveryTickets } from "../routing/delivery/delivery-ticket-store.js";
+import { wireClosed } from "../archive/run-event-wiring.js";
 import { broadcast } from "../transport/sse.js";
 import { EVENT_TYPE } from "../core/event-types.js";
-import { readContractSnapshotByPath, updateContractStatus, mutateContractSnapshot } from "../contracts.js";
-import { qqNotify, qqTypingStop, getQQTarget } from "../channel-notify.js";
+import { readContractSnapshotByPath, updateContractStatus, mutateContractSnapshot } from "../contract/contracts.js";
+import { qqNotify, qqTypingStop, getQQTarget } from "../transport/channel-notify.js";
 import { recordErrorPattern } from "../error-ledger.js";
 import { runtimeWakeAgentDetailed } from "../transport/runtime-wake-transport.js";
 import {
@@ -12,8 +18,8 @@ import {
   TRACKING_STATUS,
   isActiveContractStatus,
 } from "../core/runtime-status.js";
-import { normalizeTerminalOutcome } from "../terminal-outcome.js";
-import { mergeRuntimeDiagnostics } from "./agent-end-contract-refresh.js";
+import { normalizeTerminalOutcome } from "../contract/terminal-outcome.js";
+import { mergeRuntimeDiagnostics } from "./agent-end/contract-refresh.js";
 
 async function loadContractSnapshot(contractPath) {
   return readContractSnapshotByPath(contractPath, { preferCache: true });
@@ -187,6 +193,13 @@ export async function handleCrashRecovery({
         trackingState.contract.runtimeDiagnostics = runtimeDiagnostics;
       }
     }
+    // 审查③:ABANDONED 也是终态——事件账(真值)必须同步落 closed,否则 run 永不关账。
+    void wireClosed({
+      contract: contractSnapshot || trackingState?.contract,
+      terminalStatus: CONTRACT_STATUS.ABANDONED,
+      reason: String(reason).slice(0, 200),
+      logger,
+    });
     qqTypingStop(trackingState?.contract?.id);
     qqNotify(qqTarget, `❌ 任务处理失败（重试 ${retryCount} 次）\n${taskLabel}\n请重试或简化你的问题`);
     return {
@@ -281,19 +294,33 @@ export async function handleCrashRecovery({
   };
 }
 
-// ── Startup orphan recovery ─────────────────────────────────────────────────
+// ── Startup orphan recovery (树店扫描) ──────────────────────────────────────
+// boot 补关(备忘录142 §十二.2):树内正本 running → failed,并落 closed 事件
+// (wireClosed 内含 GAP-02 run 关账判定)。树店是唯一扫描面。
 
 export async function recoverOrphanedContracts({ api, logger }) {
   try {
-    const contractFiles = await readdir(CONTRACTS_DIR);
-    for (const f of contractFiles.filter(f => f.endsWith(".json"))) {
+    const contractPaths = await listTreeContractPaths();
+    for (const contractPath of contractPaths) {
       try {
-        const contractPath = join(CONTRACTS_DIR, f);
         const raw = await readFile(contractPath, "utf8");
         const c = JSON.parse(raw);
 
         // Orphan running → failed (stale from previous gateway run)
         if (c.status === "running") {
+          // 事件门(审查④):谱系在账 + 无 turn_started/claimed = 排队未开跑的信封
+          // (DIRECT 生而 RUNNING+队列跨重启存活),不是孤儿——留给队列复活,不误杀、
+          // 不落假 closed、不发假失败通知。查询失败按真孤儿处理(fail-safe 保旧行为)。
+          if (c.lineage?.threadId && c.lineage?.runId) {
+            let everStarted = true;
+            try {
+              everStarted = await runHasEventForContract(c.lineage, c.id, ["turn_started", "claimed"]);
+            } catch { everStarted = true; }
+            if (!everStarted) {
+              logger?.info?.(`[crash-recovery] queued envelope left intact (never started): ${c.id}`);
+              continue;
+            }
+          }
           const mutation = await mutateContractSnapshot(contractPath, logger, (contract) => {
             if (contract.status !== "running") return false;
             contract.status = CONTRACT_STATUS.FAILED;
@@ -305,54 +332,155 @@ export async function recoverOrphanedContracts({ api, logger }) {
           }, { touchUpdatedAt: true });
           if (!mutation?.result?.cleaned) continue;
           logger.warn(`[crash-recovery] orphan running contract cleaned: ${c.id} → failed`);
+          void wireClosed({
+            contract: mutation.contract || c,
+            terminalStatus: CONTRACT_STATUS.FAILED,
+            reason: "gateway_restart",
+            logger,
+          });
           try {
             const target = getQQTarget(c);
             if (target) qqNotify(target, `❌ 任务因系统重启中断\n${(c.task || '').slice(0, 50)}\n请重新发送`);
-          } catch (e) { logger?.warn?.(`[crash-recovery] orphan QQ notify error for ${f}: ${e?.message}`); }
+          } catch (e) { logger?.warn?.(`[crash-recovery] orphan QQ notify error for ${contractPath}: ${e?.message}`); }
         }
-      } catch (e) { logger?.warn?.(`[crash-recovery] orphan recovery error for ${f}: ${e?.message}`); }
+      } catch (e) { logger?.warn?.(`[crash-recovery] orphan recovery error for ${contractPath}: ${e?.message}`); }
     }
   } catch (e) { logger?.warn?.(`[crash-recovery] orphan recovery scan failed: ${e?.message}`); }
 }
 
-// ── Contract history retention ──────────────────────────────────────────────
-// Keep only the N most recent terminal contracts. Delete older ones + their session files.
+// ── Run retention GC (GAP-04,备忘录142 §十二.4) ────────────────────────────
+// thread 生长上限:每 thread 保留最近 MAX_RUNS_PER_THREAD 个 run;超额且闲置超过
+// RUN_RETENTION_MS 的 run 目录整删(正本终态后原地即档案,GC 边界=run 目录)。
+// 删除后索引压实(rebuildContractIndex 全树重写)+ 合约内存缓存清空。
 
-const MAX_TERMINAL_CONTRACTS = 50;
-const TERMINAL_STATUSES = new Set(["completed", "failed", "abandoned", "cancelled", "awaiting_input"]);
+const MAX_RUNS_PER_THREAD = 20;
+const RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function pruneTerminalContracts({ logger } = {}) {
+async function listDirectoryFiles(parent) {
   try {
-    const files = (await readdir(CONTRACTS_DIR)).filter(f => f.endsWith(".json"));
-    const entries = [];
-    for (const f of files) {
-      const contractPath = join(CONTRACTS_DIR, f);
+    const entries = await readdir(parent, { withFileTypes: true });
+    return entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+async function listDirectoryNames(parent) {
+  try {
+    const entries = await readdir(parent, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+// GC 摘链(批④刀2,备忘录143 §六):run/thread 目录整删前,把各 agent workspace 的
+// {outbox,inbox,inbox/upstream/* 一层} 中指向待删目录内部的 symlink 摘掉并恢复真目录。
+// 树链规范:树链一律绝对路径目标;readlink 后仍按链所在目录 resolve 一次,防御相对目标。
+// 真目录期无链,全程 no-op。
+async function unlinkWorkspaceLinksInto(targetRoot, logger) {
+  const rootExact = resolve(targetRoot);
+  const rootPrefix = rootExact + sep;
+  const removed = [];
+  for (const agentId of listRuntimeAgentIds()) {
+    const ws = agentWorkspace(agentId);
+    const candidates = [join(ws, "outbox"), join(ws, "inbox")];
+    try {
+      const upstreamDir = join(ws, "inbox", "upstream");
+      for (const name of await readdir(upstreamDir)) {
+        candidates.push(join(upstreamDir, name));
+      }
+    } catch { /* 无 upstream/ 是常态 */ }
+    for (const candidate of candidates) {
       try {
-        const raw = await readFile(contractPath, "utf8");
-        const c = JSON.parse(raw);
-        if (!TERMINAL_STATUSES.has(c.status)) continue;
-        const fileStat = await stat(contractPath);
-        entries.push({ path: contractPath, id: c.id, mtime: fileStat.mtimeMs });
-      } catch (e) { logger?.warn?.(`[cleanup] failed to read contract ${f}: ${e?.message}`); }
+        const linkStat = await lstat(candidate);
+        if (!linkStat.isSymbolicLink()) continue;
+        const target = resolve(dirname(candidate), await readlink(candidate));
+        if (target !== rootExact && !target.startsWith(rootPrefix)) continue; // 目标在待删目录外的链不动
+        await unlink(candidate);
+        await mkdir(candidate, { recursive: true });
+        removed.push(candidate);
+      } catch { /* 路径不存在/并发消失 → 无链可摘 */ }
+    }
+  }
+  if (removed.length > 0) {
+    logger?.info?.(`[cleanup] unlinked ${removed.length} workspace symlink(s) into ${rootExact} (real dirs restored): ${removed.join(", ")}`);
+  }
+  return removed.length;
+}
+
+export async function pruneTerminalContracts({ logger, now = Date.now() } = {}) {
+  try {
+    const threadsRoot = resolveThreadsRoot();
+    let prunedRuns = 0;
+    // GC 门原料(审查②):未决投递票据引用的合约所在 run 不可删。
+    let pendingTicketContractIds = new Set();
+    try {
+      pendingTicketContractIds = new Set(
+        (await listPendingDeliveryTickets()).map((t) => t?.contractId).filter(Boolean),
+      );
+    } catch { /* 票据店不可读 → 空集,由关账门兜底 */ }
+    for (const threadId of await listDirectoryNames(threadsRoot)) {
+      const runsDir = join(threadsRoot, threadId, "runs");
+      const runEntries = [];
+      for (const runId of await listDirectoryNames(runsDir)) {
+        const runDir = join(runsDir, runId);
+        try {
+          const dirStat = await stat(runDir);
+          runEntries.push({ runId, runDir, mtime: dirStat.mtimeMs });
+        } catch (e) { logger?.warn?.(`[cleanup] run stat failed for ${runDir}: ${e?.message}`); }
+      }
+      if (runEntries.length <= MAX_RUNS_PER_THREAD) continue;
+
+      // 活跃度排序(dir mtime 近似;§九:ts 只做展示/GC 近似,永不进事件排序)
+      runEntries.sort((a, b) => b.mtime - a.mtime);
+      for (const entry of runEntries.slice(MAX_RUNS_PER_THREAD)) {
+        if (now - entry.mtime < RUN_RETENTION_MS) continue; // 保留窗内的超额 run 暂留
+        // 关账门(审查②,旧版 TERMINAL_STATUSES 门的树店形态):事件账仍有 open 合约
+        // 的 run 绝不整删——mtime 是近似活跃度,不是终态证明(APFS 父目录 mtime
+        // 感知不到 contracts/ 子目录内的写)。查询失败按未关处理(fail-safe 不删)。
+        try {
+          const openContracts = await deriveRunOpenContracts({ threadId, runId: entry.runId });
+          if (openContracts.length > 0) {
+            logger?.info?.(`[cleanup] run kept (ledger open contracts: ${openContracts.length}): ${threadId}/${entry.runId}`);
+            continue;
+          }
+        } catch { continue; }
+        // 票据门:run 内任何合约仍被未决投递票据引用 → 留
+        if (pendingTicketContractIds.size > 0) {
+          const runContractIds = (await listDirectoryFiles(join(entry.runDir, "contracts")))
+            .map((name) => name.replace(/\.json$/, ""));
+          if (runContractIds.some((id) => pendingTicketContractIds.has(id))) {
+            logger?.info?.(`[cleanup] run kept (pending delivery ticket): ${threadId}/${entry.runId}`);
+            continue;
+          }
+        }
+        try {
+          await unlinkWorkspaceLinksInto(entry.runDir, logger); // rm 前摘链:经链可见面不得留悬链
+          await rm(entry.runDir, { recursive: true, force: true });
+          prunedRuns++;
+          logger?.info?.(`[cleanup] pruned expired run: ${threadId}/${entry.runId}`);
+        } catch (e) { logger?.warn?.(`[cleanup] failed to delete run ${threadId}/${entry.runId}: ${e?.message}`); }
+      }
+
+      // runs 清空的 thread 整目录退场
+      if ((await listDirectoryNames(runsDir)).length === 0) {
+        try {
+          const threadDir = join(threadsRoot, threadId);
+          await unlinkWorkspaceLinksInto(threadDir, logger); // thread 整删同理:先摘链
+          await rm(threadDir, { recursive: true, force: true });
+        } catch (e) { logger?.warn?.(`[cleanup] failed to delete empty thread ${threadId}: ${e?.message}`); }
+      }
     }
 
-    if (entries.length <= MAX_TERMINAL_CONTRACTS) return { pruned: 0 };
-
-    // Sort newest first, keep the first 50
-    entries.sort((a, b) => b.mtime - a.mtime);
-    const toDelete = entries.slice(MAX_TERMINAL_CONTRACTS);
-
-    let pruned = 0;
-    for (const entry of toDelete) {
-      try {
-        await unlink(entry.path);
-        pruned++;
-        logger?.info?.(`[cleanup] pruned terminal contract: ${entry.id}`);
-      } catch (e) { logger?.warn?.(`[cleanup] failed to delete contract ${entry.id}: ${e?.message}`); }
+    if (prunedRuns > 0) {
+      // 索引压实:全树扫描原子重写,被删 run 的 id 行随之蒸发;内存缓存整清,
+      // 首读经 hydrate 从树上重建。
+      await rebuildContractIndex({ logger });
+      clearContractStore();
+      logger?.info?.(`[cleanup] pruned ${prunedRuns} expired run(s) (keep ${MAX_RUNS_PER_THREAD}/thread or ${Math.round(RUN_RETENTION_MS / 86400000)}d)`);
     }
-
-    logger?.info?.(`[cleanup] pruned ${pruned} terminal contracts (kept ${MAX_TERMINAL_CONTRACTS})`);
-    return { pruned };
+    return { pruned: prunedRuns };
   } catch (e) {
     logger?.warn?.(`[cleanup] pruneTerminalContracts failed: ${e?.message}`);
     return { pruned: 0, error: e?.message };

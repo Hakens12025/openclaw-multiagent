@@ -1,0 +1,279 @@
+/* run-timeline.css — 三账混排时间线。2026-08-25 并入 command 页配色（面板底 --bg-2、
+   顶橙条、--muted 标签、左强调条 hover）。零圆角零阴影零渐变。
+   颜色语义（一致 + 有图例）：蓝◆=生命周期里程碑 / 🔧=工具干活行 / 💭=思考；
+   失败两态：红=被平台拦（工具 refused、终局 closed=failed）/ 琥珀=工具自身报错（error）；
+   完成 closed=completed 走绿；approx 位标 ~。
+   四段式行（解耦落点）：[执行主体 tl-actor·muted] · [英文type tl-type / 工具名 tl-label·主字]
+     · [中文描述 tl-label / kind·channel 小标 tl-tag·muted] · [小字payload tl-sub / args tl-args·最弱]
+     + 右侧 outcome 三态徽章。英文 type 常驻让未知类型也能读；kind·channel 让「任何执行源都能投进来」可见。 */
+.run-timeline {
+  border: var(--border);
+  border-top: 3px solid var(--active);
+  background: var(--bg-2);
+  overflow: auto;
+}
+.tl-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: var(--border);
+  background: var(--bg-3);
+}
+/* ── 图例：三类 kind 字形 + 失败语义色 ── */
+.tl-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+}
+.tl-lg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.tl-lg-glyph { font-size: var(--fs-label); line-height: 1; }
+.tl-lg-event { color: var(--info); }
+.tl-lg-fail { color: var(--alert); }
+.tl-lg-error { color: var(--amber); }
+.tl-mode {
+  font: inherit;
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.tl-mode:hover { color: var(--active); border-color: var(--active); background: var(--bg); }
+/* 显思考态：橙描边+橙字，一眼看出思考正被显示（即时反馈）；💭 字形本色 */
+.tl-mode-on { color: var(--active); border-color: var(--active); }
+.tl-mode-glyph { margin-right: var(--sp-1); }
+.tl-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-body);
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px dashed var(--line-soft);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.16s ease, border-left-color 0.16s ease;
+}
+.tl-row:hover { background: var(--bg-3); }
+.tl-row.tl-open { background: var(--bg-3); border-left-color: var(--active); }
+/* 排头字形定宽列:◆ 与 emoji(🔧💭) 宽度不一,不定宽后面的主体列会错位。
+   固定 20px 居中 → 各行主体(系统/planner…)竖向对齐。 */
+.tl-glyph {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  display: inline-block;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+.tl-label { font-weight: normal; }
+
+/* ── 四段式装配：glyph | tl-main（点分四段） | outcome 徽章 | approx ── */
+.tl-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+/* 段间点分隔（· 非 CJK，faint 铜线色，不抢字） */
+.tl-dot { flex: none; color: var(--line-2); }
+/* 英文 type + kind·channel 小标：解耦次级带，muted 等宽微字 */
+.tl-type,
+.tl-tag {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.04em;
+}
+/* 合约尾号 chip（多合约 run 交织行的归属标）：同次级带规格，muted 等宽微字不抢读 */
+.tl-contract {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.04em;
+}
+/* 主体（系统/planner…）=黑,body 字号,领读「谁」；对齐在定宽 glyph 之后 */
+.tl-actor {
+  flex: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  letter-spacing: 0.04em;
+}
+
+/* ── 统一排版:kind 只在 glyph 上色区分(◆蓝生命周期/🔧工具/💭思考),
+   文字一律 normal(零斜体零加粗),层级只用「颜色 + 字号」两档表达 ── */
+.tl-event .tl-glyph { color: var(--info); }
+/* 动作/工具名(中文描述·工具名)=中灰 text-2,body,normal——让黑字主体领读 */
+.tl-event .tl-label,
+.tl-tool .tl-label { font-weight: normal; font-style: normal; color: var(--text-2); }
+/* 事件副标题（payload 提炼：dispatched from→to、closed 终局态、ticket 末段…）——最弱一段 */
+.tl-sub { color: var(--muted); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
+
+.tl-args {
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* outcome 三态徽章（右对齐）：ok=中性静默 / refused=红（被平台拦）/ error=琥珀（工具报错）——三态见下方行级上色 */
+.tl-outcome {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── 失败两态：红=被平台拦（工具 refused / 终局 closed=failed）；琥珀=工具自身报错（error）；完成 closed=completed 走绿 ── */
+.tl-row.tl-refused { border-left-color: var(--alert); }
+.tl-row.tl-refused .tl-glyph,
+.tl-row.tl-refused .tl-outcome { color: var(--alert); font-weight: bold; }
+.tl-row.tl-errored { border-left-color: var(--amber); }
+.tl-row.tl-errored .tl-glyph,
+.tl-row.tl-errored .tl-outcome { color: var(--amber); font-weight: bold; }
+.tl-row.tl-event-failed { border-left-color: var(--alert); }
+.tl-row.tl-event-failed .tl-glyph { color: var(--alert); }
+.tl-row.tl-event-done .tl-glyph { color: var(--ok); }
+
+/* 状态值语义色(补充段里的 pending/running/completed/failed…)——「这步成没成」一眼可见。
+   由 statusClass() 按值上类,不分事件类型;非状态副标题不命中、保持默认素净灰。 */
+.tl-sub.tl-st-ok { color: var(--ok); }
+.tl-sub.tl-st-fail { color: var(--alert); }
+.tl-sub.tl-st-run { color: var(--info); }
+.tl-sub.tl-st-muted { color: var(--muted); }
+
+/* 思考折叠行：💭 · agent · 短摘要(一行,不铺全文;全文点开才出);摘要=中灰,单行省略,统一 normal。 */
+.tl-thought-preview {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tl-approx { color: var(--active); font-weight: bold; }
+
+/* 选中某 agent 时用「聚焦」区分它在 run 级时间线里的条目(时间线仍是 run 级,不筛):
+   别的 agent 的行淡出,选中 agent 的主体名标蓝。刻意不碰 border-left/背景——
+   那条留给失败红边(tl-refused/tl-event-failed),旧的蓝填充会盖掉失败红,故弃用。 */
+.tl-row.tl-faded { opacity: 0.4; }
+.tl-row.tl-mine .tl-actor { color: var(--info); }
+/* ── 展开详情：可读结构化视图（KV/分组），取代裸 JSON dump ── */
+.tl-detail {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-body);
+  border-top: 1px dashed var(--line-soft);
+  border-bottom: var(--border);
+  background: var(--bg);
+  animation: insp-reveal 0.18s ease;
+}
+.tl-kv {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: 2px 0;
+}
+.tl-kv-block { align-items: start; }
+.tl-kv-k {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tl-kv-v { min-width: 0; word-break: break-word; color: var(--ink); }
+/* 类型：英文 type（等宽粗体主字）+ 中文描述（muted 副字） */
+.tl-kv-type { font-family: var(--font-mono); font-weight: bold; }
+.tl-kv-desc { color: var(--muted); margin-left: var(--sp-2); }
+/* 因果来源芯片：runId#seq（蓝，铜描边，等宽微字） */
+.tl-ref {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--info);
+  border: 1px solid var(--line-soft);
+  padding: 0 var(--sp-1);
+  margin: 0 var(--sp-1) 2px 0;
+  word-break: break-all;
+}
+/* payload 逐字段 */
+.tl-fields { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tl-field { display: flex; gap: var(--sp-2); align-items: baseline; min-width: 0; }
+.tl-field-k {
+  flex: none;
+  min-width: 76px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--muted);
+}
+.tl-field-v { min-width: 0; word-break: break-word; color: var(--ink); }
+/* args 完整展开（不截断，取代 80 字 digest） */
+.tl-args-full {
+  margin: 0;
+  font-size: var(--fs-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+  min-width: 0;
+}
+/* outcome 三态上色（同行级语义：refused=红 / error=琥珀 / ok=中性） */
+.tl-kv-outcome { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; }
+.tl-oc-refused { color: var(--alert); font-weight: bold; }
+.tl-oc-error { color: var(--amber); font-weight: bold; }
+.tl-oc-ok { color: var(--muted); }
+/* 拒因/错误：红字（被平台拦/工具报错的人话，如「路径限制：…」） */
+.tl-kv-reason { color: var(--alert); word-break: break-word; }
+/* 思考/回复正文（全文，不斜体，pre-wrap 保段落） */
+.tl-kv-prose { white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+/* ── 原始 JSON 折叠（取证不丢；原生 details，自带展开态、无 store 依赖） ── */
+.tl-raw { margin-top: var(--sp-2); border-top: 1px dashed var(--line-soft); }
+.tl-raw-sum {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: var(--sp-1) 0;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  transition: color 0.16s ease;
+}
+.tl-raw-sum::-webkit-details-marker { display: none; }
+.tl-raw-sum::before { content: "▸ "; }
+.tl-raw[open] .tl-raw-sum::before { content: "▾ "; }
+.tl-raw-sum:hover { color: var(--active); }
+.tl-raw-pre {
+  margin: 0;
+  padding: var(--sp-2);
+  font-size: var(--fs-micro);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+}
+.tl-empty {
+  padding: var(--sp-3);
+  font-size: var(--fs-body);
+  color: var(--muted);
+}

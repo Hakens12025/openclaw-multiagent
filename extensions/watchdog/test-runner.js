@@ -20,7 +20,7 @@ import {
   normalizeCliRunTarget,
   resolveCliRunExitCode,
   waitForCliRunCompletion,
-} from "./lib/test-runner-cli-client.js";
+} from "./lib/formal-runtime/test-runner-cli-client.js";
 
 const OC = join(homedir(), ".openclaw");
 const CONFIG_FILE = join(OC, "openclaw.json");
@@ -158,7 +158,7 @@ export async function main(argv = process.argv) {
 
   if (!timeoutPreset) {
     timeoutPreset = {
-      suite: startResult.run?.suite || "dispatch",
+      suite: startResult.run?.suite || "single",
       caseIds: [runTarget.caseId],
       resetBetweenCases: false,
     };

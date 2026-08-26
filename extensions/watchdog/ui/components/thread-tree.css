@@ -1,0 +1,148 @@
+/* thread-tree.css — 透视页左树：三级缩进 + 状态点 + 可折叠细轨。
+   2026-08-25：并入 command 页语言（面板底 --bg-2、顶橙强调条、--muted 标签、过渡）。
+   零圆角零阴影零渐变。 */
+.thread-tree {
+  border: var(--border);
+  border-top: 3px solid var(--active);
+  background: var(--bg-2);
+  overflow: auto;
+}
+/* 虚线分隔只落在 thread 组之间(=t- 之间);组内 run/agent 之间无虚线。 */
+.tt-group:not(:last-child) { border-bottom: 1px dashed var(--line-soft); }
+.tt-head {
+  display: flex;
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: var(--border);
+  background: var(--bg-3);
+}
+.tt-title {
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  font-weight: bold;
+}
+.tt-collapse,
+.tt-rail-toggle {
+  margin-left: auto;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+  padding: 0 var(--sp-1);
+  cursor: pointer;
+  transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+.tt-collapse:hover,
+.tt-rail-toggle:hover { color: var(--active); border-color: var(--active); background: var(--bg); }
+.tt-node {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-body);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.16s ease, border-left-color 0.16s ease;
+}
+.tt-node:hover { background: var(--bg-3); }
+.tt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 单节点展开 caret：▸ 收起 / ▾ 展开，颜色随展开态从 --muted → --active */
+.tt-caret {
+  width: 10px;
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  transition: color 0.16s ease;
+}
+.tt-thread:hover .tt-caret { color: var(--active); }
+.tt-thread.tt-expanded .tt-caret { color: var(--active); }
+.tt-node.selected .tt-caret { color: var(--on-dark); }
+
+/* ── 文件管理器式连线（CSS 伪元素画 │ ├ └，连续丝滑；缩进靠 guide 列宽而非 padding） ── */
+.tt-guides { display: inline-flex; align-self: stretch; flex: none; }
+.tt-guide { position: relative; width: 16px; flex: none; }
+/* 祖先续接列：整行高居中竖线（该祖先还有后续兄弟） */
+.tt-guide.cont::before {
+  content: "";
+  position: absolute; left: 8px; top: 0; bottom: 0;
+  border-left: 1px solid var(--line-2);
+}
+/* 分支肘竖段：默认顶→中（└ 末项）；through（├ 非末项）贯穿到底续接下一兄弟 */
+.tt-branch::before {
+  content: "";
+  position: absolute; left: 8px; top: 0; height: 50%;
+  border-left: 1px solid var(--line-soft);
+}
+.tt-branch.through::before { height: 100%; }
+/* 分支横臂：中点→右，指向状态点 */
+.tt-branch::after {
+  content: "";
+  position: absolute; left: 8px; top: 50%; width: 6px;
+  border-top: 1px solid var(--line-soft);
+}
+/* 选中行深底：连线提亮到 on-dark 才看得清 */
+.tt-node.selected .tt-guide.cont::before,
+.tt-node.selected .tt-branch::before,
+.tt-node.selected .tt-branch::after { border-color: var(--on-dark); }
+.tt-node.selected {
+  background: var(--bg-dark);
+  color: var(--on-dark);
+  border-left-color: var(--active);
+}
+/* 状态指示:细色条(2026-08-26 用户裁决,原 8×8 方块偏重,层级已交连线承载)。
+   竖向 3×14 细条,running=蓝(08-26 裁决「运行=蓝」,橙留给 CTA/选中/强调)/
+   done=暗墨/failed=红/unknown=灰(详情未加载,不谎报 done)。 */
+.tt-dot {
+  width: 3px;
+  height: 14px;
+  flex: none;
+}
+.tt-dot.status-running { background: var(--info); }
+.tt-dot.status-done { background: var(--ink); }
+.tt-dot.status-failed { background: var(--alert); }
+.tt-dot.status-unknown { background: var(--line-soft); }
+.tt-node.selected .tt-dot.status-done { background: var(--on-dark); }
+.tt-run-count {
+  margin-left: auto;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tt-node.selected .tt-run-count { color: var(--on-dark); }
+.tt-empty {
+  padding: var(--sp-3);
+  font-size: var(--fs-body);
+  color: var(--muted);
+}
+
+/* ── 折叠细轨 ── */
+.tt-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) 0 var(--sp-2);
+}
+.tt-rail-toggle {
+  margin: 0 0 var(--sp-1);
+  width: 24px;
+  text-align: center;
+}
+.tt-rail-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: border-left-color 0.16s ease, background 0.16s ease;
+}
+.tt-rail-dot:hover { background: var(--bg-3); }
+.tt-rail-dot.selected { border-left-color: var(--active); background: var(--bg-dark); }
+.tt-rail-dot .tt-dot { width: 3px; height: 12px; }

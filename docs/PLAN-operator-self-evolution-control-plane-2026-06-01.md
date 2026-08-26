@@ -1,5 +1,13 @@
 <!-- 自动生成草案 (workflow operator-control-plane-design, 2026-06-01)。状态: 待用户审批后实施。基于代码调研,引用 file:line。 -->
 
+> 🛑 **历史文档 · 部分引用已失效（2026-08-18 回路退役后标注）**
+> 本文成文时控制面结构真值是 **4 份**，其中第 2 份 Loop registry 已随回路整体退役删除：
+> `graph-loop-registry.js` / `loadGraphLoopRegistry` / `saveGraphLoopRegistry` / `control-plane/graph-loop-registry.json` /
+> `suite-loop-direct.js` / `graph.loop.compose` / `runtime.loop.interrupt|resume` / `composeLoopSpecFromAgents` —— **全部不存在**。
+> 现行真值为 **3 份**：graph / agent bindings(config) / automation specs；写入顺序相应收为
+> bindings(`saveConfig`) → graph(`saveGraph`) → automations(`writeAutomationStore`)。
+> 当前实现以 `lib/control-plane/structure-snapshot.js` 为准，本文仅作设计意图与取舍的历史记录。
+
 # ⑤ Operator Self-Evolution Control Plane — Design Doc Draft
 
 **Status:** draft for review · **Scope:** new admin subpage + 1 new module (structure-snapshot) + minimal endpoints · **Hard rules honored:** one path (reuse change-set/operator/surface machinery), contract=single-truth, no god objects, no legacy, surgical.

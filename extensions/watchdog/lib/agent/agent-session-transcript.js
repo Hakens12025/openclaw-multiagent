@@ -11,11 +11,20 @@
 import { readFile } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { OC } from "../state-paths.js";
+import { OC } from "../state/state-paths.js";
 import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
 import { loadGraph, getEdgesFrom } from "./agent-graph.js";
 import { compactHomePath } from "./agent-enrollment-discovery.js";
-import { artifactPackageDir, ARTIFACT_MANIFEST_FILE } from "../lifecycle/artifact-store.js";
+import { isControlOutboxFile } from "../routing/mailbox/runtime-mailbox-outbox-helpers.js";
+import { resolveSessionHome } from "../archive/session-home-index.js";
+import {
+  participantInboxSnapshotDirFor,
+  participantOutboxDirFor,
+  participantSessionJsonlFor,
+  resolveContractHome,
+} from "../archive/thread-tree-store.js";
+import { findDeliverySnapshotPath, findSealedOutbox } from "../archive/outbox-seal.js";
+import { resolveSharedContractPathById } from "../store/contract-store.js";
 
 // 投递正文单文件上限（字符），与 system-prompt 路径一致。超出截断 + truncated:true。
 const DELIVERY_CONTENT_CAP = 40000;
@@ -23,88 +32,130 @@ const DELIVERY_CONTENT_CAP = 40000;
 // 产物包内单文件正文上限（字符）。
 const PRODUCED_CONTENT_CAP = 40000;
 
-// 该 agent 在本 contract 的产物包（持久，过 session-clean）：
-//   control-plane/artifacts/<contractId>/<agentId>/{manifest.json + 产物文件们}
-// 直接读包内文件正文供页面内显——异于 referencedFiles 的 reveal（那些是历史引用、常被清理）：
-// 这些是该 agent 真正产出的文件，且独立留存不被清。
+// 该 agent 在本 contract 的产物文件，树优先：
+//   ① sealed 树 outbox（threads/…/participants/<agent>/outbox-<cid>/ + seal.json）——
+//      采集封包后的产物正本，清单/主交付物从 seal 取；归属核对 hit.agentId===aid
+//      （findSealedOutbox 提示未命中会退回全参与者扫描，别的参与者的封包零采信）。
+//   ② 同一个树 outbox 目录、但封条还不在（仍在跑 / 崩溃轮 / 采集失败）——按目录实况
+//      列文件，manifest 为 null（没有封条就没有那组元数据）。
+//      两路读的是同一份产物，不是某处的副本（workflow-page-backend.test.js 锁形状）。
+// 直接读文件正文供页面内显——异于 referencedFiles 的 reveal（那些是历史引用、常被清理）。
 function resolveProducedFiles(agentId, contractId) {
   const empty = { available: false, files: [], manifest: null };
   try {
     const cid = typeof contractId === "string" ? contractId.trim() : "";
     const aid = typeof agentId === "string" ? agentId.trim() : "";
     if (!cid || !aid) return empty;
-    const dir = artifactPackageDir(cid, aid);
-    if (!existsSync(dir)) return empty;
 
-    let manifest = null;
-    try {
-      manifest = JSON.parse(readFileSync(join(dir, ARTIFACT_MANIFEST_FILE), "utf8"));
-    } catch { /* 无 manifest 也照样列文件 */ }
-    const primary = manifest && typeof manifest.primary === "string" ? manifest.primary : null;
-
-    const names = readdirSync(dir).filter((n) => n !== ARTIFACT_MANIFEST_FILE);
-    const files = [];
-    for (const name of names) {
-      const p = join(dir, name);
-      let content = null;
-      let chars = 0;
-      let truncated = false;
-      try {
-        const text = readFileSync(p, "utf8");
-        chars = text.length;
-        truncated = text.length > PRODUCED_CONTENT_CAP;
-        content = truncated ? text.slice(0, PRODUCED_CONTENT_CAP) : text;
-      } catch { /* 二进制/不可读 → 无正文，仍列文件名 */ }
-      files.push({ name, path: compactHomePath(p), chars, truncated, content, primary: name === primary });
+    // 封包轮:清单与主交付物取自封条(采集事实)。
+    const sealed = findSealedOutbox(cid, { agentId: aid });
+    if (sealed && sealed.agentId === aid) {
+      const sealFiles = (Array.isArray(sealed.seal?.files) ? sealed.seal.files : [])
+        .filter((name) => typeof name === "string" && name.trim());
+      const sealPrimary = typeof sealed.seal?.primary === "string" && sealFiles.includes(sealed.seal.primary)
+        ? sealed.seal.primary
+        : null;
+      const files = readProducedFiles(sealed.outboxDir, sealFiles, sealPrimary);
+      if (files.length > 0) {
+        const collectedAt = Number(sealed.seal?.collectedAt);
+        return {
+          available: true,
+          files,
+          manifest: {
+            producer: aid,
+            producedAt: Number.isFinite(collectedAt) && collectedAt > 0 ? new Date(collectedAt).toISOString() : null,
+            summary: null,
+            primary: sealPrimary,
+          },
+        };
+      }
     }
-    files.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0)); // 主交付物排前
 
-    return {
-      available: files.length > 0,
-      files,
-      manifest: manifest
-        ? { producer: manifest.producer || aid, producedAt: manifest.producedAt || null, summary: manifest.summary || null, primary }
-        : null,
-    };
+    // 未封包轮(仍在跑 / 崩溃轮 / 采集失败):树 outbox 正本目录还在,照样列出来。
+    // 数据源与封包轮是同一个目录——页面看到的永远是产物本身,不是某处的副本。
+    // 目录名一律用登记原串 home.id:查询串可能是会话键派生的小写形态,
+    // 大小写不敏感 FS 会掩盖这个错,大小写敏感 FS 上就是整轮读不到产物。
+    const home = resolveContractHome(cid);
+    const outboxDir = home ? participantOutboxDirFor(home, aid, home.id || cid) : null;
+    if (!outboxDir || !existsSync(outboxDir)) return empty;
+    let names = [];
+    try {
+      names = readdirSync(outboxDir).filter((name) => !isControlOutboxFile(name));
+    } catch {
+      return empty;
+    }
+    const files = readProducedFiles(outboxDir, names, null);
+    return { available: files.length > 0, files, manifest: null };
   } catch {
     return empty;
   }
+}
+
+// 目录 + 文件名清单 → 页面用的文件条目(带截断正文)。封包轮与未封包轮共用,
+// 两处各写一份的话,同一份产物会在两条路上显示成不同样子。
+function readProducedFiles(dir, names, primaryName) {
+  const files = [];
+  for (const name of names) {
+    const p = join(dir, name);
+    let content = null;
+    let chars = 0;
+    let truncated = false;
+    try {
+      const text = readFileSync(p, "utf8");
+      chars = text.length;
+      truncated = text.length > PRODUCED_CONTENT_CAP;
+      content = truncated ? text.slice(0, PRODUCED_CONTENT_CAP) : text;
+    } catch { /* 二进制/不可读 → 无正文，仍列文件名 */ }
+    files.push({ name, path: compactHomePath(p), chars, truncated, content, primary: name === primaryName });
+  }
+  files.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0)); // 主交付物排前
+  return files;
 }
 
 function liveSessionFile(agentId, sessionId) {
   return join(OC, "agents", agentId, "sessions", `${sessionId}.jsonl`);
 }
 
+// 归档副本：经 session-index 找 run 家 → participants/{agent}/session-{sid}.jsonl
+// （agent_end 归档段写；文件名用索引登记的原串 sessionId/agentId）。无家 → null。
 function archivedSessionFile(agentId, sessionId) {
-  return join(CONTROL_PLANE_PATHS.root, "session-archive", agentId, `${sessionId}.jsonl`);
+  try {
+    const home = resolveSessionHome(sessionId);
+    if (!home) return null;
+    return participantSessionJsonlFor(home, home.agentId || agentId, home.sessionId);
+  } catch {
+    return null;
+  }
 }
 
-// 先读 live .jsonl（= truth），不存在则回退 archive 历史副本。两处皆无 → null。
+// 先读 live .jsonl（= truth），不存在则回退树内归档副本。两处皆无 → null。
 async function readSessionJsonl(agentId, sessionId) {
   try {
     return await readFile(liveSessionFile(agentId, sessionId), "utf8");
   } catch {
-    // live 不在（如被 session-clean 清），回退归档副本
+    // live 不在（如被 session-clean 清），回退树内归档副本
   }
+  const archived = archivedSessionFile(agentId, sessionId);
+  if (!archived) return null;
   try {
-    return await readFile(archivedSessionFile(agentId, sessionId), "utf8");
+    return await readFile(archived, "utf8");
   } catch {
     return null;
   }
 }
 
 // ── 引用文件路径解析 ──────────────────────────────────────────────────────────
-// 规则（来自设计稿）：
-//   workspaces/<a>/inbox/contract.json            → 正本 control-plane/contracts/<contractId>.json (kind=contract)
+// 规则：
+//   workspaces/<a>/inbox/contract.json            → 共享合约正本 (kind=contract)
 //   workspaces/<a>/output/<TC>.md                 → control-plane/output/<TC>.md (kind=output)
 //   control-plane/output/<TC>.md                  → control-plane/output/<TC>.md (kind=output)
 //   其它                                          → kind=other, resolvedPath=原路径
 //
-// 注意：正本 contracts 目录是 control-plane/contracts/（代码真值，
-// CONTROL_PLANE_PATHS.contractsDir），非设计稿文字里的 ~/.openclaw/contracts/。
+// 合约正本 = 树店 threads/{t}/runs/{r}/contracts/<id>.json，唯一解析底座
+// resolveSharedContractPathById（contract-index 常驻内存，同步；miss → null）。
 
 // 在 dir 里按 basename **大小写不敏感**找实际文件(sessionKey 把 contractId 小写成 tc-,
-// 但正本文件名是 TC-,直接拼路径会 miss)。命中→返回实际大小写路径;否则返回构造路径(persistent=false)。
+// 但产出件文件名是 TC-,直接拼路径会 miss)。命中→返回实际大小写路径;否则返回构造路径(persistent=false)。
 function resolveCaseInsensitive(dir, basename) {
   const exact = join(dir, basename);
   if (existsSync(exact)) return exact;
@@ -129,10 +180,9 @@ function resolveReferencedFile(rawPath, contractId) {
   const inboxContractMatch = raw.match(/workspaces\/[^/]+\/inbox\/contract\.json$/);
   if (inboxContractMatch) {
     kind = "contract";
-    // 正本按 session 的 contractId 解析(大小写不敏感);拿不到 contractId 则保留原路径
-    resolvedPath = contractId
-      ? resolveCaseInsensitive(CONTROL_PLANE_PATHS.contractsDir, `${contractId}.json`)
-      : raw;
+    // 正本经 contract-index 走树(索引键侧小写归一,兜住会话键派生的 tc- 形态);
+    // 索引 miss / 拿不到 contractId 则保留原路径
+    resolvedPath = (contractId && resolveSharedContractPathById(contractId)) || raw;
   } else {
     const outputMatch = raw.match(/(?:workspaces\/[^/]+\/output|control-plane\/output)\/(.+)$/);
     if (outputMatch) {
@@ -242,8 +292,11 @@ function collectTextPaths(text, sink) {
 
 // ── 末位投递解析（delivery）──────────────────────────────────────────────────
 // 末位(terminal)agent = workflow 叶子(graph 中无出边)。末位 agent 的「用户最终
-// 接收到的消息」是产出件 control-plane/output/<contractId>.md 的正文(终端投递给
-// 用户的实际内容)，区别于 agent 自己的输出气泡(LLM 叙述"我输出了")。
+// 接收到的消息」正文,读序:
+//   ① 树封包 seal.primary(合约轮产物正本,采集零镜像后的第一真值)
+//   ② 树内快照 participants/{agent}/delivery-{cid}.md(直写件被清后的留档)
+//   ③ live control-plane/output/{contractId}.md(镜像遗产/直写链路)
+// 区别于 agent 自己的输出气泡(LLM 叙述"我输出了")。
 //
 // 整段 graph 读取/判定 try/catch：失败 → { isTerminal:false }（不抛、不破坏主体）。
 async function resolveDelivery(agentId, contractId) {
@@ -256,19 +309,19 @@ async function resolveDelivery(agentId, contractId) {
 
     // 产出件路径(大小写不敏感：contractId 小写 tc-，文件名可能 TC-)
     const outputPath = resolveCaseInsensitive(CONTROL_PLANE_PATHS.outputDir, `${contractId}.md`);
-    // workflow-trace 快照回退路径(live 产出件被 session-clean 清后仍能读到最终件)
-    const tracePath = join(CONTROL_PLANE_PATHS.root, "workflow-trace", contractId, "output.md");
+    const candidates = [
+      findSealedOutbox(contractId, { agentId })?.primaryPath,
+      findDeliverySnapshotPath(contractId, { agentId }),
+      outputPath,
+    ].filter(Boolean);
 
     let raw = null;
     let resolvedPath = outputPath;
-    try {
-      // live 优先
-      raw = await readFile(outputPath, "utf8");
-    } catch {
-      // live 缺 → 回退快照
+    for (const candidate of candidates) {
       try {
-        raw = await readFile(tracePath, "utf8");
-        resolvedPath = tracePath;
+        raw = await readFile(candidate, "utf8");
+        resolvedPath = candidate;
+        break;
       } catch {
         raw = null;
       }
@@ -295,10 +348,10 @@ async function resolveDelivery(agentId, contractId) {
 // ── 系统投递解析（received）──────────────────────────────────────────────────
 // 「系统/上游发来什么」= 系统投递到该 agent inbox 的合约。用户要看清系统究竟
 // 投递了什么给 worker2（不要"无输入"）。来源优先级（读到即用）：
-//   1. inbox 快照 control-plane/workflow-trace/<contractId>/<agentId>/inbox/contract.json
-//      （首选——agent_end 已把每个 agent 实收的 inbox 合约快照在此）
+//   1. inbox 快照 threads/{t}/runs/{r}/participants/<agentId>/inbox-<contractId>/contract.json
+//      （首选——agent_end 已把每个 agent 实收的 inbox 合约快照进 run 树，经 contract-index 找家）
 //   2. live workspaces/<agentId>/inbox/contract.json（回退）
-//   3. 正本 control-plane/contracts/<contractId>.md 或 .json（回退，大小写不敏感）
+//   3. 共享合约正本（回退，resolveSharedContractPathById 经 contract-index 走树）
 //
 // 整段 try/catch：失败/无 contractId → { available:false }（不抛、不破坏主体）。
 async function resolveReceived(agentId, contractId) {
@@ -308,18 +361,26 @@ async function resolveReceived(agentId, contractId) {
     // 候选源（按优先级），命中即用
     const candidates = [];
 
-    // 1) inbox 快照：workflow-trace/<contractId>/<agentId>/inbox/contract.json
-    //    <contractId> 目录是原始大小写（TC-），传入 contractId 小写（tc-），需大小写不敏感解析目录段
-    const traceRoot = join(CONTROL_PLANE_PATHS.root, "workflow-trace");
-    const contractDir = resolveCaseInsensitive(traceRoot, contractId);
-    candidates.push({ source: "inbox-snapshot", path: join(contractDir, agentId, "inbox", "contract.json") });
+    // 1) inbox 快照：participants/<agentId>/inbox-<contractId>/contract.json
+    //    （目录名用索引登记原串 home.id；索引键侧小写归一兜住 tc- 查询形态）
+    try {
+      const home = resolveContractHome(contractId);
+      if (home) {
+        candidates.push({
+          source: "inbox-snapshot",
+          path: join(participantInboxSnapshotDirFor(home, agentId, home.id || contractId), "contract.json"),
+        });
+      }
+    } catch {
+      // 家索引/路径段解析失败 → 无此候选，继续回退
+    }
 
     // 2) live inbox：workspaces/<agentId>/inbox/contract.json
     candidates.push({ source: "live-inbox", path: join(OC, "workspaces", agentId, "inbox", "contract.json") });
 
-    // 3) 正本：control-plane/contracts/<contractId>.json 或 .md（大小写不敏感）
-    candidates.push({ source: "contract", path: resolveCaseInsensitive(CONTROL_PLANE_PATHS.contractsDir, `${contractId}.json`) });
-    candidates.push({ source: "contract", path: resolveCaseInsensitive(CONTROL_PLANE_PATHS.contractsDir, `${contractId}.md`) });
+    // 3) 共享合约正本（树店；索引 miss → 无此候选）
+    const sharedPath = resolveSharedContractPathById(contractId);
+    if (sharedPath) candidates.push({ source: "contract", path: sharedPath });
 
     for (const { source, path } of candidates) {
       let raw;

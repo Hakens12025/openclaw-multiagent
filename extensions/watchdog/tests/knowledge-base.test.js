@@ -13,10 +13,10 @@ import {
   getKnowledgeBaseSpec,
   searchKb,
   summarizeKnowledgeBases,
-} from "../lib/operator/knowledge-base.js";
+} from "../lib/knowledge/knowledge-base.js";
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-inspector.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try { await embedText("probe", {}); ollamaUp = true; } catch { ollamaUp = false; }
@@ -64,5 +64,5 @@ test("live: searchKb(wiki) 复用 hybrid 返回结果(skip if ollama down)", { s
   const r = await searchKb("wiki", "harness guard collector gate normalizer", { topK: 3 });
   assert.equal(r.ok, true);
   assert.ok(r.results.length > 0);
-  assert.ok(r.results.some((x) => x.sourcePath === "concepts/harness.md"), "harness 查询应命中 harness.md");
+  assert.ok(r.results.some((x) => x.sourcePath === "wiki/concepts/harness.md"), "harness 查询应命中 harness.md");
 });

@@ -6,13 +6,13 @@ import { tmpdir } from "node:os";
 
 import {
   collectWorkerOutbox,
-} from "../lib/routing/runtime-mailbox-outbox-handlers.js";
-import { getContractPath, persistContractSnapshot } from "../lib/contracts.js";
+} from "../lib/routing/mailbox/runtime-mailbox-outbox-handlers.js";
+import { getContractPath, persistContractById } from "../lib/contract/contracts.js";
 import { agentWorkspace } from "../lib/state.js";
 import {
   buildInitialTaskStagePlan,
   buildInitialTaskStageRuntime,
-} from "../lib/task-stage-plan.js";
+} from "../lib/stage/task-stage-plan.js";
 
 const logger = {
   info() {},
@@ -103,7 +103,7 @@ test("collectWorkerOutbox mirrors the primary to the SHARED contract.output when
       id: contractId, task: "讲个笑话", assignee: agentId, status: "running",
     });
     // shared contract (routing truth) HAS output → the canonical deliverable path
-    await persistContractSnapshot(getContractPath(contractId), {
+    await persistContractById({
       id: contractId, task: "讲个笑话", assignee: agentId, status: "running", output: canonicalOutput,
     });
     await mkdir(outboxDir, { recursive: true });
@@ -197,49 +197,13 @@ test("collectWorkerOutbox treats all artifact files as committed artifacts when 
   }
 });
 
-test("collectWorkerOutbox rejects legacy outbox manifest residue", async () => {
-  const agentId = `worker-stage-manifest-residue-${Date.now()}`;
+test("collectWorkerOutbox carries semantic stage id through runtime_result truth", async () => {
+  const agentId = `stage-truth-${Date.now()}`;
   const outboxDir = join(agentWorkspace(agentId), "outbox");
-  const contractId = `TC-WORKER-STAGE-MANIFEST-${Date.now()}`;
-
-  try {
-    await writeActiveContract(agentId, {
-      id: contractId,
-      task: "legacy manifest should not be accepted",
-      assignee: agentId,
-      status: "running",
-      createdAt: Date.now() - 1000,
-      updatedAt: Date.now(),
-    });
-    await mkdir(outboxDir, { recursive: true });
-    await writeFile(join(outboxDir, "_manifest.json"), JSON.stringify({ artifacts: [] }, null, 2), "utf8");
-    await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
-      version: 1,
-      status: "completed",
-      summary: "legacy manifest residue",
-    }, null, 2), "utf8");
-
-    const result = await collectWorkerOutbox({
-      agentId,
-      outboxDir,
-      files: ["runtime_result.json", "_manifest.json"],
-      logger,
-    });
-
-    assert.equal(result.collected, false);
-    assert.match(result.error || "", /legacy outbox manifest/i);
-  } finally {
-    await cleanupWorkspace(agentId);
-  }
-});
-
-test("collectWorkerOutbox carries reviewer semantic stage id through runtime_result truth", async () => {
-  const agentId = `reviewer-stage-truth-${Date.now()}`;
-  const outboxDir = join(agentWorkspace(agentId), "outbox");
-  const contractId = `TC-REVIEWER-STAGE-TRUTH-${Date.now()}`;
+  const contractId = `TC-STAGE-TRUTH-${Date.now()}`;
   const stagePlan = buildInitialTaskStagePlan({
     contractId,
-    stages: ["代码审查"],
+    stages: ["实现交付"],
   });
   const stageRuntime = buildInitialTaskStageRuntime({ stagePlan });
   let artifactPath = null;
@@ -247,7 +211,7 @@ test("collectWorkerOutbox carries reviewer semantic stage id through runtime_res
   try {
     await writeActiveContract(agentId, {
       id: contractId,
-      task: "审查当前实现",
+      task: "完成当前实现",
       assignee: agentId,
       status: "running",
       createdAt: Date.now() - 1000,
@@ -260,10 +224,6 @@ test("collectWorkerOutbox carries reviewer semantic stage id through runtime_res
       version: 1,
       status: "completed",
       summary: "实现符合预期",
-      reviewVerdict: {
-        verdict: "approve",
-        feedback: "实现符合预期",
-      },
       completion: { status: "completed" },
     }, null, 2), "utf8");
 
@@ -277,8 +237,6 @@ test("collectWorkerOutbox carries reviewer semantic stage id through runtime_res
 
     assert.equal(result.collected, true);
     assert.equal(result.stageRunResult?.semanticStageId, stageRuntime.currentStageId);
-    assert.equal(result.reviewVerdict?.verdict, "approve");
-    assert.equal(result.reviewerResult?.verdict, "pass");
     assert.equal("semanticStageAction" in (result.stageRunResult || {}), false);
     assert.equal(result.stageCompletion?.status, "completed");
   } finally {

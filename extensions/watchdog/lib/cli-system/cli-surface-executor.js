@@ -1,4 +1,4 @@
-import { executeAdminSurfaceOperation } from "../admin/admin-surface-operations.js";
+import { executeAdminSurfaceOperation } from "../admin/operations/admin-surface-operations.js";
 import { normalizeString } from "../core/normalize.js";
 import { getCliSystemSurface } from "./cli-surface-registry.js";
 import { assertActorOwnsSurface } from "./meta-agent-surface-ownership.js";

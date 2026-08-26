@@ -8,8 +8,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateFaithfulness, evaluateContextPrecision } from "../lib/operator/wiki-rag-eval.js";
-import { parseJudgeJson } from "../lib/operator/wiki-rag-judge.js";
+import { evaluateFaithfulness, evaluateContextPrecision } from "../lib/knowledge/wiki-rag-eval.js";
+import { parseJudgeJson } from "../lib/knowledge/wiki-rag-judge.js";
 
 function fakeSearch(ctxByQuery) {
   return async (q) => ({ ok: true, results: (ctxByQuery[q] || []).map((t) => ({ sourcePath: "x.md", text: t })) });

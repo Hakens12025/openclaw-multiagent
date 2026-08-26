@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { AGENT_ROLE } from "../lib/agent/agent-identity.js";
-import { renderRolePersonaBlock } from "../lib/role-spec-registry.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../lib/managed-doc-markers.js";
+import { renderRolePersonaBlock } from "../lib/prompt/role-spec-registry.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../lib/prompt/managed-doc-markers.js";
 import { syncAgentWorkspaceGuidance } from "../lib/workspace-guidance-writer.js";
 import {
   backupWorkspaceGuidanceFiles,

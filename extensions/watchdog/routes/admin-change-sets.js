@@ -2,11 +2,11 @@ import {
   attachAdminChangeSetVerification,
   getAdminChangeSetDetails,
   saveAdminChangeSetDraft,
-} from "../lib/admin/admin-change-sets.js";
+} from "../lib/admin/change-sets/admin-change-sets.js";
 import {
   executeAdminChangeSet,
   previewAdminChangeSetExecution,
-} from "../lib/admin/admin-change-set-executor.js";
+} from "../lib/admin/change-sets/admin-change-set-executor.js";
 import { inspectCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 export function register(api, logger, {

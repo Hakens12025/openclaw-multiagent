@@ -44,6 +44,12 @@ const withLockSpy = async (key, fn) => {
 
 mock.module("../lib/agent/agent-graph.js", {
   namedExports: {
+    // 与真实实现同形:标了 pipeline 的边优先,一条都没标时全部边都是候选。
+    getPipelineEdgesFrom: (graph, nodeId) => {
+      const edges = (graph?.edges || []).filter((e) => e.from === nodeId);
+      const marked = edges.filter((e) => e.metadata?.pipeline === true);
+      return marked.length > 0 ? marked : edges;
+    },
     loadGraph: async () => mockGraph,
     getEdgesFrom: (graph, nodeId) => (graph?.edges || []).filter((e) => e.from === nodeId),
     // buildWakeMessage 现读上游产物，依赖 getEdgesTo；mock 需提供该导出
@@ -61,7 +67,7 @@ mock.module("../lib/state.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-runtime-state.js", {
+mock.module("../lib/routing/dispatch/dispatch-runtime-state.js", {
   namedExports: {
     listDispatchTargetIds: () => [...dispatchTargetStateMap.keys()],
     hasDispatchTarget: (agentId) => dispatchTargetStateMap.has(agentId),
@@ -177,7 +183,7 @@ mock.module("../lib/store/tracker-store.js", {
   },
 });
 
-mock.module("../lib/routing/dispatch-transport.js", {
+mock.module("../lib/routing/dispatch/dispatch-transport.js", {
   namedExports: {
     dispatchSendExecutionContract: async (...args) => {
       dispatchSharedCalls.push(args);
@@ -192,14 +198,20 @@ mock.module("../lib/transport/sse.js", {
   },
 });
 
-mock.module("../lib/contracts.js", {
+mock.module("../lib/contract/contracts.js", {
   namedExports: {
     mutateContractSnapshot: async (_path, _logger, fn) => {
       const dummy = { assignee: null, status: "draft" };
       fn(dummy);
       return { contract: dummy };
     },
+    mutateContractById: async (_id, _logger, fn) => {
+      const dummy = { assignee: null, status: "draft" };
+      fn(dummy);
+      return { contract: dummy };
+    },
     getContractPath: (id) => `/tmp/fake-contracts/${id}/contract.json`,
+    readContractSnapshotById: async (id) => ({ id }), // FIX(A2-fanout-depth): dispatch path now reads the contract's hop counter
   },
 });
 
@@ -209,7 +221,7 @@ mock.module("../lib/routing/runtime-authority.js", {
   },
 });
 
-mock.module("../lib/session-keys.js", {
+mock.module("../lib/session/session-keys.js", {
   namedExports: {
     buildAgentContractSessionKey: (agentId, contractId) => `agent:${agentId}:contract:${contractId}`,
   },
@@ -218,7 +230,7 @@ mock.module("../lib/session-keys.js", {
 // ── Import module under test ─────────────────────────────────────────────────
 
 const { dispatchRouteExecutionContract } = await import(
-  "../lib/routing/dispatch-graph-policy.js"
+  "../lib/routing/dispatch/dispatch-graph-policy.js"
 );
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

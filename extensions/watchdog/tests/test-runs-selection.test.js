@@ -7,13 +7,13 @@ import {
   collectPipelineCases,
   normalizeTestRunCleanMode,
   resolveRequestedFormalPreset,
-} from "../lib/test-run-presets.js";
+} from "../lib/formal-runtime/test-run-presets.js";
 
-test("resolveRequestedFormalPreset builds an ad hoc dispatch-case preset for answer-direct", () => {
+test("resolveRequestedFormalPreset builds an ad hoc single-case preset for answer-direct", () => {
   const preset = resolveRequestedFormalPreset({ caseId: "answer-direct" });
 
   assert.equal(preset.id, "case-answer-direct");
-  assert.equal(preset.suite, "dispatch");
+  assert.equal(preset.suite, "single");
   assert.equal(preset.transport, "isolated");
   assert.deepEqual(preset.caseIds, ["answer-direct"]);
 });
@@ -28,9 +28,23 @@ test("resolveRequestedFormalPreset builds an ad hoc pipeline-case preset for bri
 
 test("resolveRequestedFormalPreset rejects mixed preset and case inputs", () => {
   assert.throws(
-    () => resolveRequestedFormalPreset({ presetId: "dispatch", caseId: "answer-direct" }),
+    () => resolveRequestedFormalPreset({ presetId: "single", caseId: "answer-direct" }),
     /either presetId or caseId/i,
   );
+});
+
+test("resolveRequestedFormalPreset tombstones renamed preset ids with the new name", () => {
+  for (const [oldId, newId] of [
+    ["dispatch", "single"],
+    ["system-action", "collab"],
+    ["agent-group", "group"],
+    ["providers", "model"],
+  ]) {
+    assert.throws(
+      () => resolveRequestedFormalPreset({ presetId: oldId }),
+      new RegExp(`renamed preset: "${oldId}" is now "${newId}"`),
+    );
+  }
 });
 
 test("resolveRequestedFormalPreset does not expose retired single-suite cases as ad hoc runs", () => {
@@ -43,7 +57,7 @@ test("resolveRequestedFormalPreset does not expose retired single-suite cases as
 test("formal case collectors reject missing case ids instead of silently dropping them", () => {
   assert.throws(
     () => collectDispatchCases(["answer-direct", "missing-case"]),
-    /unknown dispatch case: missing-case/i,
+    /unknown single case: missing-case/i,
   );
   assert.throws(
     () => collectPipelineCases(["missing-case"]),
@@ -69,13 +83,13 @@ test("test run HTTP route delegates start semantics to admin surface", async () 
 });
 
 test("test_runs.start admin surface forwards ad hoc case id", async () => {
-  const source = await readFile(new URL("../lib/admin/admin-surface-operations.js", import.meta.url), "utf8");
+  const source = await readFile(new URL("../lib/admin/operations/admin-surface-operations.js", import.meta.url), "utf8");
 
   assert.match(source, /caseId:\s*payload\.caseId/u);
 });
 
 test("change-set verification starts test runs through admin surface", async () => {
-  const source = await readFile(new URL("../lib/admin/admin-change-set-executor.js", import.meta.url), "utf8");
+  const source = await readFile(new URL("../lib/admin/change-sets/admin-change-set-executor.js", import.meta.url), "utf8");
 
   assert.match(source, /surfaceId:\s*"test_runs\.start"/u);
   assert.doesNotMatch(source, /import \{[^}]*startTestRun/u);

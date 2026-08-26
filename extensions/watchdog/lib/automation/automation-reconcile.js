@@ -1,6 +1,5 @@
-import { listLifecycleWorkItems } from "../contracts.js";
-import { normalizeRecord, normalizeString } from "../core/normalize.js";
-import { getActiveLoopRuntime } from "../loop/loop-round-runtime.js";
+import { listLifecycleWorkItems } from "../contract/contracts.js";
+import { normalizeString } from "../core/normalize.js";
 import {
   isTerminalContractStatus,
 } from "../core/runtime-status.js";
@@ -9,32 +8,20 @@ import {
   ensureAutomationRuntimeState,
   upsertAutomationRuntimeState,
 } from "./automation-runtime.js";
+import { normalizePositiveInteger } from "./automation-decision.js";
 import {
-  normalizePositiveInteger,
-  buildNextWakeAt,
-} from "./automation-decision.js";
-import {
-  buildActiveHarnessLifecycle,
   buildContractIndex,
-  isLoopRuntimeActive,
-  resolveAutomationIdFromContext,
   resolveRoundFromContext,
-  resolveTriggerFromContext,
-  resolveRequestedAtFromContext,
-} from "./automation-harness-lifecycle.js";
-import {
-  handleAutomationContractTerminal,
-  handleAutomationLoopRuntimeTerminal,
-} from "./automation-finalize.js";
+} from "./automation-round-context.js";
+import { handleAutomationContractTerminal } from "./automation-finalize.js";
 
 export async function reconcileAutomationRuntimeStates({
   logger,
   onAlert,
 } = {}) {
-  const [specs, contracts, loopRuntime] = await Promise.all([
+  const [specs, contracts] = await Promise.all([
     listAutomationSpecs(),
     listLifecycleWorkItems(),
-    getActiveLoopRuntime(),
   ]);
   const contractIndex = buildContractIndex(contracts);
   const now = Date.now();
@@ -43,11 +30,11 @@ export async function reconcileAutomationRuntimeStates({
   for (const spec of specs) {
     const runtime = await ensureAutomationRuntimeState(spec);
     const activeContract = contractIndex.activeByAutomationId.get(spec.id) || null;
-    const activeLoopRuntime = isLoopRuntimeActive(loopRuntime)
-      && resolveAutomationIdFromContext(loopRuntime?.automationContext) === spec.id
-      ? loopRuntime
-      : null;
 
+    // 终态回收单源：runtime.activeContractId 经 contractIndex.byId 反查本条 automation
+    // 自己记下的合约。回路退役(2026-08-18)前这里还并了一条按 activePipelineId 比对
+    // loopRuntime 的回收腿，其门 `resolveAutomationIdFromContext(loopRuntime.automationContext)`
+    // 恒 null，生产上从未执行过；合约腿本就是完整主路径。
     const runtimeContract = normalizeString(runtime?.activeContractId)
       ? contractIndex.byId.get(runtime.activeContractId) || null
       : null;
@@ -57,54 +44,23 @@ export async function reconcileAutomationRuntimeStates({
       continue;
     }
 
-    if (normalizeString(runtime?.activePipelineId)
-      && normalizeString(loopRuntime?.pipelineId) === normalizeString(runtime?.activePipelineId)
-      && loopRuntime?.currentStage === "concluded"
-      && resolveAutomationIdFromContext(loopRuntime?.automationContext) === spec.id) {
-      const recovered = await handleAutomationLoopRuntimeTerminal(loopRuntime, { logger, onAlert });
-      updates.push({ automationId: spec.id, action: "recovered_loop_runtime_terminal", recovered });
-      continue;
-    }
-
     let nextRuntime = runtime;
-    if (activeContract || activeLoopRuntime) {
-      const activeContext = normalizeRecord(
-        activeContract?.automationContext || activeLoopRuntime?.automationContext,
-        null,
-      );
+    if (activeContract) {
       const resolvedRound = Math.max(
         normalizePositiveInteger(runtime?.currentRound, 0),
-        resolveRoundFromContext(activeContract?.automationContext, 0),
-        resolveRoundFromContext(activeLoopRuntime?.automationContext, 0),
+        resolveRoundFromContext(activeContract.automationContext, 0),
       );
-      const harnessState = await buildActiveHarnessLifecycle(spec, runtime, {
-        round: resolvedRound,
-        trigger: resolveTriggerFromContext(activeContext, "reconcile"),
-        requestedAt: resolveRequestedAtFromContext(activeContext, runtime?.lastWakeAt || now),
-        startedAt: resolveRequestedAtFromContext(activeContext, runtime?.lastWakeAt || now),
-        contractId: activeContract?.id || null,
-        pipelineId: activeLoopRuntime?.pipelineId || null,
-        loopId: activeLoopRuntime?.loopId || null,
-      });
       nextRuntime = {
         ...runtime,
         status: "running",
         currentRound: resolvedRound,
-        activeContractId: activeContract?.id || null,
-        activePipelineId: activeLoopRuntime?.pipelineId || null,
-        activeLoopId: activeLoopRuntime?.loopId || null,
-        activeHarnessSpec: harnessState.activeHarnessSpec,
-        activeHarnessRun: harnessState.activeHarnessRun,
+        activeContractId: activeContract.id || null,
       };
     } else if (spec.enabled !== true) {
       nextRuntime = {
         ...runtime,
         status: "paused",
         activeContractId: null,
-        activePipelineId: null,
-        activeLoopId: null,
-        activeHarnessSpec: null,
-        activeHarnessRun: null,
         nextWakeAt: null,
       };
     } else if (runtime?.status === "running") {
@@ -112,23 +68,12 @@ export async function reconcileAutomationRuntimeStates({
         ...runtime,
         status: "idle",
         activeContractId: null,
-        activePipelineId: null,
-        activeLoopId: null,
-        activeHarnessSpec: null,
-        activeHarnessRun: null,
-      };
-    } else if (runtime?.activeHarnessSpec || runtime?.activeHarnessRun) {
-      nextRuntime = {
-        ...runtime,
-        activeHarnessSpec: null,
-        activeHarnessRun: null,
       };
     }
 
     if (spec.enabled === true
       && spec?.wakePolicy?.onBoot === true
       && !activeContract
-      && !activeLoopRuntime
       && !Number.isFinite(nextRuntime?.nextWakeAt)
       && !Number.isFinite(nextRuntime?.lastWakeAt)
       && nextRuntime?.status === "idle") {

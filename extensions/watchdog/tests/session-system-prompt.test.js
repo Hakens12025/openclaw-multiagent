@@ -3,10 +3,10 @@
  *
  * 覆盖：
  *   1. readSessionSystemPrompt：live 命中（按 sessionId 匹配 sessions.json）
- *   2. readSessionSystemPrompt：live 被清 → 回退归档 sidecar
+ *   2. readSessionSystemPrompt：live 被清 → 回退树内归档 sidecar（经 session-index 找家）
  *   3. readSessionSystemPrompt：两处皆无 / 缺参 → { available:false } 兜底
  *   4. injectedFiles 补 persistent（existsSync）：存在文件 true、缺失文件 false
- *   5. archiveAgentSession：写 <sessionId>.prompt.json sidecar（report 有则写）
+ *   5. archiveSessionToRunTree：写树内 session-<sid>.prompt.json sidecar（report 有则写）
  *   6. surface inspect.session_system_prompt 合规 + 经 surface 等价
  *   7. 兜底重建：无 systemPromptReport 的 agent → 从工作区文件重建（source:"reconstructed"）
  *   8. injectedFiles 补 content（两路径按 path 读正文）+ 上限截断 + 读不到 content:null
@@ -22,11 +22,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { readSessionSystemPrompt } from "../lib/agent/agent-session-system-prompt.js";
-import {
-  archiveAgentSession,
-  archiveAgentDir,
-  archiveSessionPromptFile,
-} from "../lib/lifecycle/session-archive.js";
+import { archiveSessionToRunTree } from "../lib/lifecycle/run-tree-archive.js";
+import { resolveThreadsRoot } from "../lib/archive/thread-tree-store.js";
 import {
   inspectCliSystemSurface,
   getCliSystemSurface,
@@ -37,6 +34,10 @@ const OC_ROOT = join(homedir(), ".openclaw");
 
 function liveSessionsDir(agentId) {
   return join(OC_ROOT, "agents", agentId, "sessions");
+}
+
+function participantDir(lineage, agentId) {
+  return join(resolveThreadsRoot(), lineage.threadId, "runs", lineage.runId, "participants", agentId);
 }
 
 // 构造一个含 systemPromptReport 的 report（注入文件含一个存在、一个缺失）
@@ -67,9 +68,11 @@ async function writeLiveSession(agentId, { sessionKey, sessionId, report = null 
     JSON.stringify({ type: "message", message: { role: "user", content: "hi" } }), "utf8");
 }
 
-async function cleanupAgent(agentId) {
+async function cleanupAgent(agentId, lineage = null) {
   await rm(join(OC_ROOT, "agents", agentId), { recursive: true, force: true });
-  await rm(archiveAgentDir(agentId), { recursive: true, force: true });
+  if (lineage?.threadId) {
+    await rm(join(resolveThreadsRoot(), lineage.threadId), { recursive: true, force: true });
+  }
 }
 
 // ── 1 + 4. live 命中 + injectedFiles 补 persistent ────────────────────────────
@@ -130,28 +133,31 @@ test("readSessionSystemPrompt：条目无 systemPromptReport → available:false
   }
 });
 
-// ── 2. live 被清 → 回退归档 sidecar ───────────────────────────────────────────
+// ── 2. live 被清 → 回退树内归档 sidecar ───────────────────────────────────────
 
-test("readSessionSystemPrompt：live 被清后回退归档 sidecar", async () => {
+test("readSessionSystemPrompt：live 被清后回退树内归档 sidecar（经 session-index）", async () => {
   const agentId = `__sp_archive_${Date.now()}__`;
+  const lineage = { threadId: "t-sparc", runId: `r-${Date.now()}-sa` };
+  const sessionId = `sid-sp-${Date.now()}`;
   const dir = liveSessionsDir(agentId);
   await mkdir(dir, { recursive: true });
   const existingPath = join(dir, "real.md");
   const report = buildReport(agentId, { existingPath, missingPath: "/nope.md" });
-  await writeLiveSession(agentId, { sessionKey: "agent:x:contract:tc-1", sessionId: "sid-sp", report });
+  await writeLiveSession(agentId, { sessionKey: "agent:x:contract:tc-1", sessionId, report });
   try {
-    // 归档（会写 .prompt.json sidecar）
-    await archiveAgentSession({ agentId, sessionKey: "agent:x:contract:tc-1", contractId: "tc-1" });
+    // 真实归档段落树：participants/<agent>/session-<sid>.prompt.json + session-index 登记
+    const archived = await archiveSessionToRunTree({ agentId, sessionKey: "agent:x:contract:tc-1", lineage });
+    assert.equal(archived.archived, true, "前置：归档应成功");
     // 删 live
     await rm(dir, { recursive: true, force: true });
 
-    const result = await readSessionSystemPrompt(agentId, "sid-sp");
-    assert.equal(result.available, true, "live 清后应从 sidecar 回退命中");
+    const result = await readSessionSystemPrompt(agentId, sessionId);
+    assert.equal(result.available, true, "live 清后应从树内 sidecar 回退命中");
     assert.deepEqual(result.report, report, "归档 sidecar 内容应与原 report 一致");
     // injectedFiles 仍补 persistent（此时 existingPath 已随 live 删，应 false）
     assert.equal(result.injectedFiles[0].persistent, false, "live 目录删后注入文件已不存在 → persistent false");
   } finally {
-    await cleanupAgent(agentId);
+    await cleanupAgent(agentId, lineage);
   }
 });
 
@@ -163,32 +169,39 @@ test("readSessionSystemPrompt：缺参 / 两处皆无 → available:false 不抛
   assert.deepEqual(await readSessionSystemPrompt("__no_agent_sp__", "__no_sid__"), { available: false });
 });
 
-// ── 5. archiveAgentSession 写 sidecar ──────────────────────────────────────────
+// ── 5. archiveSessionToRunTree 写树内 sidecar ──────────────────────────────────
 
-test("archiveAgentSession：report 有则写 <sessionId>.prompt.json sidecar；无则不写", async () => {
+test("archiveSessionToRunTree：report 有则写树内 session-<sid>.prompt.json sidecar；无则不写", async () => {
   // 有 report
   const agentWith = `__sp_arc_with_${Date.now()}__`;
+  const lineageWith = { threadId: "t-spwith", runId: `r-${Date.now()}-sw` };
   const report = buildReport(agentWith, { existingPath: "/x", missingPath: "/y" });
   await writeLiveSession(agentWith, { sessionKey: "agent:x:contract:tc-1", sessionId: "sid-sp", report });
   try {
-    const r = await archiveAgentSession({ agentId: agentWith, sessionKey: "agent:x:contract:tc-1", contractId: "tc-1" });
+    const r = await archiveSessionToRunTree({ agentId: agentWith, sessionKey: "agent:x:contract:tc-1", lineage: lineageWith });
     assert.equal(r.archived, true);
-    const sidecar = JSON.parse(await readFile(archiveSessionPromptFile(agentWith, "sid-sp"), "utf8"));
+    const sidecarPath = join(participantDir(lineageWith, agentWith), "session-sid-sp.prompt.json");
+    const sidecar = JSON.parse(await readFile(sidecarPath, "utf8"));
     assert.deepEqual(sidecar, report, "sidecar 内容应为 systemPromptReport");
   } finally {
-    await cleanupAgent(agentWith);
+    await cleanupAgent(agentWith, lineageWith);
   }
 
   // 无 report → 不写 sidecar（归档仍成功）
   const agentNo = `__sp_arc_no_${Date.now()}__`;
+  const lineageNo = { threadId: "t-spno", runId: `r-${Date.now()}-sn` };
   await writeLiveSession(agentNo, { sessionKey: "agent:x:contract:tc-1", sessionId: "sid-sp" });
   try {
-    const r = await archiveAgentSession({ agentId: agentNo, sessionKey: "agent:x:contract:tc-1", contractId: "tc-1" });
-    assert.equal(r.archived, true, "无 report 也应归档成功（.jsonl + index）");
+    const r = await archiveSessionToRunTree({ agentId: agentNo, sessionKey: "agent:x:contract:tc-1", lineage: lineageNo });
+    assert.equal(r.archived, true, "无 report 也应归档成功（.jsonl + 索引登记）");
     const { existsSync } = await import("node:fs");
-    assert.equal(existsSync(archiveSessionPromptFile(agentNo, "sid-sp")), false, "无 report 不应写 sidecar");
+    assert.equal(
+      existsSync(join(participantDir(lineageNo, agentNo), "session-sid-sp.prompt.json")),
+      false,
+      "无 report 不应写 sidecar",
+    );
   } finally {
-    await cleanupAgent(agentNo);
+    await cleanupAgent(agentNo, lineageNo);
   }
 });
 
@@ -232,7 +245,6 @@ function testWorkspaceDir(agentId) {
 async function cleanupReconstructAgent(agentId) {
   await rm(join(OC_ROOT, "agents", agentId), { recursive: true, force: true });
   await rm(testWorkspaceDir(agentId), { recursive: true, force: true });
-  await rm(archiveAgentDir(agentId), { recursive: true, force: true });
 }
 
 test("readSessionSystemPrompt：无 report 时从工作区文件重建（source:reconstructed、chars 为和）", async () => {

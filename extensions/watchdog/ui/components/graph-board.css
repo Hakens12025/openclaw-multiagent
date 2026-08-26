@@ -1,0 +1,173 @@
+/* graph-board.css — 编排图视觉。
+   色彩纪律：2026-08-24 设计文档 §4 柔化四 token（bg/ink/alert/active + line-soft），
+   状态色只有三个语义；结构语言吸收 nasa-punk/suprematist skill：仪器角标记、
+   方形状态标、等宽遥测读数、点阵工程网格、物理开关（hover 瞬切无过渡）。
+   动效纪律（§2.1）：动=有事在传，静=无事。 */
+
+/* ── 板面容器：暖黑头带（结构色）+ 工具行 ── */
+.gb-wrap { border: 2px solid var(--ink); background: var(--bg); }
+.gb-wrap.is-edit { border-color: var(--active); }
+.gb-head {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--ink);
+  padding: 5px 10px;
+}
+.gb-title {
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  letter-spacing: 0.18em;
+}
+.gb-tools { display: flex; gap: 6px; }
+.gb-btn {
+  background: transparent;
+  color: var(--bg);
+  border: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: none;
+}
+.gb-btn:hover { border-color: var(--active); color: var(--active); }
+.gb-btn.is-on { background: var(--active); color: var(--ink); border-color: var(--active); }
+.gb-hintbar {
+  min-height: 18px;
+  padding: 2px 10px;
+  border-bottom: 1px dashed var(--line-soft);
+}
+.gb-hint, .gb-status {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  color: var(--line-soft);
+}
+.gb-status.is-ok { color: var(--active); }
+.gb-status.is-warn { color: var(--alert); }
+.gb-status.is-error { color: var(--alert); }
+
+/* ── SVG ── */
+.graph-board { display: block; max-width: 100%; touch-action: none; }
+.gb-grid-bg { opacity: 0.45; }
+.gb-wrap.is-edit .graph-board { outline: 2px dashed var(--active); outline-offset: -2px; }
+
+/* 节点卡（§2.1：粗边框卡）：hover=描边色瞬切（物理开关感） */
+.gb-node { cursor: grab; }
+.gb-node:active { cursor: grabbing; }
+.gb-node-box {
+  fill: var(--bg);
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.gb-node-box.is-active { stroke: var(--active); }
+.gb-node:hover .gb-node-box { stroke-width: 3; stroke: var(--active); }
+.gb-node-box.is-receiving {
+  /* 合约卡到达瞬间边框加厚"吸入"（与 gb-slide 同周期，末段加厚 200ms） */
+  animation: gb-receive 1.6s linear infinite;
+}
+.gb-node-box.is-source { stroke: var(--active); stroke-width: 4; }
+.gb-node-box.is-edit { cursor: crosshair; }
+.gb-ticks { stroke: var(--line-soft); stroke-width: 1; fill: none; }
+
+/* 状态指示：小正方形（skill 方标语言），活跃=柔橙呼吸 */
+.gb-status-sq { fill: var(--line-soft); }
+/* 运行中呼吸灯=蓝(2026-08-26 用户裁决,与工作项卡 running 蓝框同语义);空闲=做旧金属灰 */
+.gb-status-sq.is-active { fill: var(--info); animation: gb-blink 2s infinite; }
+.gb-status-sq.is-idle { fill: var(--line-soft); }
+
+.gb-node-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  font-weight: bold;
+  fill: var(--ink);
+  text-anchor: middle;
+  letter-spacing: 0.04em;
+}
+.gb-node-role {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  fill: var(--line-soft);
+  text-anchor: middle;
+  letter-spacing: 0.1em;
+}
+.gb-node-status {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  fill: var(--ink);
+  text-anchor: middle;
+}
+
+/* 边=传送带：暖沙虚线 + 箭头；环 = 砖红加粗覆盖 */
+.gb-edge {
+  fill: none;
+  stroke: var(--line-soft);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.gb-cycle {
+  fill: none;
+  stroke: var(--alert);
+  stroke-width: 3;
+  pointer-events: none;
+}
+.gb-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  cursor: context-menu;
+}
+.gb-edge-hit:hover { stroke: rgba(176, 92, 76, 0.14); }
+.gb-edge-hit.is-selected { stroke: rgba(176, 92, 76, 0.35); stroke-dasharray: 6 3; }
+
+.gb-flow-lane {
+  fill: none;
+  stroke: var(--active);
+  stroke-width: 1;
+}
+.gb-flow-label { font-family: var(--font-mono); font-size: var(--fs-micro); fill: var(--active); text-anchor: middle; }
+.contract-card rect {
+  fill: var(--active);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+.contract-card { animation: gb-slide 1.6s linear infinite; }
+
+/* 排队堆叠（§2.1 裁决5）：目标入口左侧合约卡堆 + 等宽读数 */
+.gb-queue-card {
+  fill: var(--bg);
+  stroke: var(--active);
+  stroke-width: 1;
+}
+.gb-queue-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  fill: var(--active);
+  letter-spacing: 0.05em;
+}
+.gb-empty-text { font-family: var(--font-mono); font-size: var(--fs-label); fill: var(--line-soft); }
+
+@keyframes gb-slide {
+  0% { offset-distance: 0%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes gb-receive {
+  0%, 87% { stroke-width: 2; }
+  100% { stroke-width: 5; }
+}
+@keyframes gb-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* 边中点圆钮：真实命中点（右键/点选删除的落点），hover 显形 */
+.gb-edge-knob {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: context-menu;
+}
+.gb-edge-knob:hover { fill: rgba(176, 92, 76, 0.18); }
+.gb-edge-knob.is-selected { fill: rgba(176, 92, 76, 0.35); }

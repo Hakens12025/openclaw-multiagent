@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { registerRuntimeAgents } from "../lib/agent/agent-identity.js";
-import { checkToolCall } from "../lib/security.js";
+import { checkToolCall } from "../lib/security/security.js";
 import { runtimeAgentConfigs } from "../lib/state.js";
 
 const logger = {

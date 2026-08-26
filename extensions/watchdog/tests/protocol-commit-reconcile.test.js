@@ -5,13 +5,19 @@ import { join } from "node:path";
 
 import * as afterToolCallHook from "../hooks/after-tool-call.js";
 import { registerRuntimeAgents } from "../lib/agent/agent-identity.js";
-import { persistContractSnapshot, getContractPath } from "../lib/contracts.js";
+import { persistContractById, getContractPath } from "../lib/contract/contracts.js";
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
-import { clearAllTraces, initTrace } from "../lib/store/execution-trace-store.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:protocol-commit-reconcile.test.js" });
+import {
+  clearAllSessionProgress,
+  openSessionProgress,
+} from "../lib/evidence/session-progress-projection.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
-import { clearAllSessions } from "../lib/loop/loop-detection.js";
+import { clearAllSessions } from "../lib/runtime/execution-hard-stop-registry.js";
 import {
   OC,
   agentWorkspace,
@@ -23,7 +29,7 @@ import {
   clearProtocolCommitReconcileState,
   flushProtocolCommitDeferredRelease,
   __setProtocolCommitReconcileGraceMsForTest,
-} from "../lib/protocol-commit-reconcile.js";
+} from "../lib/protocol/protocol-commit-reconcile.js";
 
 // 228a22a 把兜底窗 400ms→30s（agent_end 权威）。本文件验证 reconcile 逻辑本身，
 // 不验证 30s 这个常量，故把窗调小，避免每个时序用例真等 30s。文件进程隔离，不影响他处。
@@ -40,7 +46,7 @@ import {
   releaseDispatchTargetContract,
   resetAllDispatchStates,
   syncDispatchTargetsFromRuntime,
-} from "../lib/routing/dispatch-runtime-state.js";
+} from "../lib/routing/dispatch/dispatch-runtime-state.js";
 
 const logger = {
   info() {},
@@ -137,14 +143,14 @@ test("canonical outbox commit reconciles running worker session without natural 
   const reportName = `protocol-commit-${Date.now()}.md`;
   const reportPath = join(outboxDir, reportName);
   const contractId = `TC-PROTOCOL-COMMIT-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:protocol-commit`;
   const originalTaskHistoryLength = taskHistory.length;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(inboxDir, { recursive: true });
   await mkdir(outboxDir, { recursive: true });
@@ -188,7 +194,8 @@ test("canonical outbox commit reconciles running worker session without natural 
   });
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(reportPath, "# Protocol Commit Report\n\nworker finished without natural agent_end\n", "utf8");
     await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
@@ -203,7 +210,7 @@ test("canonical outbox commit reconciles running worker session without natural 
     }, null, 2), "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
 
     const afterToolCall = getHandler("after_tool_call");
     await afterToolCall({
@@ -237,7 +244,7 @@ test("canonical outbox commit reconciles running worker session without natural 
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
     await unlink(finalOutputPath).catch(() => {});
@@ -247,14 +254,19 @@ test("canonical outbox commit reconciles running worker session without natural 
   }
 });
 
-test("failed planner inbox reads must not auto-delete inbox contract truth", async () => {
-  const plannerId = `planner-inbox-failed-read-${Date.now()}`;
-  const workerId = `worker-inbox-failed-read-${Date.now()}`;
+test("planner inbox reads schedule no deletion — the envelope survives to agent_end cleanup", async () => {
+  // 清道夫拆除锁(2026-08-18):planner inbox .json 读后 10s 定时删已随 v4 遗留一并拆除。
+  // 它按墙钟删、与 turn 生命周期无关,会在 agent_end 快照之前把信封删空(读面"系统输入
+  // 不可考")、让 hard-path autoexec 随 turn 时长静默失效,并给信封缺席竞态添火;职责本就
+  // 由 cleanInbox 严格覆盖(整目录 + ownerContractId 归属守卫 + 摘链 + direct 晋位)。
+  // 本锁盯的是"读 planner inbox 不再安排任何延时删除",信封留到收尾由 cleanInbox 收口。
+  const plannerId = `planner-inbox-no-scavenger-${Date.now()}`;
+  const workerId = `worker-inbox-no-scavenger-${Date.now()}`;
   const workspaceDir = join(OC, "workspaces", plannerId);
   const inboxDir = join(workspaceDir, "inbox");
   const inboxContractPath = join(inboxDir, "contract.json");
-  const sessionKey = `agent:${plannerId}:contract:failed-read`;
-  const pendingTimers = [];
+  const sessionKey = `agent:${plannerId}:contract:no-scavenger`;
+  const scheduledDelays = [];
   const originalSetTimeout = global.setTimeout;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
@@ -262,108 +274,22 @@ test("failed planner inbox reads must not auto-delete inbox contract truth", asy
 
   try {
     await mkdir(inboxDir, { recursive: true });
-    await writeFile(inboxContractPath, JSON.stringify({
-      id: "TC-FAILED-READ",
-      status: CONTRACT_STATUS.RUNNING,
-    }, null, 2));
+    await writeFile(inboxContractPath, JSON.stringify({ id: "TC-no-scavenger", assignee: plannerId }), "utf8");
 
-    const trackingState = createTrackingState({
-      sessionKey,
-      agentId: plannerId,
-      parentSession: null,
-    });
-    trackingState.contract = {
-      id: "TC-FAILED-READ",
-      assignee: plannerId,
-      output: join(OC, "control-plane", "output", "TC-FAILED-READ.md"),
-      status: CONTRACT_STATUS.RUNNING,
+    global.setTimeout = (fn, delay, ...rest) => {
+      scheduledDelays.push(delay);
+      return originalSetTimeout(() => {}, 0, ...rest); // 只观察是否被安排,不执行回调
     };
-    rememberTrackingState(sessionKey, trackingState);
-
-    global.setTimeout = ((fn, _ms) => {
-      pendingTimers.push(Promise.resolve().then(() => fn()));
-      return { unref() {}, ref() {} };
-    });
 
     const { api, getHandler } = createHookApi();
     afterToolCallHook.register(api, logger);
-    const afterToolCall = getHandler("after_tool_call");
+    await getHandler("after_tool_call")(
+      { toolName: "read", params: { file_path: inboxContractPath }, result: { content: [{ type: "text", text: "{}" }] } },
+      { agentId: plannerId, sessionKey },
+    );
 
-    await afterToolCall({
-      toolName: "read",
-      params: { path: inboxContractPath },
-      error: "ENOENT: no such file or directory",
-    }, {
-      sessionKey,
-      agentId: plannerId,
-    });
-    await Promise.all(pendingTimers);
-
-    const persisted = JSON.parse(await readFile(inboxContractPath, "utf8"));
-    assert.equal(persisted.id, "TC-FAILED-READ");
-  } finally {
-    global.setTimeout = originalSetTimeout;
-    runtimeAgentConfigs.clear();
-    clearTrackingStore();
-    await rm(workspaceDir, { recursive: true, force: true });
-  }
-});
-
-test("successful planner inbox reads still auto-delete consumed inbox contract truth", async () => {
-  const plannerId = `planner-inbox-success-read-${Date.now()}`;
-  const workerId = `worker-inbox-success-read-${Date.now()}`;
-  const workspaceDir = join(OC, "workspaces", plannerId);
-  const inboxDir = join(workspaceDir, "inbox");
-  const inboxContractPath = join(inboxDir, "contract.json");
-  const sessionKey = `agent:${plannerId}:contract:success-read`;
-  const pendingTimers = [];
-  const originalSetTimeout = global.setTimeout;
-
-  registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
-  clearTrackingStore();
-
-  try {
-    await mkdir(inboxDir, { recursive: true });
-    await writeFile(inboxContractPath, JSON.stringify({
-      id: "TC-SUCCESS-READ",
-      status: CONTRACT_STATUS.RUNNING,
-    }, null, 2));
-
-    const trackingState = createTrackingState({
-      sessionKey,
-      agentId: plannerId,
-      parentSession: null,
-    });
-    trackingState.contract = {
-      id: "TC-SUCCESS-READ",
-      assignee: plannerId,
-      output: join(OC, "control-plane", "output", "TC-SUCCESS-READ.md"),
-      status: CONTRACT_STATUS.RUNNING,
-    };
-    rememberTrackingState(sessionKey, trackingState);
-
-    global.setTimeout = ((fn, _ms) => {
-      pendingTimers.push(Promise.resolve().then(() => fn()));
-      return { unref() {}, ref() {} };
-    });
-
-    const { api, getHandler } = createHookApi();
-    afterToolCallHook.register(api, logger);
-    const afterToolCall = getHandler("after_tool_call");
-
-    await afterToolCall({
-      toolName: "read",
-      params: { path: inboxContractPath },
-      result: {
-        content: [{ type: "text", text: "contract content" }],
-      },
-    }, {
-      sessionKey,
-      agentId: plannerId,
-    });
-    await Promise.all(pendingTimers);
-
-    await assert.rejects(readFile(inboxContractPath, "utf8"), /ENOENT/);
+    assert.deepEqual(scheduledDelays, [], "读 planner inbox 不得安排任何延时删除");
+    await assert.doesNotReject(readFile(inboxContractPath, "utf8"), "信封必须留到 agent_end 收尾");
   } finally {
     global.setTimeout = originalSetTimeout;
     runtimeAgentConfigs.clear();
@@ -382,7 +308,7 @@ test("canonical outbox commit follows workspace symlink aliases used by real wor
   const reportName = `protocol-link-${Date.now()}.md`;
   const reportPath = join(outboxDir, reportName);
   const contractId = `TC-PROTOCOL-LINK-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:protocol-commit-link`;
   const originalTaskHistoryLength = taskHistory.length;
@@ -391,7 +317,7 @@ test("canonical outbox commit follows workspace symlink aliases used by real wor
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(inboxDir, { recursive: true });
   await mkdir(outboxDir, { recursive: true });
@@ -438,7 +364,8 @@ test("canonical outbox commit follows workspace symlink aliases used by real wor
   });
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(reportPath, "# Protocol Commit Report\n\nworker finished via aliased workspace path\n", "utf8");
     await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
@@ -453,7 +380,7 @@ test("canonical outbox commit follows workspace symlink aliases used by real wor
     }, null, 2), "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
 
     const afterToolCall = getHandler("after_tool_call");
     await afterToolCall({
@@ -478,7 +405,7 @@ test("canonical outbox commit follows workspace symlink aliases used by real wor
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(aliasedWorkspaceDir).catch(() => {});
     await unlink(contractPath).catch(() => {});
@@ -496,14 +423,14 @@ test("loop hard stop requires runtime_result instead of completing from contract
   const inboxDir = join(workspaceDir, "inbox");
   const controllerOutputDir = join(OC, "control-plane", "output");
   const contractId = `TC-LOOP-STOP-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:loop-stop`;
   const originalTaskHistoryLength = taskHistory.length;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(inboxDir, { recursive: true });
   await mkdir(controllerOutputDir, { recursive: true });
@@ -544,12 +471,13 @@ test("loop hard stop requires runtime_result instead of completing from contract
   afterToolCallHook.register(api, logger);
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(finalOutputPath, "6:41 AM (Asia/Shanghai)\n", "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
 
     const afterToolCall = getHandler("after_tool_call");
     for (let index = 0; index < 5; index += 1) {
@@ -585,7 +513,7 @@ test("loop hard stop requires runtime_result instead of completing from contract
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
     await unlink(finalOutputPath).catch(() => {});
@@ -604,7 +532,7 @@ test("loop hard stop after output commit keeps following graph topology", async 
   const inboxDir = join(workspaceDir, "inbox");
   const controllerOutputDir = join(OC, "control-plane", "output");
   const contractId = `TC-LOOP-ROUTE-${suffix}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:loop-route`;
   const originalTaskHistoryLength = taskHistory.length;
@@ -612,7 +540,7 @@ test("loop hard stop after output commit keeps following graph topology", async 
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId, worker2Id }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
   clearAllSessions();
   resetAllDispatchStates();
   clearDispatchQueue();
@@ -669,12 +597,13 @@ test("loop hard stop after output commit keeps following graph topology", async 
   afterToolCallHook.register(api, logger);
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(finalOutputPath, "Monday, April 27th, 2026\n", "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
 
     const afterToolCall = getHandler("after_tool_call");
     for (let index = 0; index < 5; index += 1) {
@@ -709,7 +638,7 @@ test("loop hard stop after output commit keeps following graph topology", async 
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     clearAllSessions();
     clearDispatchQueue();
     resetAllDispatchStates();
@@ -731,14 +660,14 @@ test("loop hard stop terminalizes a running contract even when no output artifac
   const inboxDir = join(workspaceDir, "inbox");
   const controllerOutputDir = join(OC, "control-plane", "output");
   const contractId = `TC-PROTOCOL-LOOP-FAIL-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:protocol-loop-fail`;
   const originalTaskHistoryLength = taskHistory.length;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
   clearAllSessions();
 
   await mkdir(inboxDir, { recursive: true });
@@ -780,11 +709,12 @@ test("loop hard stop terminalizes a running contract even when no output artifac
   afterToolCallHook.register(api, logger);
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
     await syncDispatchTargetsFromRuntime(logger);
     await claimDispatchTargetContract({ contractId, agentId: workerId, logger });
     assert.equal(isDispatchTargetBusy(workerId), true);
@@ -831,7 +761,7 @@ test("loop hard stop terminalizes a running contract even when no output artifac
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     clearAllSessions();
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -851,7 +781,7 @@ test("canonical outbox commit recognizes workspace symlink alias paths before th
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(outboxDir, { recursive: true });
   await symlink(join("workspaces", workerId), aliasedWorkspaceDir).catch((error) => {
@@ -872,7 +802,7 @@ test("canonical outbox commit recognizes workspace symlink alias paths before th
   } finally {
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(aliasedWorkspaceDir).catch(() => {});
     await rm(workspaceDir, { recursive: true, force: true });
@@ -888,7 +818,7 @@ test("canonical outbox commit does not recognize legacy stage_result files", asy
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(outboxDir, { recursive: true });
 
@@ -902,7 +832,7 @@ test("canonical outbox commit does not recognize legacy stage_result files", asy
   } finally {
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await rm(workspaceDir, { recursive: true, force: true });
     await rm(join(OC, "workspaces", plannerId), { recursive: true, force: true });
@@ -919,14 +849,14 @@ test("canonical outbox commit ignores stale runtime_result artifact inventory an
   const reportName = `protocol-inventory-${Date.now()}.md`;
   const reportPath = join(outboxDir, reportName);
   const contractId = `TC-PROTOCOL-INVENTORY-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:protocol-commit-inventory`;
   const originalTaskHistoryLength = taskHistory.length;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(inboxDir, { recursive: true });
   await mkdir(outboxDir, { recursive: true });
@@ -970,7 +900,8 @@ test("canonical outbox commit ignores stale runtime_result artifact inventory an
   });
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(reportPath, "# Protocol Commit Report\n\nactual outbox artifact already exists\n", "utf8");
     await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
@@ -989,7 +920,7 @@ test("canonical outbox commit ignores stale runtime_result artifact inventory an
     }, null, 2), "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
 
     const afterToolCall = getHandler("after_tool_call");
     await afterToolCall({
@@ -1024,7 +955,7 @@ test("canonical outbox commit ignores stale runtime_result artifact inventory an
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
     await unlink(finalOutputPath).catch(() => {});
@@ -1044,14 +975,14 @@ test("canonical outbox commit is observed even when the tool event has no writab
   const reportName = `protocol-probe-${Date.now()}.md`;
   const reportPath = join(outboxDir, reportName);
   const contractId = `TC-PROTOCOL-PROBE-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${workerId}:protocol-commit-probe`;
   const originalTaskHistoryLength = taskHistory.length;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(inboxDir, { recursive: true });
   await mkdir(outboxDir, { recursive: true });
@@ -1095,7 +1026,8 @@ test("canonical outbox commit is observed even when the tool event has no writab
   });
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(reportPath, "# Protocol Commit Report\n\nobserved without writable path metadata\n", "utf8");
     await writeFile(join(outboxDir, "runtime_result.json"), JSON.stringify({
@@ -1110,7 +1042,7 @@ test("canonical outbox commit is observed even when the tool event has no writab
     }, null, 2), "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
 
     const afterToolCall = getHandler("after_tool_call");
     await afterToolCall({
@@ -1139,7 +1071,7 @@ test("canonical outbox commit is observed even when the tool event has no writab
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
     await unlink(finalOutputPath).catch(() => {});
@@ -1159,14 +1091,14 @@ test("output_commit stays observational and does not finalize or release planner
   const reportName = `protocol-tail-${Date.now()}.md`;
   const reportPath = join(outboxDir, reportName);
   const contractId = `TC-PROTOCOL-TAIL-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const finalOutputPath = join(controllerOutputDir, `${contractId}.md`);
   const sessionKey = `agent:${plannerId}:contract:${contractId}`;
   const originalTaskHistoryLength = taskHistory.length;
 
   registerRuntimeAgents(buildRuntimeConfig({ plannerId, workerId }));
   clearTrackingStore();
-  clearAllTraces();
+  clearAllSessionProgress();
 
   await mkdir(inboxDir, { recursive: true });
   await mkdir(outboxDir, { recursive: true });
@@ -1211,12 +1143,13 @@ test("output_commit stays observational and does not finalize or release planner
   });
 
   try {
-    await persistContractSnapshot(contractPath, sharedContract, logger);
+    contractPath = await persistContractById(sharedContract, logger);
+    trackingState.contract.path = contractPath; // 批② 迁树:tracker 绑定发生在正本落位之后,path=正本树内定址
     await writeFile(join(inboxDir, "contract.json"), JSON.stringify(sharedContract, null, 2), "utf8");
     await writeFile(finalOutputPath, "# Planner Protocol Commit\n\nplanner finished logical work before natural agent_end\n", "utf8");
 
     rememberTrackingState(sessionKey, trackingState);
-    initTrace(sessionKey, trackingState.contract);
+    openSessionProgress(sessionKey, trackingState.contract);
     await claimDispatchTargetContract({ contractId, agentId: plannerId, logger });
 
     const afterToolCall = getHandler("after_tool_call");
@@ -1259,7 +1192,7 @@ test("output_commit stays observational and does not finalize or release planner
     taskHistory.length = originalTaskHistoryLength;
     clearProtocolCommitReconcileState();
     clearTrackingStore();
-    clearAllTraces();
+    clearAllSessionProgress();
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
     await unlink(finalOutputPath).catch(() => {});

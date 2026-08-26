@@ -2,10 +2,8 @@ export const AGENT_IDS = Object.freeze({
   CONTROLLER: "controller",
   OPERATOR: "operator",
   VIZ_MASTER: "viz-master",
-  QQ_BRIDGE: "agent-for-kksl",
   PLANNER: "planner",
   RESEARCHER: "researcher",
-  REVIEWER: "reviewer",
   WORKER_D: "worker-d",
 });
 
@@ -14,39 +12,22 @@ export const AGENT_ROLE = Object.freeze({
   PLANNER: "planner",
   EXECUTOR: "executor",
   RESEARCHER: "researcher",
-  REVIEWER: "reviewer",
   AGENT: "agent",
 });
-
-export const ROLE_FALLBACK_IDS = Object.freeze({
-  [AGENT_ROLE.PLANNER]: Object.freeze([AGENT_IDS.PLANNER]),
-  [AGENT_ROLE.RESEARCHER]: Object.freeze([AGENT_IDS.RESEARCHER]),
-  [AGENT_ROLE.REVIEWER]: Object.freeze([AGENT_IDS.REVIEWER]),
-});
-
-export const SPECIALIZED_EXECUTOR_FALLBACK_IDS = Object.freeze([
-  AGENT_IDS.WORKER_D,
-]);
 
 export const AGENT_WORKSPACE_OVERRIDES = Object.freeze({
   [AGENT_IDS.CONTROLLER]: "workspaces/controller",
   [AGENT_IDS.OPERATOR]: "workspaces/operator",
   [AGENT_IDS.VIZ_MASTER]: "workspaces/viz-master",
-  [AGENT_IDS.QQ_BRIDGE]: "workspaces/kksl",
 });
 
+// 单前台(备忘录156 §三方向B):controller 是唯一 bridge/gateway。
 export const BRIDGE_AGENT_IDS = new Set([
   AGENT_IDS.CONTROLLER,
-  AGENT_IDS.QQ_BRIDGE,
 ]);
 
 export const GATEWAY_AGENT_IDS = new Set([
   AGENT_IDS.CONTROLLER,
-  AGENT_IDS.QQ_BRIDGE,
-]);
-
-export const QQ_INGRESS_AGENT_IDS = new Set([
-  AGENT_IDS.QQ_BRIDGE,
 ]);
 
 // Meta-agents own a control-plane surface family (operator owns "*",
@@ -58,7 +39,6 @@ export const META_AGENT_IDS = Object.freeze(new Set([AGENT_IDS.OPERATOR, AGENT_I
 export const PROTECTED_AGENT_IDS = new Set([
   ...META_AGENT_IDS,
   AGENT_IDS.CONTROLLER,
-  AGENT_IDS.QQ_BRIDGE,
   AGENT_IDS.PLANNER,
 ]);
 
@@ -67,7 +47,6 @@ export const SUPPORTED_AGENT_ROLES = new Set([
   AGENT_ROLE.PLANNER,
   AGENT_ROLE.EXECUTOR,
   AGENT_ROLE.RESEARCHER,
-  AGENT_ROLE.REVIEWER,
   AGENT_ROLE.AGENT,
 ]);
 
@@ -81,7 +60,6 @@ export const SYSTEM_ACTION_ENABLED_ROLES = new Set([
   AGENT_ROLE.PLANNER,
   AGENT_ROLE.EXECUTOR,
   AGENT_ROLE.RESEARCHER,
-  AGENT_ROLE.REVIEWER,
 ]);
 
 export function isSupportedAgentRole(role) {

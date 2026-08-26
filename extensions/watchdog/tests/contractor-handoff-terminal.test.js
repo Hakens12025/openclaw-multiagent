@@ -1,17 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import { unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// 投递出栈(备忘录141 §八):commit_success_terminal 不再就地跑两段投递,
+// 而是落自包含票据 + poke 真泵——票据目录环境种子改道临时目录,绝不写真 control-plane。
+process.env.OPENCLAW_DELIVERY_TICKET_DIR = mkdtempSync(join(tmpdir(), "contractor-handoff-tickets-"));
 
 import {
   createTrackingState,
-} from "../lib/session-bootstrap.js";
+} from "../lib/session/session-bootstrap.js";
 import {
   listAgentEndMainStages,
-} from "../lib/lifecycle/agent-end-lifecycle.js";
+} from "../lib/lifecycle/agent-end/lifecycle.js";
 import {
   getContractPath,
-  persistContractSnapshot,
-} from "../lib/contracts.js";
+  persistContractById,
+} from "../lib/contract/contracts.js";
 import {
   registerRuntimeAgents,
 } from "../lib/agent/agent-identity.js";
@@ -25,7 +32,7 @@ import {
   clearDispatchQueue,
   resetAllDispatchStates,
   syncDispatchTargets,
-} from "../lib/routing/dispatch-runtime-state.js";
+} from "../lib/routing/dispatch/dispatch-runtime-state.js";
 
 const logger = {
   info() {},
@@ -35,7 +42,7 @@ const logger = {
 
 test("invalid legacy start_pipeline unknown action fails the root contract after handoff collection", async () => {
   const contractId = `TC-CONTRACTOR-HANDOFF-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   registerRuntimeAgents({
     agents: {
@@ -52,7 +59,7 @@ test("invalid legacy start_pipeline unknown action fails the root contract after
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "对比 React、Vue、Svelte 三个框架的优缺点，写一份报告",
     assignee: "worker",
@@ -134,7 +141,6 @@ test("invalid legacy start_pipeline unknown action fails the root contract after
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -153,6 +159,13 @@ test("invalid legacy start_pipeline unknown action fails the root contract after
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.runtimeDiagnostics?.contractorHandoff, undefined);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -161,7 +174,7 @@ test("invalid legacy start_pipeline unknown action fails the root contract after
 
 test("legacy contractor start_pipeline unknown action fails the root contract when no worker handoff was emitted", async () => {
   const contractId = `TC-CONTRACTOR-FALLBACK-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   clearDispatchQueue();
   resetAllDispatchStates();
@@ -181,7 +194,7 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "对比 React、Vue、Svelte 三个框架的优缺点，写一份报告",
     assignee: "worker",
@@ -257,7 +270,6 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -275,6 +287,13 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
     assert.equal(buildDispatchRuntimeSnapshot().queue.includes(contractId), false);
     assert.equal(persisted.runtimeDiagnostics?.contractorFallback, undefined);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -286,7 +305,7 @@ test("legacy contractor start_pipeline unknown action fails the root contract wh
 
 test("running tracking state does not preserve the root contract when terminal evaluation fails", async () => {
   const contractId = `TC-CONTRACTOR-RUNNING-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   registerRuntimeAgents({
     agents: {
@@ -303,7 +322,7 @@ test("running tracking state does not preserve the root contract when terminal e
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "长任务已被 worker 接单，contractor 只负责交接",
     assignee: "worker-c",
@@ -377,7 +396,6 @@ test("running tracking state does not preserve the root contract when terminal e
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -396,6 +414,13 @@ test("running tracking state does not preserve the root contract when terminal e
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.runtimeDiagnostics?.contractorHandoff, undefined);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -404,7 +429,7 @@ test("running tracking state does not preserve the root contract when terminal e
 
 test("agent final assistant text is not captured as contract output", async () => {
   const contractId = `TC-TERMINAL-CAPTURE-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const outputPath = `/tmp/${contractId}.md`;
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   registerRuntimeAgents({
@@ -422,7 +447,7 @@ test("agent final assistant text is not captured as contract output", async () =
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "用户原话：你好",
     assignee: "worker2",
@@ -494,7 +519,6 @@ test("agent final assistant text is not captured as contract output", async () =
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -515,9 +539,16 @@ test("agent final assistant text is not captured as contract output", async () =
     assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
-    assert.equal(persisted.terminalOutcome?.source, "completion_criteria");
+    assert.equal(persisted.terminalOutcome?.source, "deliverable");
     assert.equal(persisted.terminalOutcome?.reason, "contract.output missing_file");
     assert.equal(persisted.runtimeDiagnostics?.completionCapture, undefined);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -527,7 +558,7 @@ test("agent final assistant text is not captured as contract output", async () =
 
 test("control-only assistant text is not captured as contract output", async () => {
   const contractId = `TC-TERMINAL-CAPTURE-CONTROL-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const outputPath = `/tmp/${contractId}.md`;
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   registerRuntimeAgents({
@@ -545,7 +576,7 @@ test("control-only assistant text is not captured as contract output", async () 
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "控制文本不应被当作最终交付",
     assignee: "worker2",
@@ -616,7 +647,6 @@ test("control-only assistant text is not captured as contract output", async () 
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -637,9 +667,16 @@ test("control-only assistant text is not captured as contract output", async () 
     assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
-    assert.equal(persisted.terminalOutcome?.source, "completion_criteria");
+    assert.equal(persisted.terminalOutcome?.source, "deliverable");
     assert.equal(persisted.terminalOutcome?.reason, "contract.output missing_file");
     assert.equal(persisted.runtimeDiagnostics?.completionCapture, undefined);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -649,7 +686,7 @@ test("control-only assistant text is not captured as contract output", async () 
 
 test("runtime guard text is not captured as contract output", async () => {
   const contractId = `TC-TERMINAL-CAPTURE-GUARD-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const outputPath = `/tmp/${contractId}.md`;
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   registerRuntimeAgents({
@@ -667,7 +704,7 @@ test("runtime guard text is not captured as contract output", async () => {
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "runtime 提示文本不应被当作最终交付",
     assignee: "worker2",
@@ -738,7 +775,6 @@ test("runtime guard text is not captured as contract output", async () => {
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -759,9 +795,16 @@ test("runtime guard text is not captured as contract output", async () => {
     assert.equal(trackingState.contract.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
-    assert.equal(persisted.terminalOutcome?.source, "completion_criteria");
+    assert.equal(persisted.terminalOutcome?.source, "deliverable");
     assert.equal(persisted.terminalOutcome?.reason, "contract.output missing_file");
     assert.equal(persisted.runtimeDiagnostics?.completionCapture, undefined);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});
@@ -771,7 +814,7 @@ test("runtime guard text is not captured as contract output", async () => {
 
 test("invalid tool-error payload already written into contract.output fails terminal evaluation", async () => {
   const contractId = `TC-TERMINAL-INVALID-OUTPUT-${Date.now()}`;
-  const contractPath = getContractPath(contractId);
+  let contractPath = getContractPath(contractId);
   const outputPath = `/tmp/${contractId}.md`;
   const commitStage = listAgentEndMainStages().find((stage) => stage.id === "commit_success_terminal");
   registerRuntimeAgents({
@@ -789,7 +832,7 @@ test("invalid tool-error payload already written into contract.output fails term
     },
   });
 
-  await persistContractSnapshot(contractPath, {
+  contractPath = await persistContractById({
     id: contractId,
     task: "工具错误残渣不应被当作完成产物",
     assignee: "worker2",
@@ -886,7 +929,6 @@ test("invalid tool-error payload already written into contract.output fails term
         wake: null,
       },
       contractReadDiagnostic: null,
-      lateCompletionLease: null,
       api: {
         runtime: {
           system: {
@@ -907,6 +949,13 @@ test("invalid tool-error payload already written into contract.output fails term
     assert.equal(persisted.status, CONTRACT_STATUS.FAILED);
     assert.equal(persisted.terminalOutcome?.status, CONTRACT_STATUS.FAILED);
     assert.match(persisted.terminalOutcome?.reason || "", /invalid_semantic_payload/u);
+    // 投递出栈:两段投递不再在 stage 内发生,收口只落票据;断言读 tracker 内存正本
+    // (盘上副本会被真泵后台并回诊断,读盘断言有竞态)。
+    assert.equal(
+      trackingState.contract.runtimeDiagnostics?.deliveryTicketId,
+      `dlv-${contractId}`,
+      "收口必须写投递票据并在 runtimeDiagnostics 记 deliveryTicketId",
+    );
   } finally {
     runtimeAgentConfigs.clear();
     await unlink(contractPath).catch(() => {});

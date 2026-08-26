@@ -158,9 +158,6 @@ export function summarizeGraphRouteProgression(progression, contract = null) {
     from: progression?.from || progression?.stage || null,
     to: progression?.to || null,
     targetAgent: progression?.targetAgent || null,
-    pipelineId: progression?.pipelineId || null,
-    loopId: progression?.loopId || null,
-    loopSessionId: progression?.loopSessionId || null,
     round: Number.isFinite(progression?.round) ? progression.round : null,
     actionType: progression?.actionType || null,
     runtimeStatus: progression?.status || null,
@@ -171,42 +168,15 @@ export function summarizeGraphRouteProgression(progression, contract = null) {
   };
 }
 
-export function listRecentGraphRouteProgressions(workItems, {
-  activeLoopSession = null,
-  limit = 6,
-} = {}) {
-  const items = (Array.isArray(workItems) ? workItems : [])
+export function listRecentGraphRouteProgressions(workItems, { limit = 6 } = {}) {
+  return (Array.isArray(workItems) ? workItems : [])
     .map((workItem) => summarizeGraphRouteProgression(workItem?.runtimeDiagnostics?.graphRouteProgression, workItem))
     .filter(Boolean)
     .sort((left, right) => (
       (right?.ts || right?.updatedAt || right?.createdAt || 0)
       - (left?.ts || left?.updatedAt || left?.createdAt || 0)
-    ));
-
-  if (!activeLoopSession) {
-    return items.slice(0, limit);
-  }
-
-  const activeItems = items.filter((item) => (
-    (item?.loopSessionId && item.loopSessionId === activeLoopSession.id)
-    || (item?.pipelineId && item.pipelineId === activeLoopSession.pipelineId)
-  ));
-
-  return (activeItems.length > 0 ? activeItems : items).slice(0, limit);
-}
-
-export function buildReviewerResultsSnapshot(automations) {
-  const entries = (Array.isArray(automations?.automations) ? automations.automations : [])
-    .filter((a) => a?.runtime?.lastReviewerResult)
-    .map((a) => ({
-      automationId: a.id || a.runtime?.automationId || null,
-      round: a.runtime?.currentRound || null,
-      ...a.runtime.lastReviewerResult,
-    }));
-  return {
-    total: entries.length,
-    results: entries.slice(0, 10),
-  };
+    ))
+    .slice(0, limit);
 }
 
 export function buildAutomationDecisionsSnapshot(automations) {
@@ -229,7 +199,6 @@ export function buildAttentionItems({
   runtimeSummary,
   recentRuntimeIncidents = [],
   activeTestRun,
-  automationCounts,
 }) {
   const items = [];
 
@@ -239,15 +208,6 @@ export function buildAttentionItems({
       area: "work_items",
       count: workItemCounts[CONTRACT_STATUS.FAILED],
       summary: "存在失败 work item，需要看失败原因和 system_action delivery 状态。",
-      path: "/watchdog/work-items",
-    });
-  }
-  if ((workItemCounts[CONTRACT_STATUS.AWAITING_INPUT] || 0) > 0) {
-    items.push({
-      severity: "warning",
-      area: "work_items",
-      count: workItemCounts[CONTRACT_STATUS.AWAITING_INPUT],
-      summary: "存在等待补充输入的 work item。",
       path: "/watchdog/work-items",
     });
   }
@@ -314,24 +274,7 @@ export function buildAttentionItems({
       path: "/watchdog/test-runs",
     });
   }
-  if ((automationCounts?.failingHarnessAutomations || 0) > 0) {
-    items.push({
-      severity: "error",
-      area: "automations",
-      count: automationCounts.failingHarnessAutomations,
-      summary: `存在 ${automationCounts.failedHarnessModules || 0} 个 harness 失败模块，需要检查 guard/gate 漂移。`,
-      path: "/watchdog/automations",
-    });
-  }
-  if ((automationCounts?.pendingHarnessAutomations || 0) > 0) {
-    items.push({
-      severity: "info",
-      area: "automations",
-      count: automationCounts.pendingHarnessAutomations,
-      summary: `存在 ${automationCounts.pendingHarnessModules || 0} 个待收敛 harness 模块，仍在等待本轮执行证据。`,
-      path: "/watchdog/automations",
-    });
-  }
+  // harness 失败/待收敛 attention 项已随 harness 全退役删除（v226 / 2026-08-23）。
 
   return items;
 }

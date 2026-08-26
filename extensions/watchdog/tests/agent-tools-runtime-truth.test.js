@@ -4,10 +4,10 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { OC, agentWorkspace, runtimeAgentConfigs } from "../lib/state.js";
-import { createAgentDefinition } from "../lib/agent/agent-admin-agent-operations.js";
-import { loadConfig, saveConfig } from "../lib/agent/agent-admin-store.js";
+import { createAgentDefinition } from "../lib/agent/admin/agent-admin-agent-operations.js";
+import { loadConfig, saveConfig } from "../lib/agent/admin/agent-admin-store.js";
 import { composeDefaultCapabilityProjection } from "../lib/agent/agent-capability-policy.js";
-import { executeAdminSurfaceOperation } from "../lib/admin/admin-surface-operations.js";
+import { executeAdminSurfaceOperation } from "../lib/admin/operations/admin-surface-operations.js";
 import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {

@@ -11,7 +11,8 @@
 //
 // 注入文件正文来源优先级（buildSoulView）：
 //   ① live sessions.json 的 systemPromptReport（精确报告，source 用报告里的）
-//   ② 归档 sidecar control-plane/session-archive/<agentId>/<sessionId>.prompt.json
+//   ② 树内归档 sidecar threads/{t}/runs/{r}/participants/<agentId>/session-<sessionId>.prompt.json
+//      （经 session-index 找 run 家；agent_end 归档段写）
 //   ③ 兜底重建：前两者都没有时（中继 agent 的 sessions.json 不写
 //      systemPromptReport），从该 agent 工作区按 framework 固定注入清单重建
 //      拼装视图，source="reconstructed"，前端可据此标注「由工作区文件重建」。
@@ -33,17 +34,18 @@
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { OC } from "../state-paths.js";
-import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
-import { agentWorkspace } from "../state-agent-helpers.js";
+import { OC } from "../state/state-paths.js";
+import { agentWorkspace } from "../state/state-agent-helpers.js";
+import { resolveSessionHome } from "../archive/session-home-index.js";
+import { participantSessionPromptFor } from "../archive/thread-tree-store.js";
 import { listAgentSessions, parseContractIdFromSessionKey } from "./agent-session-store.js";
 import { getAgentRole } from "./agent-identity.js";
 import {
   shouldOverrideContractSessionPrompt,
   buildContractSessionSystemPrompt,
-} from "../contract-session-prompt-override.js";
-import { renderRolePersonaBlock, getRoleOutputDirectives } from "../role-spec-registry.js";
-import { loadOpenClawConfig } from "../capability/capability-registry.js";
+} from "../prompt/contract-session-prompt-override.js";
+import { renderRolePersonaBlock, getRoleOutputDirectives } from "../prompt/role-spec-registry.js";
+import { loadOpenClawConfig } from "../management/capability-registry.js";
 import { composeEffectiveProfile } from "../effective-profile-composer.js";
 
 // 从 AgentBinding/config 取该 agent 的 effective 工具 + 技能（配置范围）。
@@ -169,8 +171,16 @@ function liveSessionsFile(agentId) {
   return join(OC, "agents", agentId, "sessions", "sessions.json");
 }
 
+// 树内归档 sidecar：经 session-index 找 run 家 → participants/{agent}/session-{sid}.prompt.json。
+// 文件名用索引登记原串（sessionId/agentId）。无家/路径段非法 → null。
 function archivedPromptFile(agentId, sessionId) {
-  return join(CONTROL_PLANE_PATHS.root, "session-archive", agentId, `${sessionId}.prompt.json`);
+  try {
+    const home = resolveSessionHome(sessionId);
+    if (!home) return null;
+    return participantSessionPromptFor(home, home.agentId || agentId, home.sessionId);
+  } catch {
+    return null;
+  }
 }
 
 // live 中按 sessionId 匹配（遍历所有 sessionKey 条目），命中则返回 systemPromptReport。
@@ -193,10 +203,12 @@ async function readLiveReport(agentId, sessionId) {
   return null;
 }
 
-// 回退读归档 sidecar（live 被清后）。
+// 回退读树内归档 sidecar（live 被清后）。
 async function readArchivedReport(agentId, sessionId) {
   try {
-    const raw = await readFile(archivedPromptFile(agentId, sessionId), "utf8");
+    const sidecarPath = archivedPromptFile(agentId, sessionId);
+    if (!sidecarPath) return null;
+    const raw = await readFile(sidecarPath, "utf8");
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {

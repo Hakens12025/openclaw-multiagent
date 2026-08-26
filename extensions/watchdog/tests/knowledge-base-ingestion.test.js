@@ -12,17 +12,17 @@ import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isTextFile, buildChunkPlanForSources } from "../lib/operator/wiki-rag-store.js";
+import { isTextFile, buildChunkPlanForSources } from "../lib/knowledge/wiki-rag-store.js";
 import {
   normalizeKnowledgeBaseSpec,
   addKnowledgeBaseSource,
   removeKnowledgeBaseSource,
   removeKnowledgeBase,
   listPersistedKnowledgeBases,
-} from "../lib/operator/knowledge-base-registry.js";
-import { buildKbIndex, searchKb, listKnowledgeBaseSpecs } from "../lib/operator/knowledge-base.js";
+} from "../lib/knowledge/knowledge-base-registry.js";
+import { buildKbIndex, searchKb, listKnowledgeBaseSpecs } from "../lib/knowledge/knowledge-base.js";
 import { knowledgeBaseIndexFile } from "../lib/control-plane/control-plane-paths.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try { await embedText("probe", {}); ollamaUp = true; } catch { ollamaUp = false; }

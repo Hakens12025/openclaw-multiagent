@@ -17,9 +17,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { evaluateWikiRagRecall, formatRecallReport } from "../lib/operator/wiki-rag-eval.js";
-import { searchWiki } from "../lib/operator/wiki-rag-search.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+import { evaluateWikiRagRecall, formatRecallReport } from "../lib/knowledge/wiki-rag-eval.js";
+import { searchWiki } from "../lib/knowledge/wiki-rag-search.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 let ollamaUp = false;
 try {
@@ -86,6 +86,6 @@ test("live: wiki-RAG recall over eval set (skip if ollama down)", { skip: !ollam
 test("live: 查询改写救回填充词重的查询(harness 落空查询 → top-5)", { skip: !ollamaUp }, async () => {
   const r = await searchWiki("我想知道 harness 的四种模块是什么", { topK: 5 });
   assert.equal(r.ok, true);
-  const hit = r.results.some((x) => x.sourcePath === "concepts/harness.md");
+  const hit = r.results.some((x) => x.sourcePath === "wiki/concepts/harness.md");
   assert.ok(hit, `改写后 harness.md 应进 top-5,实际: ${r.results.map((x) => x.sourcePath).join(", ")}`);
 });

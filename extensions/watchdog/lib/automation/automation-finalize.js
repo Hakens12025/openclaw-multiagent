@@ -1,11 +1,3 @@
-import {
-  finalizeHarnessRun,
-  normalizeHarnessRun,
-} from "../harness/harness-run.js";
-import {
-  finalizeHarnessRunModules,
-} from "../harness/harness-module-runner.js";
-import { buildEvaluationResult } from "../harness/evaluator-result.js";
 import { normalizeRecord, normalizeString } from "../core/normalize.js";
 import { EVENT_TYPE } from "../core/event-types.js";
 import {
@@ -23,23 +15,17 @@ import {
   buildRoundSummary,
 } from "./automation-decision.js";
 import { buildProfileLifecycle } from "./profile-lifecycle.js";
+
 import {
   extractContractScore,
   extractContractArtifact,
   extractContractSummary,
-  extractLoopRuntimeScore,
-  extractLoopRuntimeArtifact,
-  extractLoopRuntimeSummary,
-  deriveLoopRuntimeTerminalStatus,
 } from "./automation-result-extractors.js";
 import {
-  appendHarnessRun,
-  buildActiveHarnessLifecycle,
   hasRecordedRound,
   resolveAutomationIdFromContext,
   resolveRoundFromContext,
-} from "./automation-harness-lifecycle.js";
-import { maybePrecipitateSkillFromRound } from "./automation-skill-precipitation.js";
+} from "./automation-round-context.js";
 
 async function finalizeAutomationRound(spec, runtime, {
   round,
@@ -47,84 +33,27 @@ async function finalizeAutomationRound(spec, runtime, {
   score,
   artifact,
   summary,
-  terminalSource = null,
 }, {
   logger,
   onAlert,
   contractId = null,
-  pipelineId = null,
-  loopId = null,
 } = {}) {
   const now = Date.now();
   const improvement = computeImprovementState(spec, runtime, score, artifact, round);
-  const harnessState = await buildActiveHarnessLifecycle(spec, runtime, {
-    round,
-    trigger: runtime?.activeHarnessRun?.trigger || runtime?.activeHarnessSpec?.trigger || "automation_terminal",
-    requestedAt: runtime?.activeHarnessRun?.requestedAt
-      || runtime?.activeHarnessSpec?.requestedAt
-      || runtime?.lastWakeAt
-      || now,
-    startedAt: runtime?.activeHarnessRun?.startedAt || runtime?.lastWakeAt || now,
-    contractId,
-    pipelineId,
-    loopId,
-  });
-  const prefinalizedHarness = finalizeHarnessRun(harnessState.activeHarnessRun, {
-    terminalStatus,
-    decision: null,
-    completionReason: null,
-    runtimeStatus: null,
-    score: improvement.lastScore,
-    artifact,
-    summary,
-    contractId,
-    pipelineId,
-    loopId,
-    finalizedAt: now,
-  });
-  const evaluatedHarness = await finalizeHarnessRunModules(prefinalizedHarness, {
-    automationSpec: spec,
-    terminalSource,
-    terminalStatus,
-    score: improvement.lastScore,
-    artifact,
-    summary,
-    finalizedAt: now,
-  });
 
-  const reviewerResult = evaluatedHarness?.reviewerResult || null;
-  const evaluationResult = reviewerResult
-    ? buildEvaluationResult({
-        reviewerResultId: reviewerResult.contractId || reviewerResult.pipelineId || null,
-        harnessRunId: prefinalizedHarness?.id || null,
-        verdict: reviewerResult.verdict,
-        continueHint: reviewerResult.continueHint,
-        testsPassed: reviewerResult.verdict === "pass" || reviewerResult.verdict === "improved",
-        score: reviewerResult.score,
-        round: reviewerResult.round || round,
-      })
-    : null;
-
+  // harness 判定链已全退役（v226 / 2026-08-23，备忘录149/150）：HarnessRun 归一、
+  // 模块评估、reviewerResult 派生全部移除。deriveDecision 的 evaluationResult
+  // 死评价臂已随之整删（2026-08-26），决策由 terminalStatus/预算/指纹守卫驱动。
   const decision = deriveDecision(spec, runtime, {
     round,
     terminalStatus,
     score: improvement.lastScore,
     noImprovementStreak: improvement.noImprovementStreak,
-    evaluationResult,
-    reviewerResult,
     improvementState: improvement,
   }, now);
 
-  const decoratedHarnessRun = normalizeHarnessRun({
-    ...evaluatedHarness,
-    decision: decision.decision,
-    completionReason: decision.reason,
-    runtimeStatus: decision.status,
-  });
-  const nextHarnessRun = decoratedHarnessRun || evaluatedHarness || prefinalizedHarness;
-
-  // 治理隔离：testMode 运行（自检/TSP 等固定测试）不计入 operator 自改善——
-  // 不派生 ProfileLifecycle、不落 governanceSnapshot、不沉淀 skill（见下）。
+  // 治理隔离：testMode 运行（自检等固定测试）不计入 operator 自改善——
+  // 不派生 ProfileLifecycle、不落 governanceSnapshot。
   // 与既有熔断 governanceSnapshotDisabled 语义一致（null snapshot = 不收紧）。
   const isTestRun = Boolean(spec?.harness?.testMode) || Boolean(runtime?.testMode);
 
@@ -135,9 +64,7 @@ async function finalizeAutomationRound(spec, runtime, {
     spec,
     runtime,
     profileId: spec?.harness?.profileId || null,
-    profileTrustLevel: nextHarnessRun?.profileTrustLevel
-      || runtime?.profileLifecycle?.trustLevel
-      || null,
+    profileTrustLevel: runtime?.profileLifecycle?.trustLevel || null,
     lastDecision: decision,
     // streak 单源化（修 real[12] 双计）：每轮恰好贡献一次证据。
     // recentEvaluationResults / recentDecisions 刻意不传：
@@ -152,8 +79,6 @@ async function finalizeAutomationRound(spec, runtime, {
     status: decision.status,
     currentRound: Math.max(normalizePositiveInteger(runtime?.currentRound, 0), round),
     activeContractId: null,
-    activePipelineId: null,
-    activeLoopId: null,
     lastResultAt: now,
     nextWakeAt: decision.nextWakeAt,
     bestRound: improvement.bestRound,
@@ -163,20 +88,11 @@ async function finalizeAutomationRound(spec, runtime, {
     noImprovementStreak: improvement.noImprovementStreak,
     repeatStreak: improvement.repeatStreak,
     lastArtifactFingerprint: improvement.lastArtifactFingerprint,
-    activeHarnessSpec: null,
-    activeHarnessRun: null,
-    lastHarnessRun: nextHarnessRun,
-    lastReviewerResult: reviewerResult,
     lastAutomationDecision: decision,
-    // 修死链(a)：rework 决策时把上轮教训落进 runtime，下一轮 startAutomationRound
-    // 读它拼进 spec.entry.message 后清空。非 rework（含 conclude/pause/abandon）清空，
-    // 避免过时教训残留到无关下一轮。
-    pendingReworkGuidance: decision.action === "rework" ? (decision.reworkGuidance || null) : null,
     // P4：尾段快照 + 收紧治理参数落 runtime。governanceSnapshot 下一轮经 resolveGovernance 被读。
     // 熔断标志（governanceSnapshotDisabled）保持 runtime 原值，仅 operator 经 apply 改。
     profileLifecycle,
     governanceSnapshot: profileLifecycle?.governanceSnapshot || null,
-    recentHarnessRuns: appendHarnessRun(runtime, nextHarnessRun),
     recentRounds: [
       buildRoundSummary({
         round,
@@ -201,12 +117,7 @@ async function finalizeAutomationRound(spec, runtime, {
     runtimeStatus: nextRuntime.status,
     score: improvement.lastScore,
     bestScore: nextRuntime.bestScore,
-    harnessGateVerdict: nextHarnessRun?.gateSummary?.verdict || "none",
-    harnessFailedModuleCount: nextHarnessRun?.gateSummary?.failed || 0,
-    reviewerVerdict: reviewerResult?.verdict || null,
     contractId,
-    pipelineId,
-    loopId,
     ts: now,
   });
   logger?.info?.(
@@ -214,25 +125,8 @@ async function finalizeAutomationRound(spec, runtime, {
     + ` status=${terminalStatus} decision=${decision.decision}`,
   );
 
-  // ④ skill 因果链自动沉淀：一轮结束、有 HarnessRun + EvaluationResult 时，
-  // 代码判评判（EvaluationResult 阈值 + ProfileLifecycle streak + gate 过），
-  // 抽验证后的因果对（Pro 挂成功 harnessRunId，Con 挂失败 failureClass），写 SKILL.md。
-  // 沉淀失败不影响主流程（best-effort）。testMode 运行不沉淀(治理隔离)。
-  if (evaluationResult && !isTestRun) {
-    try {
-      await maybePrecipitateSkillFromRound({
-        spec,
-        harnessRun: nextHarnessRun,
-        evaluationResult,
-        profileLifecycle,
-        recentHarnessRuns: nextRuntime?.recentHarnessRuns || [],
-        logger,
-        onAlert,
-      });
-    } catch (error) {
-      logger?.warn?.(`[watchdog] skill precipitation skipped: ${error.message}`);
-    }
-  }
+  // （skill 因果链自动沉淀随 harness 退役删除：它的评判原料全部来自
+  //  HarnessRun/EvaluationResult/moduleRuns evidence，判定账没了即无源，v226 整删。）
 
   return {
     handled: true,
@@ -242,6 +136,10 @@ async function finalizeAutomationRound(spec, runtime, {
   };
 }
 
+// automation 轮次终态回收的唯一入口。回路退役(2026-08-18)前还并存
+// `handleAutomationLoopRuntimeTerminal`（读 loopRuntime.feedbackOutput / conclusionArtifact），
+// 它的第一道门 `resolveAutomationIdFromContext(source.automationContext)` 恒 null
+// —— 回路运行时对象从不携带 automationContext —— 故生产上一次都没跑过，随之整删。
 export async function handleAutomationContractTerminal(contract, {
   logger,
   onAlert,
@@ -277,52 +175,9 @@ export async function handleAutomationContractTerminal(contract, {
     score: extractContractScore(source),
     artifact: extractContractArtifact(source),
     summary: extractContractSummary(source),
-    terminalSource: source,
   }, {
     logger,
     onAlert,
     contractId: normalizeString(source?.id),
-  });
-}
-
-export async function handleAutomationLoopRuntimeTerminal(loopRuntime, {
-  logger,
-  onAlert,
-} = {}) {
-  const source = normalizeRecord(loopRuntime, null);
-  const automationId = resolveAutomationIdFromContext(source?.automationContext);
-  if (!automationId) {
-    return { handled: false, reason: "no_automation_context" };
-  }
-  if (source?.currentStage !== "concluded") {
-    return { handled: false, reason: "loop_runtime_not_terminal" };
-  }
-
-  const spec = await getAutomationSpec(automationId);
-  if (!spec) {
-    return { handled: false, reason: "unknown_automation" };
-  }
-
-  const runtime = await ensureAutomationRuntimeState(spec);
-  const round = resolveRoundFromContext(source?.automationContext, normalizePositiveInteger(runtime?.currentRound, 0));
-  if (!round) {
-    return { handled: false, reason: "missing_automation_round" };
-  }
-  if (hasRecordedRound(runtime, round) && runtime?.activePipelineId !== source?.pipelineId) {
-    return { handled: false, reason: "round_already_recorded" };
-  }
-
-  return finalizeAutomationRound(spec, runtime, {
-    round,
-    terminalStatus: deriveLoopRuntimeTerminalStatus(source),
-    score: extractLoopRuntimeScore(source),
-    artifact: extractLoopRuntimeArtifact(source),
-    summary: extractLoopRuntimeSummary(source),
-    terminalSource: source,
-  }, {
-    logger,
-    onAlert,
-    pipelineId: normalizeString(source?.pipelineId),
-    loopId: normalizeString(source?.loopId),
   });
 }

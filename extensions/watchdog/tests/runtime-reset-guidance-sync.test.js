@@ -24,16 +24,16 @@ import {
   enqueueDispatchContract,
   enqueueOutgoingDispatchContract,
   syncDispatchTargets,
-} from "../lib/routing/dispatch-runtime-state.js";
+} from "../lib/routing/dispatch/dispatch-runtime-state.js";
 import { QUEUE_STATE_FILE } from "../lib/state.js";
 import {
   clearProtocolCommitReconcileState,
   getProtocolCommitReconcileStateCounts,
   scheduleProtocolCommitReconcile,
-} from "../lib/protocol-commit-reconcile.js";
+} from "../lib/protocol/protocol-commit-reconcile.js";
 import {
   rehydrateRuntimeDirectEnvelopePendingSignals,
-} from "../lib/runtime-direct-envelope-queue.js";
+} from "../lib/routing/runtime-direct-envelope-queue.js";
 import { runGlobalTestEnvironmentSerial } from "../lib/formal-runtime/test-locks.js";
 
 const logger = {

@@ -5,9 +5,9 @@ import {
   buildWikiRagIndex,
   loadWikiRagIndex,
   searchWikiRag,
-} from "../lib/operator/wiki-rag-store.js";
-import { searchWiki } from "../lib/operator/wiki-rag-search.js";
-import { embedText } from "../lib/operator/wiki-rag-embed.js";
+} from "../lib/knowledge/wiki-rag-store.js";
+import { searchWiki } from "../lib/knowledge/wiki-rag-search.js";
+import { embedText } from "../lib/knowledge/wiki-rag-embed.js";
 
 // These tests exercise the real wiki/ corpus + the local ollama embeddings.
 // When ollama is down the build degrades (ok:true, degraded:true) and we assert
@@ -20,7 +20,10 @@ try {
   ollamaUp = false;
 }
 
-test("buildWikiRagIndex builds over wiki/ with chunks (or degrades cleanly)", async () => {
+// 这几个 live 测试 force-rebuild 全 wiki(360 chunk)。embed 默认升级 qwen3-embedding:0.6b 后单次
+// 全量重嵌 ~25s(nomic 的 ~3×),贴近默认 30s timeout;并发 session 抢 ollama 时必超。给 90s 富余
+// (qwen3 的 +37.5pp recall@1 值这个慢)。非 live(无 ollama)走 degraded 分支秒回,不受影响。
+test("buildWikiRagIndex builds over wiki/ with chunks (or degrades cleanly)", { timeout: 90000 }, async () => {
   const result = await buildWikiRagIndex({ force: true });
   assert.equal(result.ok, true, "build must always return ok:true");
   if (!ollamaUp) {
@@ -32,7 +35,7 @@ test("buildWikiRagIndex builds over wiki/ with chunks (or degrades cleanly)", as
   assert.ok(result.reembedded > 0, "forced build should re-embed");
 });
 
-test("second build with no wiki change re-embeds nothing (incremental reuse)", async (t) => {
+test("second build with no wiki change re-embeds nothing (incremental reuse)", { timeout: 90000 }, async (t) => {
   if (!ollamaUp) return t.skip("ollama unavailable");
   await buildWikiRagIndex({ force: true });
   const second = await buildWikiRagIndex({});
@@ -51,7 +54,7 @@ test("loaded index records carry vector + sourcePath + hash", async (t) => {
   assert.ok(Array.isArray(sample.vector) && sample.vector.length > 0);
 });
 
-test("searchWiki('operator 控制面 designer') surfaces operator wiki chunk", async (t) => {
+test("searchWiki('operator 控制面 designer') surfaces operator wiki chunk", { timeout: 90000 }, async (t) => {
   if (!ollamaUp) return t.skip("ollama unavailable");
   await buildWikiRagIndex({ force: true });
   const out = await searchWiki("operator 控制面 designer", { topK: 5 });

@@ -160,8 +160,9 @@ test("existing executionPolicy schema still round-trips alongside the new polici
       },
     },
   });
-  // executionPolicy 行为不变（既有字段照常）
-  assert.deepEqual(binding.policies.executionPolicy, { noDirectIntake: true, planRequired: true });
+  // executionPolicy 行为不变（既有字段照常）；planRequired 是已清葬的死字段，
+  // 归一化时应被丢弃（回归护栏）
+  assert.deepEqual(binding.policies.executionPolicy, { noDirectIntake: true });
   // 新字段与旧字段共存，互不干扰
   assert.deepEqual(binding.policies.outputPolicy, { format: "contract-json" });
 });

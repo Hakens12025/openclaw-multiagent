@@ -1,4 +1,4 @@
-// Input-field definitions for automations.*, graph.*, runtime.loop.*, and test.* admin surfaces.
+// Input-field definitions for automations.*, graph.*, and test.* admin surfaces.
 
 export const AUTOMATION_GRAPH_INPUT_FIELDS = Object.freeze({
   "automations.run": [
@@ -7,7 +7,7 @@ export const AUTOMATION_GRAPH_INPUT_FIELDS = Object.freeze({
       label: "AUTOMATION",
       type: "text",
       required: true,
-      placeholder: "loop-automation",
+      placeholder: "nightly-digest",
       description: "Target automation id to run immediately.",
     },
     {
@@ -24,7 +24,7 @@ export const AUTOMATION_GRAPH_INPUT_FIELDS = Object.freeze({
       label: "AUTOMATION",
       type: "text",
       required: true,
-      placeholder: "loop-automation",
+      placeholder: "nightly-digest",
       description: "Target automation id whose ProfileLifecycle governance to control.",
     },
     {
@@ -83,127 +83,6 @@ export const AUTOMATION_GRAPH_INPUT_FIELDS = Object.freeze({
       description: "Target agent of the directed collaboration edge to delete.",
     },
   ],
-  "graph.loop.compose": [
-    {
-      key: "agentsText",
-      canonicalPath: "agents",
-      label: "LOOP AGENTS",
-      type: "textarea",
-      valueType: "ordered_string_list",
-      required: true,
-      aliases: ["agents"],
-      placeholder: "planner\nworker\nworker2",
-      description: "Ordered agent ids. Runtime will connect each item to the next one and close the last back to the first.",
-    },
-    {
-      key: "label",
-      label: "LABEL",
-      type: "text",
-      placeholder: "loop / review_loop / feedback",
-      description: "Optional shared label applied to newly added edges in this loop.",
-    },
-    {
-      key: "entryAgentId",
-      label: "ENTRY AGENT",
-      type: "select",
-      optionsSource: "agents",
-      description: "Optional entry stage of the loop. Defaults to the first agent in the ordered list.",
-    },
-    {
-      key: "concludeSignal",
-      label: "CONCLUDE SIGNAL",
-      type: "text",
-      placeholder: "conclude",
-      description: "Optional signal that ends the loop. Defaults to 'conclude'.",
-    },
-    {
-      key: "maxRounds",
-      label: "MAX ROUNDS",
-      type: "text",
-      placeholder: "3",
-      description: "Optional structural round cap (环自带 limit). Blank falls through to the platform default. Force-concludes the loop when reached even if no agent emits the conclude signal.",
-    },
-  ],
-  "graph.loop.repair": [
-    {
-      key: "loopId",
-      label: "LOOP ID",
-      type: "text",
-      placeholder: "leave blank to target current broken/single loop",
-      description: "Optional registered loop id. Blank lets runtime infer the current broken or only loop.",
-    },
-  ],
-  "runtime.loop.start": [
-    {
-      key: "requestedTask",
-      label: "REQUESTED TASK",
-      type: "textarea",
-      required: true,
-      placeholder: "帮我做一下哈夫曼编码优化",
-      description: "The real task that should be executed directly inside the selected loop.",
-    },
-    {
-      key: "loopId",
-      label: "LOOP ID",
-      type: "text",
-      placeholder: "leave blank to target the only active loop",
-      description: "Optional registered loop id. Recommended when multiple loops exist.",
-    },
-    {
-      key: "startAgent",
-      label: "START AGENT",
-      type: "select",
-      optionsSource: "agents",
-      placeholder: "planner",
-      description: "Optional start agent inside the loop. If loopId is omitted, runtime resolves the unique active loop containing this agent.",
-    },
-    {
-      key: "requestedSource",
-      label: "SOURCE",
-      type: "text",
-      placeholder: "runtime.loop.start",
-      description: "Optional audit/source label written into loop session state.",
-    },
-  ],
-  "runtime.loop.interrupt": [
-    {
-      key: "loopId",
-      label: "LOOP ID",
-      type: "text",
-      placeholder: "leave blank to interrupt current active loop",
-      description: "Optional active loop id guard. Blank targets the current active loop.",
-    },
-    {
-      key: "reason",
-      label: "REASON",
-      type: "text",
-      placeholder: "manual_interrupt",
-      description: "Optional audit reason written into loop session conclusion state.",
-    },
-  ],
-  "runtime.loop.resume": [
-    {
-      key: "loopId",
-      label: "LOOP ID",
-      type: "text",
-      placeholder: "leave blank to resume latest/only loop",
-      description: "Optional registered loop id. Blank lets runtime infer the latest interrupted/broken or only loop.",
-    },
-    {
-      key: "startStage",
-      label: "START STAGE",
-      type: "text",
-      placeholder: "leave blank to reuse latest stage or entryAgentId",
-      description: "Optional stage/agent id inside the loop. Blank resumes at latest session stage or loop entry.",
-    },
-    {
-      key: "reason",
-      label: "REASON",
-      type: "text",
-      placeholder: "manual_resume",
-      description: "Optional audit reason recorded in the resumed loop session metadata.",
-    },
-  ],
   "test.inject": [
     {
       key: "message",
@@ -233,7 +112,6 @@ export const AUTOMATION_GRAPH_INPUT_FIELDS = Object.freeze({
         { value: "", label: "NONE" },
         { value: "create_task", label: "CREATE_TASK" },
         { value: "assign_task", label: "ASSIGN_TASK" },
-        { value: "request_review", label: "REQUEST_REVIEW" },
         { value: "wake_agent", label: "WAKE_AGENT" },
       ],
       description: "Optional protocol intent hint for standard ingress metadata and diagnostics.",

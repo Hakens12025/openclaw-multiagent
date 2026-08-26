@@ -21,7 +21,7 @@ test("buildRuntimeSummary no longer exposes pendingDispatches residue", () => {
 
 test("control-plane sources no longer mention pending dispatch residue", async () => {
   const fileChecks = [
-    ["state-collections", "/Users/hakens/.openclaw/extensions/watchdog/lib/state-collections.js"],
+    ["state-collections", "/Users/hakens/.openclaw/extensions/watchdog/lib/state/state-collections.js"],
     ["contract-flow-store", "/Users/hakens/.openclaw/extensions/watchdog/lib/store/contract-flow-store.js"],
     ["runtime-admin", "/Users/hakens/.openclaw/extensions/watchdog/lib/admin/runtime-admin.js"],
     ["operator-snapshot-runtime", "/Users/hakens/.openclaw/extensions/watchdog/lib/operator/operator-snapshot-runtime.js"],

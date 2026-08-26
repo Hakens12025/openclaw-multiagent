@@ -8,7 +8,7 @@
 
 - **TIER-1（已做，v161）**：声明式 provider 兜底链 → [Provider 兜底链](../concepts/provider-fallback-chain.md)。
 - **TIER-2（待）**：worker `outputSchema` 校验（多 handoff 平台拦错/空字段，对位 v133 镜像 bug 失败类）；实现休眠 `diff_capture` 采集器——**defer**：无"产 diff 的编码 worker"消费者（2026-06-09 确认），等真有再建。
-- **SKIP（cargo-cult）**：环检测拒绝（与我们 [环 vs 注册 loop](cycle-vs-registered-loop.md) **相反**：omp 拒环，我们把环编译成 GAN 判别 loop）、ACP 权限弹窗（我们机器门更强）、IRC 实时 prose（破坏单一 transport）、git 原子提交、SDK/RPC、配置继承、大部分 Hindsight/checkpoint（worker 无状态）。
+- **SKIP（cargo-cult）**：环检测拒绝（与我们 [环 vs 注册 loop](cycle-vs-registered-loop.md) **相反**：omp 拒环，我们保留环并识别它。2026-08-18 回路退役后这条 SKIP 更成立——连把环编译成受控 loop 那一步都不做了，环就只是环）、ACP 权限弹窗（我们机器门更强）、IRC 实时 prose（破坏单一 transport）、git 原子提交、SDK/RPC、配置继承、大部分 Hindsight/checkpoint（worker 无状态）。
 
 ## 原因
 
@@ -18,7 +18,7 @@ Pi = 极简引擎（read/write/edit/bash）。OpenClaw（多 agent 编排平台�
 
 ## 替代方案
 
-整体迁移 omp / 抄全部亮点 — 否决：大量 omp 特性（TUI、浏览器、Rust 本地性能、DAP 调试）对 headless 编排网关不相关。环检测尤其会**删掉**我们的核心 loop 原语。
+整体迁移 omp / 抄全部亮点 — 否决：大量 omp 特性（TUI、浏览器、Rust 本地性能、DAP 调试）对 headless 编排网关不相关。环检测拒绝尤其会**删掉**我们图上成环的表达能力（2026-08-18 回路退役后，识环是唯一保留下来的环相关能力，更不能拒）。
 
 ## 影响
 

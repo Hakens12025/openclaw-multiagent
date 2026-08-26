@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateOutputValidation } from "../lib/test-output-validation.js";
+import { evaluateOutputValidation } from "../lib/formal-runtime/test-output-validation.js";
 
 test("output validation checks keywords against the full content body", () => {
   const content = `${"前言".repeat(140)}天气趋势`;

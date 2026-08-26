@@ -3,8 +3,8 @@
 
 import {
   dispatchChain,
-} from "../state-collections.js";
-import { persistState } from "../state-persistence.js";
+} from "../state/state-collections.js";
+import { persistState } from "../state/state-persistence.js";
 
 // ─── normalizers ────────────────────────────────────────────────────
 

@@ -1,10 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  hasExecutionObservationPayload,
-  normalizeExecutionObservation,
-} from "../lib/execution-observation.js";
+import { normalizeExecutionObservation } from "../lib/stage/execution-observation.js";
 
 test("legacy contractResult is ignored by execution observation", () => {
   const observation = normalizeExecutionObservation({
@@ -19,9 +16,4 @@ test("legacy contractResult is ignored by execution observation", () => {
 
   assert.equal("contractResult" in observation, false);
   assert.equal(observation.collected, false);
-  assert.equal(hasExecutionObservationPayload({
-    contractResult: {
-      status: "completed",
-    },
-  }), false);
 });

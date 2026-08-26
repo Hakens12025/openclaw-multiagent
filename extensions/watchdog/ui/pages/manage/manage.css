@@ -1,0 +1,131 @@
+/* manage.css — 管理区(批3):子导航壳 + 卡片/表格/表单。
+   复用指挥台已立的画风:面板底+橙顶强调线、等宽遥测、方角平面。 */
+.manage-page {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(139, 115, 85, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 115, 85, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  min-height: calc(100vh - 40px);
+}
+.mg-title {
+  font-size: var(--fs-title);
+  margin: 0 0 var(--sp-3) 0;
+  letter-spacing: 1px;
+}
+.manage-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  border-bottom: var(--border);
+  padding-bottom: var(--sp-2);
+}
+.sub-link {
+  color: var(--ink);
+  text-decoration: none;
+  font-size: var(--fs-body);
+  letter-spacing: 0.08em;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line-soft);
+}
+.sub-link:hover { border-color: var(--active); color: var(--active); }
+.sub-link.current { background: var(--active); color: var(--bg-dark); border-color: var(--active); }
+
+.mg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--sp-2);
+}
+.mg-card {
+  background: var(--bg-2);
+  border: var(--border);
+  border-top: 3px solid var(--active);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.mg-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  border-bottom: 1px dashed var(--line-soft);
+  padding-bottom: var(--sp-1);
+  margin-bottom: var(--sp-2);
+}
+.mg-card-title {
+  font-size: var(--fs-body);
+  font-weight: bold;
+  letter-spacing: 0.1em;
+}
+.mg-tag {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  padding: 1px 6px;
+  border: 1px solid var(--line-soft);
+  color: var(--muted);
+}
+.mg-tag.is-plane-control { background: var(--info); color: var(--bg); border-color: var(--info); }
+.mg-tag.is-plane-exec { background: var(--active); color: var(--bg); border-color: var(--active); }
+.mg-note { color: var(--muted); font-size: var(--fs-label); margin: 0 0 var(--sp-2) 0; }
+.mg-pre {
+  background: var(--bg-3);
+  border: 1px solid var(--line-soft);
+  padding: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  overflow: auto;
+  max-height: 320px;
+  margin: var(--sp-2) 0 0 0;
+  white-space: pre-wrap;
+}
+.mg-state { color: var(--muted); padding: var(--sp-3); border: 1px dashed var(--line-soft); }
+.mg-state.is-error { color: var(--alert); border-color: var(--alert); }
+.mg-row { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.mg-grow { flex: 1; }
+.mg-input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  border: var(--border);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 4px 8px;
+}
+.mg-input:focus { outline: 2px solid var(--active); outline-offset: 1px; }
+/* 浅色卡片上的动作按钮:gb-btn 是深色头带专用(米白字),放浅卡上不可读——
+   manage 区一律用 mg-btn(墨字/纸底/铜线,hover 橙,disabled 降灰)。 */
+.mg-btn {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.mg-btn:hover { color: var(--active); border-color: var(--active); }
+.mg-btn:disabled { color: var(--muted); border-color: var(--line-soft); cursor: default; }
+.mg-table { width: 100%; border-collapse: collapse; font-size: var(--fs-label); }
+.mg-table th {
+  text-align: left;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  border-bottom: var(--border);
+  padding: 4px 8px 4px 0;
+}
+.mg-table td { border-bottom: 1px dashed var(--line-soft); padding: 4px 8px 4px 0; }
+
+.agent-role, .agent-model { font-size: var(--fs-label); color: var(--text-2); }
+.agent-model { color: var(--active); }
+.agent-desc { font-size: var(--fs-label); color: var(--muted); margin: var(--sp-1) 0; min-height: 2.2em; }
+.agent-meta { display: flex; gap: var(--sp-3); font-size: var(--fs-micro); color: var(--muted); }
+.agent-meta b { color: var(--ink); }
+
+.lang-toggle { margin-left: auto; }

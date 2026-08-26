@@ -3,8 +3,7 @@
 // 与 loop-session-normalize.js 对称：normalize + 等齐/先得判定全是无 IO 纯函数，
 // store（group-session-store.js）只负责 atomicWriteFile + withLock 持久化。
 //
-// GroupSession 追踪「空间维度」（组内成员完成状态），与 LoopSession 的「时间维度」
-// （重复轮次）正交可嵌套——loopSessionId 是反向指针，不融合两类 session。
+// GroupSession 追踪「空间维度」：一个 group 内各成员的完成状态（等齐 / 先得）。
 //
 // 复用 normalize 核心（normalizeRecord/normalizeString/uniqueStrings），不另造。
 
@@ -56,7 +55,6 @@ export function normalizeGroupSessionEntry(value) {
     status,
     memberStates,
     round: Number.isFinite(record.round) ? record.round : 1,
-    loopSessionId: normalizeString(record.loopSessionId) || null,
     aggregatedOutput: record.aggregatedOutput !== undefined ? record.aggregatedOutput : null,
     createdAt: Number.isFinite(record.createdAt) ? record.createdAt : Date.now(),
     startedAt: Number.isFinite(record.startedAt) ? record.startedAt : null,
@@ -144,13 +142,17 @@ export function pickGroupRaceWinner(entry) {
   return null;
 }
 
-// 拓扑剪枝判定（镜像 loop session prune）：成员或 group 不在白名单 → 不 fit。
+// 拓扑剪枝判定：成员或 group 不在白名单 → 不 fit。
+// groupIds === null 表示「组维不参与判定」——group 没有独立注册表，本 store 自身就是
+// group 的全集，拿 store 去过滤 store 恒为真；agent 删除级联只需按成员剪枝，故显式传 null
+// 而不是先读一遍 store 再把它当白名单传回来（那是 TOCTOU）。
 export function groupSessionFitsTopology(entry, { agentIds, groupIds } = {}) {
   const normalized = normalizeGroupSessionEntry(entry);
   if (!normalized) return false;
   const validAgentIds = agentIds instanceof Set ? agentIds : new Set(uniqueStrings(agentIds));
-  const validGroupIds = groupIds instanceof Set ? groupIds : new Set(uniqueStrings(groupIds));
   if (normalized.members.some((m) => !validAgentIds.has(m))) return false;
+  if (groupIds === null) return true;
+  const validGroupIds = groupIds instanceof Set ? groupIds : new Set(uniqueStrings(groupIds));
   if (!validGroupIds.has(normalized.groupId)) return false;
   return true;
 }

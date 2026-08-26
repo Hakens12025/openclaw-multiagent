@@ -18,13 +18,13 @@ description: operator 面对一个全新项目/任务时的正确处理流程：
 
 ## 3. 步骤分解
 - 拆成可验证的阶段，每阶段一个清晰交付物 + 完成标准。
-- 这决定了结构形态（线性 / loop / group）。
+- 这决定了结构形态（线性 / 成环 / 并行组）。
 
 ## 4. 建立角色与结构（真实 surface）
 - 建 agent：`agents.create`（id + role + model）。
-- 连结构（图边=授权）：
+- 连结构（图边=固定管线）：
   - 线性管线：`graph.edge.add`（a→b→c 逐跳）。
-  - 迭代回路：`graph.loop.compose`（带 entry / maxRounds / conclude；环自带 limit）。
+  - 迭代结构：同样用 `graph.edge.add`，把末跳连回入口（a→b→c→a）。环就是边闭合出来的形状，平台自己识别并高亮，没有独立的 loop 对象要注册。
   - 并行聚合组：`graph.group.compose`（members + outputMode）。
 
 ## 5. 特色化 agent（关键——经 skill 注入，**不改 SOUL 文本**）
@@ -41,13 +41,14 @@ description: operator 面对一个全新项目/任务时的正确处理流程：
 - **不要 emit "拍快照" 的 step**：平台在破坏性 apply 前会自动拍结构快照兜底，且没有 operatorExecutable 的 capture surface。
 
 ## 7. 交付到此为止：结构 + agent 内容 + 预览（operator 不注入、不运行具体任务）
-- `graph.loop.compose` 让 loop **结构 active**（边齐了）——这就是 operator 的交付终态，**loop active 而尚未喂任务不是缺陷，是设计完成的标志**。
-- **具体任务由下游投递，不由 operator 注入**：线性管线由用户/ingress 把任务随 contract 投进入口 agent 的 `inbox/`，传送带逐跳推进；回路由用户在下游显式触发 `runtime.loop.start`（携带 `requestedTask`）。
-- `runtime.loop.start` 仅在用户**明确要求运行/恢复**某个已建好的 loop 时作为运行时面使用，**绝不**作为 build plan 的强制收尾步骤。
+- 边连齐（含闭合成环）就是**结构 active**——这就是 operator 的交付终态，**结构建好而尚未喂任务不是缺陷，是设计完成的标志**。
+- **具体任务由下游投递，不由 operator 注入**：线性管线与环形结构一样，由用户/ingress 把任务随 contract 投进入口 agent 的 `inbox/`，传送带逐跳推进；环形结构则沿闭合边一圈圈转。
+- 平台没有任何 operator 可用的"起跑"surface：运行是下游 ingress/用户动作，build plan 到预览为止。
 
 ## 红线
-- 图边 = 授权：只能连有图边的 agent；缺边先补边。
+- 图边 = **固定管线** + 传送带投递许可，就这两件事。产物入仓另有真值：上游身份随合约走（`contract.upstreamProducers`，派工收口登记），`assign_task` 这类主动协作的目标即使不在图上，上游产物包照样入仓。**按真实的工作流程连边即可，为了让产物流动而额外连边是多余的。**
+- pipeline 出边保持唯一：ingress 首跳与 agent_end 自动选路都要求管线边唯一，把图连成网会让整条链在门口判成歧义。
 - 改系统一律经 CLI-system surface（plan→execute→apply→verify），不裸写配置/文件。
 - 领域走 skill，不进 SOUL。
 - 破坏性操作（删 agent/automation）apply 前平台自动拍快照兜底（你不用也不能 emit 拍快照 step）。
-- **operator 只设计、不执行**：交付物止于结构 + agent 内容 + 预览；loop active 而未喂任务是正确终态；不把用户的具体任务用 `runtime.loop.start` 注入并开跑——`runtime.loop.start` 仅在用户明确要求运行/恢复时作为运行时面使用，运行属下游 ingress/用户动作。
+- **operator 只设计、不执行**：交付物止于结构 + agent 内容 + 预览；结构 active 而未喂任务是正确终态；平台不提供任何 operator 可 emit 的起跑/注入 surface，运行属下游 ingress/用户动作。

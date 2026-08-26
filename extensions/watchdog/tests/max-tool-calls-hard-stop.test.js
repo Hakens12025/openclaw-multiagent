@@ -7,13 +7,13 @@ import {
   isSessionHardStopped,
   markSessionHardStopped,
   HARD_STOP_REASON,
-} from "../lib/loop/loop-detection.js";
-import { buildLoopEpochKey, resolveLoopEpochKey } from "../lib/loop/loop-epoch-key.js";
+} from "../lib/runtime/execution-hard-stop-registry.js";
+import { buildSessionEpochKey, resolveSessionEpochKey } from "../lib/runtime/session-epoch-key.js";
 import {
   DEFAULT_MAX_TOOL_CALLS,
   resolveMaxToolCallsFromPolicy,
-} from "../lib/execution-policy-defaults.js";
-import { createTrackingState } from "../lib/session-bootstrap.js";
+} from "../lib/security/execution-policy-defaults.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
 
 test.beforeEach(() => {
   clearAllSessions();
@@ -48,7 +48,7 @@ test("max_tool_calls hard-stop reason sets session reason when toolCallTotal hit
     executionPolicy: { maxToolCalls: 2 },
   });
   trackingState.toolCallTotal = 2;
-  const epochKey = resolveLoopEpochKey(trackingState);
+  const epochKey = resolveSessionEpochKey(trackingState);
   const budget = resolveMaxToolCallsFromPolicy(trackingState.executionPolicy);
   if (trackingState.toolCallTotal >= budget) {
     markSessionHardStopped(epochKey, HARD_STOP_REASON.MAX_TOOL_CALLS);
@@ -59,8 +59,8 @@ test("max_tool_calls hard-stop reason sets session reason when toolCallTotal hit
 
 test("max_tool_calls hard-stop is epoch-scoped (not leaked across runId)", () => {
   const sessionKey = "agent:worker:main";
-  const run1 = buildLoopEpochKey(sessionKey, "run-a");
-  const run2 = buildLoopEpochKey(sessionKey, "run-b");
+  const run1 = buildSessionEpochKey(sessionKey, "run-a");
+  const run2 = buildSessionEpochKey(sessionKey, "run-b");
   markSessionHardStopped(run1, HARD_STOP_REASON.MAX_TOOL_CALLS);
   assert.equal(getSessionHardStopReason(run2), null);
 });

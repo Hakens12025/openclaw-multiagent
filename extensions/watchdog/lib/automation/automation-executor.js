@@ -5,15 +5,12 @@ import {
 } from "../runtime/pending-signal-registry.js";
 import { listAutomationSpecs } from "./automation-registry.js";
 import { ensureAutomationRuntimeState } from "./automation-runtime.js";
-import { ensureRuntimeContext } from "./automation-harness-lifecycle.js";
+import { ensureRuntimeContext } from "./automation-round-context.js";
 import { startAutomationRound } from "./automation-start.js";
 
 // Re-export public API so callers don't need to change their imports
 export { startAutomationRound } from "./automation-start.js";
-export {
-  handleAutomationContractTerminal,
-  handleAutomationLoopRuntimeTerminal,
-} from "./automation-finalize.js";
+export { handleAutomationContractTerminal } from "./automation-finalize.js";
 export { reconcileAutomationRuntimeStates } from "./automation-reconcile.js";
 
 export async function pollDueAutomations({

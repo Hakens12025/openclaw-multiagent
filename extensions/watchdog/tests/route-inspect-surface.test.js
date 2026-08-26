@@ -28,27 +28,24 @@ import { validateCliSurface } from "../lib/cli-system/cli-surface-schema.js";
 import { getCliSystemSurface } from "../lib/cli-system/cli-surface-registry.js";
 
 // 直读源（仅供等价性对照）
+import { bootLedger } from "../lib/core/boot-ledger.js";
 import { summarizeScheduleRegistry } from "../lib/schedule/schedule-registry.js";
-import { summarizeAgentJoinRegistry } from "../lib/agent/agent-join-registry.js";
-import { summarizeSystemActionDeliveryTickets } from "../lib/routing/delivery-system-action-ticket.js";
-import { listTestRuns } from "../lib/test-runs.js";
-import { listAdminChangeSets } from "../lib/admin/admin-change-sets.js";
+import { summarizeAgentJoinRegistry } from "../lib/agent/admin/agent-join-registry.js";
+import { summarizeSystemActionDeliveryTickets } from "../lib/routing/delivery/delivery-system-action-ticket.js";
+import { listTestRuns } from "../lib/formal-runtime/test-runs.js";
+import { listAdminChangeSets } from "../lib/admin/change-sets/admin-change-sets.js";
 // batch 2 直读源
 import { summarizeAutomationRuntimeRegistry } from "../lib/automation/automation-runtime.js";
-import { listLifecycleWorkItems } from "../lib/contracts.js";
+import { listLifecycleWorkItems } from "../lib/contract/contracts.js";
 import { getAgentIdentitySnapshot } from "../lib/agent/agent-identity.js";
-import { summarizeHarnessDashboard } from "../lib/harness/harness-dashboard.js";
-// batch 3 直读源（graph routes）
+// batch 3 直读源（graph route）
 import { loadGraph, detectCycles } from "../lib/agent/agent-graph.js";
-import { listResolvedGraphLoops } from "../lib/loop/graph-loop-registry.js";
-import { getActiveResolvedLoopSession, listResolvedLoopSessions } from "../lib/loop/loop-session-store.js";
 // batch 4 直读源（runtime route）
 import { inspectCliRuntimeState } from "../lib/cli-system/cli-runtime-inspector.js";
 import { getSseClientCount } from "../lib/transport/sse.js";
 // Batch A 直读源（observe 读路径 + capability route）
 import { listTrackingStates } from "../lib/store/tracker-store.js";
-import { getRecentTaskHistory } from "../lib/store/task-history-store.js";
-import { loadCapabilityRegistry } from "../lib/capability/capability-registry.js";
+import { loadCapabilityRegistry } from "../lib/management/capability-registry.js";
 
 // ── mock route harness ───────────────────────────────────────────────────────
 
@@ -297,68 +294,12 @@ test("GET /watchdog/work-items 经 inspect.work_items 取全量，route 保留 i
   assert.ok(body.length <= viaSurface.length, "过滤后长度不应超过全量");
 });
 
-test("GET /watchdog/harness：summarizeHarnessDashboard 内部经 inspect surface 后输出等价", async () => {
-  // facade 内部已收口（automation summary 经 inspect.automation_runtime_summary）。
-  // 端到端：summarizeHarnessDashboard() 输出应稳定可用（与直读 store 时代结构一致）。
-  const payload = await summarizeHarnessDashboard();
-  assert.ok(payload && typeof payload === "object", "summarizeHarnessDashboard 应返回对象");
-  // 经 route 取与直接调 facade 应一致（route 仅透传 facade 输出）
-  // 注：facade 内含 generatedAt=Date.now()，每次调用必然不同，比较时剔除
-  const body = await invokeRoute(operatorCatalogRoutes, "/watchdog/harness", {});
-  const { generatedAt: _bodyTs, ...bodyRest } = body;
-  const { generatedAt: _payloadTs, ...payloadRest } = payload;
-  assert.ok(Number.isFinite(body.generatedAt) && Number.isFinite(payload.generatedAt), "facade 应带 generatedAt 时间戳");
-  assert.deepEqual(bodyRest, payloadRest, "route /watchdog/harness 应原样返回 facade 输出（去 generatedAt）");
+// ── batch 3：graph route 经 inspect.agent_graph（回路 GET 面已退役）────────────
 
-  // 幂等：facade 两次调用结构一致（surface 路径稳定，去时间戳）
-  const payload2 = await summarizeHarnessDashboard();
-  const { generatedAt: _payload2Ts, ...payload2Rest } = payload2;
-  assert.deepEqual(payload2Rest, payloadRest, "facade 经 surface 后应稳定幂等（去 generatedAt）");
-});
-
-test("harness-dashboard.js facade 内部不再直读 summarizeAutomationRuntimeRegistry（lib 层收口）", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../lib/harness/harness-dashboard.js", import.meta.url), "utf8");
-  assert.doesNotMatch(src, /summarizeAutomationRuntimeRegistry/, "harness-dashboard 不应再直读 summarizeAutomationRuntimeRegistry");
-  assert.match(src, /inspectCliSystemSurface/, "harness-dashboard 应经 inspectCliSystemSurface 读 automation summary");
-  assert.match(src, /inspect\.automation_runtime_summary/, "应引用 inspect.automation_runtime_summary");
-});
-
-// ── batch 3：3 个 graph route + 新 surface inspect.active_loop_session ──────────
-
-test("inspect.active_loop_session surface 存在且合规", () => {
-  const surface = getCliSystemSurface("inspect.active_loop_session");
-  assert.ok(surface, "inspect.active_loop_session 必须可经 getCliSystemSurface 取到");
-  assert.equal(surface.family, "inspect");
-  assert.equal(surface.status, "active");
-  assert.equal(surface.source, "runtime_inspect");
-  assert.equal(surface.operatorExecutable, false);
-  assert.equal(surface.displayId, "control:inspect.active_loop_session");
-  const { ok, problems } = validateCliSurface(surface);
-  assert.equal(ok, true, `inspect.active_loop_session 必须通过冻结 schema: ${problems.join("; ")}`);
-});
-
-test("inspect.active_loop_session 行为等价于 getActiveResolvedLoopSession（透传 {loops}）", async () => {
-  const graph = await loadGraph();
-  const loops = await listResolvedGraphLoops({ graph });
-  const direct = await getActiveResolvedLoopSession({ loops });
-  const viaSurface = await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session", params: { loops } });
-  assert.deepEqual(viaSurface, direct, "surface 与直读应等价（同 loops 参数）");
-
-  // loops=null 兜底等价
-  const directNull = await getActiveResolvedLoopSession({ loops: null });
-  const viaNull = await inspectCliSystemSurface({ surfaceId: "inspect.active_loop_session" });
-  assert.deepEqual(viaNull, directNull, "loops 缺省时仍等价");
-});
-
-// 直读组合：复刻 route 原本的多源拼装逻辑（迁移前形状），用于逐字段对照
+// 直读组合：复刻 route 的多源拼装逻辑，用于逐字段对照
 async function directGraphPayload() {
   const graph = await loadGraph();
-  const cycles = detectCycles(graph);
-  const loops = await listResolvedGraphLoops({ graph });
-  const loopSessions = await listResolvedLoopSessions({ loops });
-  const activeLoopSession = await getActiveResolvedLoopSession({ loops });
-  return { edges: graph.edges, cycles, loops, loopSessions, activeLoopSession };
+  return { edges: graph.edges, cycles: detectCycles(graph) };
 }
 
 test("GET /watchdog/graph 经 surface 组合，与直读组合逐字段等价", async () => {
@@ -366,31 +307,28 @@ test("GET /watchdog/graph 经 surface 组合，与直读组合逐字段等价", 
   const body = await invokeRoute(apiRoutes, "/watchdog/graph", {});
   // nodes 来自 runtime agent config（非 store 旁路，不在等价范围；只断言存在）
   assert.ok(Array.isArray(body.nodes), "nodes 应是数组");
-  // 逐字段等价（edges/cycles/loops/loopSessions/activeLoopSession）
   assert.deepEqual(body.edges, expected.edges, "edges 应等价");
   assert.deepEqual(body.cycles, expected.cycles, "cycles 应等价（detectCycles 纯算法保留）");
-  assert.deepEqual(body.loops, expected.loops, "loops 应等价");
-  assert.deepEqual(body.loopSessions, expected.loopSessions, "loopSessions 应等价");
-  assert.deepEqual(body.activeLoopSession, expected.activeLoopSession, "activeLoopSession 应等价");
 });
 
-test("GET /watchdog/graph/loops 经 surface 组合，与直读组合逐字段等价", async () => {
-  const expected = await directGraphPayload();
-  const body = await invokeRoute(apiRoutes, "/watchdog/graph/loops", {});
-  assert.deepEqual(body.loops, expected.loops, "loops 应等价");
-  assert.deepEqual(body.loopSessions, expected.loopSessions, "loopSessions 应等价");
-  assert.deepEqual(body.activeLoopSession, expected.activeLoopSession, "activeLoopSession 应等价");
-  assert.deepEqual(body.cycles, expected.cycles, "cycles 应等价");
+test("回路 GET 面已退役：/watchdog/graph/loops 与 /watchdog/graph/loop-sessions 不再注册", () => {
+  assert.equal(apiRoutes.has("/watchdog/graph/loops"), false, "/watchdog/graph/loops 应已退役");
+  assert.equal(apiRoutes.has("/watchdog/graph/loop-sessions"), false, "/watchdog/graph/loop-sessions 应已退役");
+  assert.ok(apiRoutes.has("/watchdog/graph"), "/watchdog/graph 必须存活（前端识环唯一来源）");
 });
 
-test("GET /watchdog/graph/loop-sessions 经 surface 组合，与直读组合逐字段等价", async () => {
-  const expected = await directGraphPayload();
-  const body = await invokeRoute(apiRoutes, "/watchdog/graph/loop-sessions", {});
-  assert.deepEqual(body.activeSession, expected.activeLoopSession, "activeSession 应等价");
-  assert.deepEqual(body.sessions, expected.loopSessions, "sessions 应等价");
+test("回路 inspect surface 已退役：三个 surface 均不可解析", async () => {
+  for (const surfaceId of ["inspect.graph_loops", "inspect.loop_sessions", "inspect.active_loop_session"]) {
+    assert.equal(getCliSystemSurface(surfaceId), null, `${surfaceId} 应已从 catalog 摘除`);
+    await assert.rejects(
+      () => inspectCliSystemSurface({ surfaceId }),
+      /unknown cli-system surface/,
+      `${surfaceId} 应无法经 inspect 分发`,
+    );
+  }
 });
 
-test("routes/api.js 三个 graph GET route 不再直读 store（detectCycles 纯算法保留）", async () => {
+test("routes/api.js graph GET route 不再直读 store（detectCycles 纯算法保留）", async () => {
   const { readFile } = await import("node:fs/promises");
   const src = await readFile(new URL("../routes/api.js", import.meta.url), "utf8");
   // loadGraph / listResolvedLoopSessions / getActiveResolvedLoopSession 已归零
@@ -401,16 +339,14 @@ test("routes/api.js 三个 graph GET route 不再直读 store（detectCycles 纯
   assert.doesNotMatch(src, /addEdge/, "api.js 不应再直读 addEdge（死重复 edge mutate 路由已删）");
   assert.doesNotMatch(src, /removeEdge/, "api.js 不应再直读 removeEdge（死重复 edge mutate 路由已删）");
   assert.doesNotMatch(src, /path: "\/watchdog\/graph\/edge"/, "bare /watchdog/graph/edge 路由应已删除");
-  // listResolvedGraphLoops 已归零：3 个 graph GET route 经 inspect.graph_loops，
-  // 死 edge mutate 路由（其最后一个直读消费者）删除后，该 import 成孤儿被一并清除。
   assert.doesNotMatch(src, /listResolvedGraphLoops/, "listResolvedGraphLoops import 应已清除（孤儿）");
-  // detectCycles 纯算法保留（3 个 graph GET route 仍用）
+  // 回路 GET 面退役后，三个 inspect surface 在 route 层也必须归零
+  assert.doesNotMatch(src, /inspect\.graph_loops/, "回路已退役：route 不应再读 inspect.graph_loops");
+  assert.doesNotMatch(src, /inspect\.loop_sessions/, "回路已退役：route 不应再读 inspect.loop_sessions");
+  assert.doesNotMatch(src, /inspect\.active_loop_session/, "回路已退役：route 不应再读 inspect.active_loop_session");
+  // detectCycles 纯算法保留（GET /watchdog/graph 的 cycles 字段是前端识环唯一来源）
   assert.match(src, /detectCycles/, "detectCycles 应保留（纯拓扑算法）");
-  // 改为经 inspect surface
   assert.match(src, /inspect\.agent_graph/);
-  assert.match(src, /inspect\.graph_loops/);
-  assert.match(src, /inspect\.loop_sessions/);
-  assert.match(src, /inspect\.active_loop_session/);
 });
 
 // ── batch 4（最后）：/watchdog/runtime + 新 surface inspect.runtime_state ───────
@@ -455,8 +391,8 @@ function buildRuntimeBodyFrom(runtimeState, sseClientCount) {
     : [];
   return {
     trackingSessions: runtimeState.trackingSessions,
-    historyCount: runtimeState.historyCount,
     sseClientCount,
+    bootDeps: bootLedger.summary(), // kernel 真值,与 sseClientCount 同类的 route 直取项(RX-02)
     dispatchChainSize: runtimeState.dispatchChainSize,
     dispatchQueue: {
       entries: dispatchQueueEntries,
@@ -523,7 +459,6 @@ test("inspect.runtime_state 复用 cli-runtime-inspector（不造重复真值源
 
 const BATCH_A_SURFACES = [
   "inspect.tracking_states",
-  "inspect.recent_task_history",
   "inspect.capability_registry",
 ];
 
@@ -548,18 +483,14 @@ test("inspect.tracking_states 行为等价于 listTrackingStates（无参）", a
   assert.deepEqual(viaSurface, direct, "surface 与直读应等价");
 });
 
-test("inspect.recent_task_history 行为等价于 getRecentTaskHistory（透传 limit，默认 10）", async () => {
-  // 默认 limit（与 SSE 原 getRecentTaskHistory(10) 一致）
-  const direct10 = getRecentTaskHistory(10);
-  const viaDefault = await inspectCliSystemSurface({ surfaceId: "inspect.recent_task_history", params: { limit: 10 } });
-  assert.deepEqual(viaDefault, direct10, "limit=10 应等价");
-  // wrapper 缺省 limit 也应是 10
-  const viaNoParam = await inspectCliSystemSurface({ surfaceId: "inspect.recent_task_history" });
-  assert.deepEqual(viaNoParam, getRecentTaskHistory(10), "缺省 params 时 limit 默认 10，与原 SSE 行为一致");
-  // 透传其它 limit 生效
-  const direct3 = getRecentTaskHistory(3);
-  const via3 = await inspectCliSystemSurface({ surfaceId: "inspect.recent_task_history", params: { limit: 3 } });
-  assert.deepEqual(via3, direct3, "limit=3 应透传并生效");
+test("inspect.recent_task_history 表面已退役（SSE 历史回放改读树账，唯一消费者随之消失）", async () => {
+  const surface = getCliSystemSurface("inspect.recent_task_history");
+  assert.equal(surface, null, "catalog 不应再含 inspect.recent_task_history");
+  await assert.rejects(
+    () => inspectCliSystemSurface({ surfaceId: "inspect.recent_task_history" }),
+    /unknown cli-system surface/,
+    "inspector 分发对退役表面应报 unknown",
+  );
 });
 
 test("inspect.capability_registry 行为等价于 loadCapabilityRegistry（无参）", async () => {
@@ -569,18 +500,21 @@ test("inspect.capability_registry 行为等价于 loadCapabilityRegistry（无�
 });
 
 // SSE 流难端到端测（长连接/心跳），故锁"读经 surface 等价" + dashboard.js 静态护栏
-test("routes/dashboard.js SSE 不再直读 tracker/history store（读路径经 surface，推/transport 保留）", async () => {
+test("routes/dashboard.js SSE 初始快照：tracker 经 surface，历史回放读树账（history store 读路径已退役）", async () => {
   const { readFile } = await import("node:fs/promises");
   const src = await readFile(new URL("../routes/dashboard.js", import.meta.url), "utf8");
   assert.doesNotMatch(src, /listTrackingStates/, "dashboard 不应再直读 listTrackingStates");
   assert.doesNotMatch(src, /getRecentTaskHistory/, "dashboard 不应再直读 getRecentTaskHistory");
-  // 读路径经 inspect surface
+  assert.doesNotMatch(src, /inspect\.recent_task_history/, "task-history SSE 回放读路径应已退役");
+  // 读路径经 inspect surface（tracker live 快照 + 树账历史回放）
   assert.match(src, /inspect\.tracking_states/, "应引用 inspect.tracking_states");
-  assert.match(src, /inspect\.recent_task_history/, "应引用 inspect.recent_task_history");
+  assert.match(src, /inspect\.threads/, "历史回放应经 inspect.threads 取最近 run");
+  assert.match(src, /inspect\.run_events/, "历史回放应经 inspect.run_events 取事件尾部");
+  assert.match(src, /event: run_event/, "树事件回放应走 run_event 信封");
+  assert.match(src, /"replay":\s*true|replay:\s*true/, "回放事件应带 replay:true 标记");
   // 推流/transport 保留（buildProgressPayload + SSE write）
   assert.match(src, /buildProgressPayload/, "buildProgressPayload 推流逻辑应保留");
   assert.match(src, /event: track_start/, "SSE track_start 推送应保留");
-  assert.match(src, /event: track_end/, "SSE track_end 推送应保留");
 });
 
 test("routes/operator-catalog.js /watchdog/capability-registry 经 surface，包装等价；a2a.js 不动", async () => {

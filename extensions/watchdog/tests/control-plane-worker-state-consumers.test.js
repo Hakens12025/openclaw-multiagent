@@ -9,7 +9,7 @@ function fileUrl(relativePath) {
 test("control-plane consumers use dispatch-runtime-state instead of raw legacy state globals", async () => {
   const expectations = [
     {
-      filePath: fileUrl("../lib/routing/dispatch-graph-policy.js"),
+      filePath: fileUrl("../lib/routing/dispatch/dispatch-graph-policy.js"),
       forbidden: [/import\s*\{\s*workerPool\s*\}\s*from "\.\.\/state\.js"/],
       required: [/from "\.\/dispatch-runtime-state\.js"/],
     },
@@ -18,14 +18,14 @@ test("control-plane consumers use dispatch-runtime-state instead of raw legacy s
       forbidden: [
         /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
       ],
-      required: [/from "\.\.\/routing\/dispatch-runtime-state\.js"/],
+      required: [/from "\.\.\/routing\/dispatch\/dispatch-runtime-state\.js"/],
     },
     {
       filePath: fileUrl("../lib/lifecycle/runtime-lifecycle.js"),
       forbidden: [
         /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
       ],
-      required: [/from "\.\.\/routing\/dispatch-runtime-state\.js"/],
+      required: [/from "\.\.\/routing\/dispatch\/dispatch-runtime-state\.js"/],
     },
     {
       // P-D.2 收口：api.js 不再直接 import dispatch-runtime-state，
@@ -48,7 +48,7 @@ test("control-plane consumers use dispatch-runtime-state instead of raw legacy s
         /import\s*\{[\s\S]*\btaskQueue\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
         /import\s*\{[\s\S]*\bworkerPool\b[\s\S]*\}\s*from "\.\.\/state\.js"/,
       ],
-      required: [/from "\.\.\/routing\/dispatch-runtime-state\.js"/],
+      required: [/from "\.\.\/routing\/dispatch\/dispatch-runtime-state\.js"/],
     },
   ];
 
@@ -98,11 +98,11 @@ test("operator runtime snapshot consumes canonical CLI runtime dispatch snapshot
 
 test("dispatch-runtime-state stays side-effect light while session edges own QQ notifications", async () => {
   const dispatchStateSource = await readFile(
-    fileUrl("../lib/routing/dispatch-runtime-state.js"),
+    fileUrl("../lib/routing/dispatch/dispatch-runtime-state.js"),
     "utf8",
   );
   const sessionBootstrapSource = await readFile(
-    fileUrl("../lib/session-bootstrap.js"),
+    fileUrl("../lib/session/session-bootstrap.js"),
     "utf8",
   );
   const runtimeLifecycleSource = await readFile(
@@ -122,12 +122,12 @@ test("dispatch-runtime-state stays side-effect light while session edges own QQ 
   );
   assert.match(
     sessionBootstrapSource,
-    /from "\.\/channel-notify\.js"/,
+    /from "\.\.\/transport\/channel-notify\.js"/,
     "session-bootstrap should send dispatch-start QQ notifications through channel-notify",
   );
   assert.match(
     runtimeLifecycleSource,
-    /from "\.\.\/channel-notify\.js"/,
+    /from "\.\.\/transport\/channel-notify\.js"/,
     "runtime-lifecycle should send release-time QQ notifications through channel-notify",
   );
 });
@@ -188,11 +188,11 @@ test("active runtime agent config consumers use agent-identity instead of the ra
     "utf8",
   );
   const handlerRegistrySource = await readFile(
-    fileUrl("../lib/routing/runtime-mailbox-handler-registry.js"),
+    fileUrl("../lib/routing/mailbox/runtime-mailbox-handler-registry.js"),
     "utf8",
   );
   const agentAdminProfileSource = await readFile(
-    fileUrl("../lib/agent/agent-admin-profile.js"),
+    fileUrl("../lib/agent/admin/agent-admin-profile.js"),
     "utf8",
   );
 
@@ -211,7 +211,7 @@ test("active runtime agent config consumers use agent-identity instead of the ra
     );
     assert.match(
       consumer.source,
-      /from "\.\.\/lib\/agent\/agent-identity\.js"|from "\.\/lib\/agent\/agent-identity\.js"|from "\.\.\/agent\/agent-identity\.js"|from "\.\/agent-identity\.js"/,
+      /from "\.\.\/lib\/agent\/agent-identity\.js"|from "\.\/lib\/agent\/agent-identity\.js"|from "\.\.\/\.\.\/agent\/agent-identity\.js"|from "\.\.\/agent\/agent-identity\.js"|from "\.\/agent-identity\.js"|from "\.\.\/agent-identity\.js"/,
       `${consumer.label} should use agent-identity as the runtime agent config owner`,
     );
   }
@@ -264,7 +264,7 @@ test("QQ typing interval consumers use channel-notify helpers instead of raw typ
     "utf8",
   );
   const channelNotifySource = await readFile(
-    fileUrl("../lib/channel-notify.js"),
+    fileUrl("../lib/transport/channel-notify.js"),
     "utf8",
   );
 
@@ -279,7 +279,7 @@ test("QQ typing interval consumers use channel-notify helpers instead of raw typ
     );
     assert.match(
       source,
-      /from "\.\/lib\/channel-notify\.js"|from "\.\.\/channel-notify\.js"/,
+      /from "\.\/lib\/transport\/channel-notify\.js"|from "\.\.\/transport\/channel-notify\.js"/,
       `${label} should use channel-notify typing helpers`,
     );
   }
@@ -293,7 +293,7 @@ test("QQ typing interval consumers use channel-notify helpers instead of raw typ
 
 test("state persistence uses store owners instead of raw tracker and dispatchChain collections", async () => {
   const statePersistenceSource = await readFile(
-    fileUrl("../lib/state-persistence.js"),
+    fileUrl("../lib/state/state-persistence.js"),
     "utf8",
   );
 
@@ -304,12 +304,12 @@ test("state persistence uses store owners instead of raw tracker and dispatchCha
   );
   assert.match(
     statePersistenceSource,
-    /from "\.\/store\/tracker-store\.js"/,
+    /from "\.\.\/store\/tracker-store\.js"/,
     "state-persistence should read resumable tracking snapshots through tracker-store",
   );
   assert.match(
     statePersistenceSource,
-    /from "\.\/store\/contract-flow-store\.js"/,
+    /from "\.\.\/store\/contract-flow-store\.js"/,
     "state-persistence should read dispatch chain snapshots through contract-flow-store",
   );
 });

@@ -8,15 +8,15 @@ import {
 } from "../lib/agent/agent-metadata.js";
 import {
   getCapabilityPreset,
-} from "../lib/capability/capability-preset-registry.js";
+} from "../lib/security/capability-preset-registry.js";
 import {
   ARTIFACT_TYPES,
   RUNTIME_RESULT_FILE,
   OUTBOX_COMMIT_KINDS,
-} from "../lib/protocol-primitives.js";
-import * as protocolPrimitives from "../lib/protocol-primitives.js";
+} from "../lib/protocol/protocol-primitives.js";
+import * as protocolPrimitives from "../lib/protocol/protocol-primitives.js";
 import { observeCanonicalRuntimeResultCommit } from "../lib/protocol-commit-observer.js";
-import { buildOutputIoObservation } from "../lib/io-observation.js";
+import { buildOutputIoObservation } from "../lib/stage/io-observation.js";
 import { agentWorkspace } from "../lib/state.js";
 
 test("runtime result is the only agent-facing outbox result artifact", () => {

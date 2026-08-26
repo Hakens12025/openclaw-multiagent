@@ -14,11 +14,11 @@ import assert from "node:assert/strict";
 import {
   getAdminSurfaceOperationHandler,
   hasAdminSurfaceOperationHandler,
-} from "../lib/admin/admin-surface-operations.js";
+} from "../lib/admin/operations/admin-surface-operations.js";
 
 const sinkCalls = [];
 let failVerifyStart = false;
-mock.module("../lib/admin/admin-surface-operations.js", {
+mock.module("../lib/admin/operations/admin-surface-operations.js", {
   namedExports: {
     hasAdminSurfaceOperationHandler,
     getAdminSurfaceOperationHandler,
@@ -62,7 +62,7 @@ test("runVerifyAfterApply forcibly starts verify for a supported apply surface",
   assert.equal(v.required, true);
   assert.equal(v.status, "started", "verify is forcibly kicked off after apply");
   assert.equal(v.verifySurfaceId, "test_runs.start", "reuses the P3 verify surface");
-  assert.equal(v.presetId, "dispatch", "uses the surface's verificationCapability preset");
+  assert.equal(v.presetId, "single", "uses the surface's verificationCapability preset");
   assert.equal(v.run?.id, "tr-forced-1");
   const verifyCall = sinkCalls.find((c) => c.surfaceId === "test_runs.start");
   assert.equal(verifyCall.runtimeContext.originSurfaceId, "agents.policy", "verify origin links back to apply surface");

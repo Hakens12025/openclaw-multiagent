@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { createTrackingState } from "../lib/session-bootstrap.js";
-import { materializeTaskStagePlan } from "../lib/task-stage-plan.js";
+import { createTrackingState } from "../lib/session/session-bootstrap.js";
+import { materializeTaskStagePlan } from "../lib/stage/task-stage-plan.js";
 import { agentWorkspace, taskHistory } from "../lib/state.js";
-import { syncTrackingRuntimeStageProgress } from "../lib/runtime-stage-progress.js";
+import { syncTrackingRuntimeStageProgress } from "../lib/stage/runtime-stage-progress.js";
 import { CONTRACT_STATUS } from "../lib/core/runtime-status.js";
 
 function createPlannedTrackingState(contractId) {

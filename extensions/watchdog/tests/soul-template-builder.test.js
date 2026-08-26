@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { AGENT_ROLE } from "../lib/agent/agent-identity.js";
-import { renderRolePersonaBlock } from "../lib/role-spec-registry.js";
+import { renderRolePersonaBlock } from "../lib/prompt/role-spec-registry.js";
 
 // 六层模型重构后 soul-template-builder.js 已删除；④role persona 改由 renderRolePersonaBlock 渲染，
 // 写进 IDENTITY.md(系统托管)并在系统派工路内联进合约提示词。本文件守护 persona 块的渲染契约。
@@ -39,7 +39,6 @@ test("renderRolePersonaBlock returns persona content for every supported role", 
     AGENT_ROLE.PLANNER,
     AGENT_ROLE.EXECUTOR,
     AGENT_ROLE.RESEARCHER,
-    AGENT_ROLE.REVIEWER,
     AGENT_ROLE.AGENT,
   ]) {
     const block = renderRolePersonaBlock(role);

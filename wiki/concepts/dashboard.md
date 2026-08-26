@@ -22,7 +22,7 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 
 **Devtools 面板：**
 - 隔离测试传输（replyTo.kind = "test_run"）
-- 3 个预设测试
+- 预设测试（按 live 预设表渲染按钮）
 
 **已知问题：**
 - Dashboard 有遗留拓扑假设（硬编码 contractor/worker-d/controller）— 显示问题，不影响运行时真值
@@ -37,7 +37,7 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 
 交互：hover 缩略图 agent → 其工作流成员闪动；click → 左侧出拓扑；SSE `/watchdog/stream` 驱动当前活跃 agent 动态高亮；点拓扑 agent → 中间显其 session（下拉切历史，transcript 内引用文件超链接 → 文件管理器打开）。
 
-**workflow 定义 = agent-graph 连通分量**（`computeAgentWorkflows`，`lib/agent/agent-workflow-grouping.js`），不是注册 loop —— 线性链 planner→worker→worker2 也算一个工作流。
+**workflow 定义 = agent-graph 连通分量**（`computeAgentWorkflows`，`lib/agent/agent-workflow-grouping.js`）—— 线性链 planner→worker→worker2 也算一个工作流，成环子图同样只是其中一种形状。
 
 后端可观测全经 [CLI System](cli-system.md) inspect 家族（`inspect.agent_workflows / agent_sessions / session_transcript`），HTTP 投影是 `GET /watchdog/inspect?surface=`。文件可打开走 `POST /watchdog/reveal-file`（严格白名单 + 防逃逸，见 cli-system 页）。会话 transcript 真相见 [Session 管理](session-management.md)。
 

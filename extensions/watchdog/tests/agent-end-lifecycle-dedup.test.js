@@ -1,4 +1,4 @@
-// Tests: agent-end-lifecycle.js runAgentEndLifecycle dedup map race condition
+// Tests: agent-end/lifecycle.js runAgentEndLifecycle dedup map race condition
 // Bug: runPromise created (IIFE starts) before being stored in activeAgentEndRuns,
 //      so concurrent calls both pass the existingRun check and double-run the lifecycle.
 // Fix: register a deferred placeholder in the map BEFORE the IIFE body executes,
@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { runAgentEndLifecycle } from "../lib/lifecycle/agent-end-lifecycle.js";
+import { runAgentEndLifecycle } from "../lib/lifecycle/agent-end/lifecycle.js";
 
 const logger = {
   info() {},

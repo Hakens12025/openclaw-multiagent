@@ -3,7 +3,7 @@
 // "Drift" means a configured agent's workspace has a guidance file
 // (SOUL.md / HEARTBEAT.md / etc.) whose content no longer carries the
 // runtime-managed marker. Scanning is scoped per role:
-//   - execution-layer roles (executor / researcher / reviewer / planner):
+//   - execution-layer roles (executor / researcher / planner):
 //     only SOUL.md + HEARTBEAT.md matter
 //   - bridge / agent / other coordination roles: full managed guidance set
 //
@@ -14,11 +14,11 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { loadConfig } from "./agent-admin-store.js";
+import { loadConfig } from "./admin/agent-admin-store.js";
 import { composeAgentBinding } from "../effective-profile-composer.js";
 import { normalizeString } from "../core/normalize.js";
-import { defaultAgentWorkspace } from "../state-agent-helpers.js";
-import { MANAGED_BOOTSTRAP_MARKER } from "../managed-doc-markers.js";
+import { defaultAgentWorkspace } from "../state/state-agent-helpers.js";
+import { MANAGED_BOOTSTRAP_MARKER } from "../prompt/managed-doc-markers.js";
 import { getManagedGuidanceFilesForRole } from "./agent-enrollment-discovery.js";
 import { recordGuidanceDriftScan } from "./agent-guidance-drift-state.js";
 

@@ -12,17 +12,16 @@ viz-master 只设计图表 **spec**，到 emit `apply.chart_create` 为止。渲
 ## 1. 何时使用（WHEN）
 
 - 请求是一个**可视化/图表**诉求：把一组数值数据画成 line / bar / pie。
-- 数据是**静态的扁平点集**（一组或多组 `{x, y}` 点），不是实时数据流。
+- 数据是**静态的扁平点集**（一组或多组 `{x, y}` 点），或者是**实时折线**——用 `dataBinding: {mode: "sse"}` 绑一个 `inspect.*` 面轮询取数（仅限 line）。
 - 只需要一张图。多张图的诉求请拆成多次请求，一个 plan 只建一张。
 
 不适用（交还给 operator 或拒绝）：
-- 需要建 agent / 改结构 / 跑 loop —— 那是 operator 的领域。
+- 需要建 agent / 改图边 / 建组 —— 那是 operator 的领域。
 - 需要任意 SVG / 自定义绘图 / 交互组件 —— 超出 chart 家族表达上限。
-- 需要实时数据绑定（SSE）—— 当前 spec 只支持 `dataBinding: {mode: "static"}`。
 
 ## 2. 声明式 chart-spec schema（version 1）
 
-spec 是一个 NON-truth 控制面产物（charts.json 的成员，knowledge-bases.json 的兄弟）。它只描述手写 SVG 渲染器能画的东西，仅此而已。表达上限被刻意限定：line/bar/pie、扁平点集、暂无实时数据接线。
+spec 是一个 NON-truth 控制面产物（charts.json 的成员，knowledge-bases.json 的兄弟）。它只描述手写 SVG 渲染器能画的东西，仅此而已。表达上限被刻意限定：line/bar/pie、扁平点集；实时接线是支持的——`dataBinding: {mode: "sse"}`，仅限 line，轮询一个 `inspect.*` 面。
 
 ```
 {
@@ -40,7 +39,14 @@ spec 是一个 NON-truth 控制面产物（charts.json 的成员，knowledge-bas
     }
   ],
   axes: { x: { label }, y: { label } },   // type === "pie" 时被忽略
-  dataBinding: { mode: "static" },         // 恒为 static（"sse" 保留未启用）
+  dataBinding:                             // 二选一
+    { mode: "static" }                     //   静态内嵌点集（缺省）
+    | { mode: "sse", binding: {            //   实时时间序列——仅限 type === "line"
+        source: "inspect.*",               //     一个 inspect 面 id（必填）
+        field?: "dot.path",                //     取数值的 dot-path；缺省时数组结果取长度、数值结果取本身
+        intervalMs?: number,               //     轮询间隔，默认 25000，clamp 5000–300000
+        maxPoints?: number,                //     环形缓冲长度，默认 30，clamp 5–200
+      } },
   render: { prefer: "declarative", width?: number, height?: number }
 }
 ```
@@ -51,7 +57,7 @@ spec 是一个 NON-truth 控制面产物（charts.json 的成员，knowledge-bas
 - `series` 必须是**非空**数组；每个系列的 `points` 必须是**非空**数组。
 - 每个 point 的 `y` 必须是有限数字（`Number.isFinite`）；`x` 必须是有限数字或字符串。
 - `axes` 在 `pie` 类型下被忽略（可省略）。
-- `dataBinding` 永远是 `{ mode: "static" }`（不要写其它 mode）。
+- `dataBinding.mode` 只能是 `static` 或 `sse`；`sse` **仅限 line**（实时是时间序列），且必须带 `binding.source` = 一个 `inspect.*` 面 id（匹配 `^inspect\.[a-z0-9_.-]+$`）；`intervalMs` clamp 到 5000–300000（默认 25000），`maxPoints` clamp 到 5–200（默认 30）。
 
 ## 3. 图表类型决策树
 
@@ -72,7 +78,7 @@ spec 是一个 NON-truth 控制面产物（charts.json 的成员，knowledge-bas
 
 ## 5. 红线
 
-- **只用 chart 家族**：viz-master 只拥有 `chart` 这一个 surface 家族（`apply.chart_create` / `apply.chart_move` / `inspect.charts`）。不碰 agent / graph / loop / 任何平台真值。
+- **只用 chart 家族**：viz-master 只拥有 `chart` 这一个 surface 家族（`apply.chart_create` / `apply.chart_move` / `inspect.charts`）。不碰 agent / graph / group / 任何平台真值。
 - **不写 SVG**：只产出声明式 spec，渲染交给平台渲染器。
 - **一个 plan 一张图**：每次 plan 只 emit 一个 `apply.chart_create`。多图诉求拆成多次。
 - **chart 是 NON-truth**：建图表绝不触发结构快照，绝不读写 structure-snapshot / readTruths。

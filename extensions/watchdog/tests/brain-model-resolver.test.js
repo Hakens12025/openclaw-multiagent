@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { resolveOperatorBrainModel } from "../lib/brain-model-resolver.js";
+import { resolveOperatorBrainModel } from "../lib/llm/brain-model-resolver.js";
 
 function buildConfig(provider) {
   return {

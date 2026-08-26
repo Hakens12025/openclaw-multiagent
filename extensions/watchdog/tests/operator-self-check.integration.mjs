@@ -1,7 +1,7 @@
 // operator-self-check.test.js — proves the operator meta-agent can exercise all 6 system
 // capabilities ONLY via CLI-system (executeOperatorExecutablePlan → executeCliSystemSurface,
-// actor:"operator"), and that structure actually changes. Two phases so the real loopId from
-// compose feeds the delete step. Robust save/restore: never leaves residue in live config.
+// actor:"operator"), and that structure actually changes. Two phases so the edge created in
+// phase A feeds the delete step in phase B. Robust save/restore: never leaves residue in live config.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { rm, access } from "node:fs/promises";
@@ -9,9 +9,10 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { executeOperatorExecutablePlan } from "../lib/operator/operator-executor.js";
-import { loadConfig, saveConfig } from "../lib/agent/agent-admin-store.js";
-import { loadGraphLoopRegistry, saveGraphLoopRegistry } from "../lib/loop/graph-loop-registry.js";
-import { listAgentRegistry } from "../lib/capability/capability-registry.js";
+import { loadConfig, saveConfig } from "../lib/agent/admin/agent-admin-store.js";
+import { loadGraph, hasDirectedEdge } from "../lib/agent/agent-graph.js";
+import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
+import { listAgentRegistry } from "../lib/management/capability-registry.js";
 import { getAutomationRuntimeState, deleteAutomationRuntimeState } from "../lib/automation/automation-runtime.js";
 import { upsertAutomationSpec, deleteAutomationSpec } from "../lib/automation/automation-registry.js";
 
@@ -24,7 +25,7 @@ function stepOk(results, surfaceId) {
   return entry;
 }
 
-test("operator self-check: 6 capabilities via CLI-system only (create/delete agent, compose/delete loop, author skill, governance)", async () => {
+test("operator self-check: 6 capabilities via CLI-system only (create/delete agent, add/delete graph edge, author skill, governance)", async () => {
   const tag = `sc${process.pid}`;
   const aId = `sc-a-${tag}`;
   const bId = `sc-b-${tag}`;
@@ -36,7 +37,7 @@ test("operator self-check: 6 capabilities via CLI-system only (create/delete age
   // in place, so a shallow capture would make the finally restore a no-op (residue leaks into
   // live openclaw.json). Deep-clone the pre-test truth so restore actually removes test agents.
   const origConfig = JSON.parse(JSON.stringify(await loadConfig()));
-  const origReg = JSON.parse(JSON.stringify(await loadGraphLoopRegistry()));
+  const origGraph = JSON.parse(JSON.stringify(await loadGraph()));
 
   try {
     // seed a test automation SPEC (testMode → no governance pollution) for the governance op;
@@ -48,38 +49,36 @@ test("operator self-check: 6 capabilities via CLI-system only (create/delete age
       harness: { testMode: true },
     });
 
-    // ── Phase A: create two agents + compose a loop (operator CLI-system) ──
+    // ── Phase A: create two agents + wire a collaboration edge (operator CLI-system) ──
     const phaseA = await executeOperatorExecutablePlan({
       logger,
       plan: {
         intent: "platform_mutation",
-        summary: "self-check: create agents + compose loop",
+        summary: "self-check: create agents + wire a collaboration edge",
         steps: [
           { surfaceId: "agents.create", payload: { id: aId, role: "executor", model: "demo/self-check" } },
           { surfaceId: "agents.create", payload: { id: bId, role: "executor", model: "demo/self-check" } },
-          { surfaceId: "graph.loop.compose", payload: { agents: [aId, bId], label: "self-check", maxRounds: 2 } },
+          { surfaceId: "graph.edge.add", payload: { from: aId, to: bId, label: "self-check" } },
         ],
       },
     });
     assert.equal(phaseA.ok, true);
     stepOk(phaseA.results, "agents.create");
-    const composeStep = stepOk(phaseA.results, "graph.loop.compose");
-    const loopId = composeStep.result?.loop?.id;
-    assert.ok(loopId, "compose must return a loop id");
+    stepOk(phaseA.results, "graph.edge.add");
 
-    // verify structure: both agents now registered, loop registered
+    // verify structure: both agents now registered, edge present in the live graph
     const afterCreate = (await listAgentRegistry()).map((a) => a.id);
     assert.ok(afterCreate.includes(aId) && afterCreate.includes(bId), "created agents must be in the registry");
-    assert.ok((await loadGraphLoopRegistry()).loops.some((l) => l.id === loopId), "composed loop must be registered");
+    assert.ok(hasDirectedEdge(await loadGraph(), aId, bId), "added edge must be in the live graph");
 
-    // ── Phase B: delete loop + author skill + governance + delete both agents (operator CLI-system) ──
+    // ── Phase B: delete edge + author skill + governance + delete both agents (operator CLI-system) ──
     const phaseB = await executeOperatorExecutablePlan({
       logger,
       plan: {
         intent: "platform_mutation",
-        summary: "self-check: delete loop + skill + governance + delete agents",
+        summary: "self-check: delete edge + skill + governance + delete agents",
         steps: [
-          { surfaceId: "graph.loop.delete", payload: { loopId } },
+          { surfaceId: "graph.edge.delete", payload: { from: aId, to: bId } },
           { surfaceId: "skills.create", payload: { skillId, description: "operator self-check skill", body: "# self-check\n\nauthored by operator via CLI-system." } },
           { surfaceId: "automations.governance", payload: { automationId: autoId, disableGovernanceSnapshot: true } },
           { surfaceId: "agents.delete", payload: { agentId: aId, explicitConfirm: true, confirm: true } },
@@ -88,12 +87,12 @@ test("operator self-check: 6 capabilities via CLI-system only (create/delete age
       },
     });
     assert.equal(phaseB.ok, true);
-    stepOk(phaseB.results, "graph.loop.delete");
+    stepOk(phaseB.results, "graph.edge.delete");
     stepOk(phaseB.results, "skills.create");
     stepOk(phaseB.results, "automations.governance");
 
     // verify structure changed (read truth, not just the apply return):
-    assert.equal((await loadGraphLoopRegistry()).loops.some((l) => l.id === loopId), false, "loop must be de-registered");
+    assert.equal(hasDirectedEdge(await loadGraph(), aId, bId), false, "edge must be removed");
     await access(join(skillDir, "SKILL.md")); // throws if the skill was not authored
     assert.equal((await getAutomationRuntimeState(autoId))?.governanceSnapshotDisabled, true, "governance op must set the circuit breaker");
     const afterDelete = (await listAgentRegistry()).map((a) => a.id);
@@ -109,7 +108,7 @@ test("operator self-check: 6 capabilities via CLI-system only (create/delete age
     const restore = JSON.parse(JSON.stringify(origConfig));
     restore.agents.list = (restore.agents?.list || []).filter((a) => !/^sc-/i.test(a.id));
     await saveConfig(restore);
-    await saveGraphLoopRegistry(origReg);
+    await saveGraph(origGraph);
     await rm(skillDir, { recursive: true, force: true });
     await deleteAutomationSpec(autoId).catch(() => {});
     await deleteAutomationRuntimeState(autoId).catch(() => {});

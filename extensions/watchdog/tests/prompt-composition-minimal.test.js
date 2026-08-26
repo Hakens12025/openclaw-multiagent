@@ -11,8 +11,8 @@ import {
   buildDeliveryTemplate,
   buildHeartbeatTemplate,
   buildPlatformGuideTemplate,
-} from "../lib/platform-doc-builder.js";
-import { renderRolePersonaBlock } from "../lib/role-spec-registry.js";
+} from "../lib/prompt/platform-doc-builder.js";
+import { renderRolePersonaBlock } from "../lib/prompt/role-spec-registry.js";
 import { OC } from "../lib/state.js";
 
 const PROMPT_NEGATIVE_PATTERNS = [
@@ -83,7 +83,6 @@ test("managed agent guidance uses positive minimal prompt copy", () => {
     plannerPersona: renderRolePersonaBlock(AGENT_ROLE.PLANNER),
     executorPersona: renderRolePersonaBlock(AGENT_ROLE.EXECUTOR),
     researcherPersona: renderRolePersonaBlock(AGENT_ROLE.RESEARCHER),
-    reviewerPersona: renderRolePersonaBlock(AGENT_ROLE.REVIEWER),
   };
 
   for (const [label, content] of Object.entries(generated)) {
@@ -91,10 +90,12 @@ test("managed agent guidance uses positive minimal prompt copy", () => {
     assertNoAbsenceTutorialCopy(label, content);
   }
 
-  assert.match(generated.platformGuide, /\[ACTION\]/);
-  assert.doesNotMatch(generated.platformGuide, /\[ACTION\] wake/);
-  assert.doesNotMatch(generated.platformGuide, /\[ACTION\] delegate/);
-  assert.doesNotMatch(generated.platformGuide, /\[ACTION\] review/);
+  // 协作的主教学是工具调用;降级的文本标记路只留一个指针,语法教程搬去
+  // COLLABORATION-FALLBACK.md——两者并排会形成竞争性指令,实测 agent 会在已持有
+  // 工具的情况下退回去写标记。
+  assert.match(generated.platformGuide, /调用协作工具/);
+  assert.match(generated.platformGuide, /COLLABORATION-FALLBACK\.md/);
+  assert.doesNotMatch(generated.platformGuide, /\[ACTION\]/, "标记语法归降级页,主页只留指针");
   assert.doesNotMatch(generated.platformGuide, /## 协作命令[\s\S]*(常用写法|规则：)/u);
 });
 
@@ -133,10 +134,10 @@ test("operator tooling skill uses current delivery ticket and runtime_result voc
   assert.doesNotMatch(content, /runtime-return|runtime return|runtimeReturn/u);
 });
 
-test("runtime and harness prompt surfaces avoid negative tutorial prompt copy", async () => {
+test("runtime prompt surfaces avoid negative tutorial prompt copy", async () => {
   const sourcePaths = [
     join("hooks", "before-tool-call.js"),
-    join("lib", "security.js"),
+    join("lib", "security", "security.js"),
     join("lib", "formal-runtime", "checks", "system-action-chain.js"),
   ];
 
@@ -171,9 +172,9 @@ test("installed OpenClaw skill docs avoid negative tutorial prompt copy", async 
     "agent-bootstrap-designer",
     "browser-automation",
     "multi-agent-comm",
+    "openclaw-system",
     "prompt-craft",
     "research-methodology",
-    "review-findings",
     "skill-deployer",
   ];
 
@@ -217,3 +218,4 @@ test("active wiki concepts avoid negative prompt-style copy", async () => {
     assert.doesNotMatch(content, /反模式|绝对禁止/u);
   }
 });
+

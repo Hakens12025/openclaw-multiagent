@@ -2,7 +2,7 @@ import { runtimeAgentConfigs } from "../state.js";
 import { getAgentCard, listAgentCards } from "../store/agent-card-store.js";
 import { normalizeString, uniqueStrings } from "../core/normalize.js";
 import { composeAgentBinding, composeEffectiveProfile } from "../effective-profile-composer.js";
-import { buildAgentMainSessionKey } from "../session-keys.js";
+import { buildAgentMainSessionKey } from "../session/session-keys.js";
 import { resolveActorPlanePolicy } from "./agent-plane-policy.js";
 import {
   AGENT_IDS,

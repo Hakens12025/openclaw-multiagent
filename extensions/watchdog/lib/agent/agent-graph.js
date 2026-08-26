@@ -18,9 +18,16 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { CONTROL_PLANE_PATHS } from "../control-plane/control-plane-paths.js";
+import { CONTROL_PLANE_PATHS, resolveOwnedStorePath } from "../control-plane/control-plane-paths.js";
 
-const GRAPH_FILE = CONTROL_PLANE_PATHS.agentGraphFile;
+// 路径解析(惰性种子,与 threads/contract-index/session-index 等六店同款)。
+// 模块级常量会在【加载时】固化路径,测试的环境种子再怎么设也进不来——图是
+// control-plane 里最后一个漏掉种子的真值,单测因此长年直写生产图
+// (2026-08-11 起的"图边被洗"事故族根因)。每次 IO 现解析即可。
+export function resolveAgentGraphFile() {
+  // 店根门卫单源(control-plane-paths §13):图是最后一个漏种子的真值,门卫后手跑也进不了生产图。
+  return resolveOwnedStorePath("OPENCLAW_AGENT_GRAPH_FILE", CONTROL_PLANE_PATHS.agentGraphFile, "agent-graph.json");
+}
 
 function normalizeEdge(edge) {
   if (!edge || typeof edge !== "object") return null;
@@ -59,7 +66,7 @@ export function normalizeGraphEdges(edges) {
 
 export async function loadGraph() {
   try {
-    const raw = await readFile(GRAPH_FILE, "utf8");
+    const raw = await readFile(resolveAgentGraphFile(), "utf8");
     const parsed = JSON.parse(raw);
     return { edges: normalizeGraphEdges(parsed.edges) };
   } catch {
@@ -83,6 +90,24 @@ export function getTransitionsForNode(graph, nodeId) {
 
 export function hasDirectedEdge(graph, fromNodeId, toNodeId) {
   return getEdgesFrom(graph, fromNodeId).some((edge) => edge.to === toNodeId);
+}
+
+// 一张图,两种读法。投递授权面(hasDirectedEdge / authorizeDispatchEdge)读全部边——
+// 传送带 dispatch 的边覆盖校验(含成环图上的回边),边越多越宽松;自动选路面读本函数——平台
+// 在没有显式目标时替 agent 决定下一跳,必须唯一确定。
+//
+// 注意:动态协作(assign_task / wake_agent)一次都不读这张图,授权单源
+// 是 collaboration-intent-policy 的角色表。图边只管固定管线与传送带投递。
+//
+// 两者共用一张图但要求相反:给 controller 加第二条边能放宽它的投递面,却会让 ingress
+// 首跳解析不出唯一答案。metadata.pipeline 就是把这两件事分开的标记。
+//
+// 一条都没标时全部边都是管线边:图会被 reset 清空、被测试夹具重建,硬要求标记会让
+// 自动选路对自己的测试夹具变脆。
+export function getPipelineEdgesFrom(graph, nodeId) {
+  const edges = getEdgesFrom(graph, nodeId);
+  const marked = edges.filter((edge) => edge.metadata?.pipeline === true);
+  return marked.length > 0 ? marked : edges;
 }
 
 // ── Cycle detection (DFS with coloring) ─────────────────────────────────────

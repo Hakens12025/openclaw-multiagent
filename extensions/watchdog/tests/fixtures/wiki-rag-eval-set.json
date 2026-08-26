@@ -1,30 +1,260 @@
 {
-  "_note": "wiki-RAG 召回率评测集。query 用中文(与 wiki 语料同语言=operator 真实查询场景;英文 query 测的是跨语言虚低)。expectedSourcePath 已 live grounding(searchWiki 真实返回的 sourcePath 格式 concepts|decisions/<file>.md)。recall 判定单位=sourcePath(section 级 heading 太细)。",
+  "_note": "wiki-RAG 召回率评测集。query 用中文(与 wiki 语料同语言=operator 真实查询场景;英文 query 测的是跨语言虚低)。expectedSourcePath 已 live grounding(searchWiki 真实返回的 sourcePath 格式 concepts|decisions/<file>.md)。recall 判定单位=sourcePath(section 级 heading 太细)。 【v186】expectedSourcePath 统一改为 OC 根相对(wiki/…):此前 wiki 索引的 sourcePath 相对 wiki/ 而用户库相对 OC 根,同名字段两种含义,模型只凭它无法定位文件(实测 worker 猜错路径连废三次 read)。两个构造器已合并到同一个 toRelPath。",
   "topK": 10,
   "cases": [
-    { "query": "传送带原则是什么?它如何防止系统退化成乱麻?", "expectedSourcePath": "concepts/conveyor-belt.md", "expectedKeywords": ["inbox", "outbox", "graph", "派工"], "category": "conveyor" },
-    { "query": "loop 是怎么工作的?loop 和传送带是什么关系?", "expectedSourcePath": "concepts/loop.md", "expectedKeywords": ["loop-session", "重复派工", "LoopSpec"], "category": "loop" },
-    { "query": "operator 是什么?它和普通 agent 有什么区别?", "expectedSourcePath": "concepts/operator.md", "expectedKeywords": ["meta-agent", "系统", "CLI"], "category": "operator" },
-    { "query": "硬路径和软路径应该怎么划分?", "expectedSourcePath": "concepts/hard-soft-path.md", "expectedKeywords": ["代码负责流程", "LLM 负责内容", "确定性"], "category": "hard-soft-path" },
-    { "query": "harness 是什么?它的四种模块是哪些?", "expectedSourcePath": "concepts/harness.md", "expectedKeywords": ["guard", "collector", "gate", "normalizer"], "category": "harness" },
-    { "query": "agent binding 是什么?9+1 对象模型指什么?", "expectedSourcePath": "concepts/agent-binding.md", "expectedKeywords": ["role", "skills", "tools", "EffectiveProfile"], "category": "agent-binding" },
-    { "query": "多 agent 系统为什么需要上下文隔离?", "expectedSourcePath": "concepts/context-isolation.md", "expectedKeywords": ["独立上下文", "subagent", "污染"], "category": "context" },
-    { "query": "graph edge 如何强制协作授权?", "expectedSourcePath": "concepts/graph-edge.md", "expectedKeywords": ["agent_graph", "授权", "运行时"], "category": "graph-edge" },
-    { "query": "contract 是什么?它经历怎样的生命周期?", "expectedSourcePath": "concepts/contract.md", "expectedKeywords": ["assignee", "replyTo", "PENDING"], "category": "contract" },
-    { "query": "运行时通讯协议的三层分别是什么?", "expectedSourcePath": "concepts/three-layer-protocol.md", "expectedKeywords": ["dispatch", "system_action", "delivery"], "category": "conveyor" },
-    { "query": "CLI System 用哪五个 surface 家族组织运行时操作?", "expectedSourcePath": "concepts/cli-system.md", "expectedKeywords": ["hook", "inspect", "apply", "verify"], "category": "cli-system" },
-    { "query": "agent group 是什么?它和 loop 怎么正交?", "expectedSourcePath": "concepts/agent-group.md", "expectedKeywords": ["passthrough", "aggregate", "race", "宏展开"], "category": "agent-group" },
-    { "query": "评估结果链有哪四个对象?", "expectedSourcePath": "concepts/evaluation-result-chain.md", "expectedKeywords": ["HarnessRun", "EvaluationResult", "AutomationDecision", "ProfileLifecycle"], "category": "truth-source" },
-    { "query": "为什么决定让 graph 作为运行时真值,而不是只做 UI?", "expectedSourcePath": "decisions/graph-as-runtime-truth.md", "expectedKeywords": ["运行时", "授权", "真值"], "category": "graph-edge" },
-    { "query": "agent-as-classifier 这个决策当初要解决什么问题?", "expectedSourcePath": "decisions/agent-as-classifier.md", "expectedKeywords": ["regex", "LLM 判断", "意图"], "category": "operator" },
-    { "query": "god-role 消除是怎么简化系统架构的?", "expectedSourcePath": "decisions/god-role-elimination.md", "expectedKeywords": ["bridge", "worker", "executionPolicy", "policy"], "category": "operator" },
-    { "query": "delivery 怎么统一不同类型的结果投递?", "expectedSourcePath": "concepts/delivery.md", "expectedKeywords": ["delivery", "system_action", "replyTo"], "category": "conveyor" },
-    { "query": "skill boundary 在分离关注点上起什么作用?", "expectedSourcePath": "concepts/skill-boundary.md", "expectedKeywords": ["role", "SOUL", "skill", "能力"], "category": "operator" },
-    { "query": "派工队列怎么保证 contract 恰好一次 claim?", "expectedSourcePath": "concepts/runtime-dispatch-queue.md", "expectedKeywords": ["claim", "dispatch-runtime-state", "queue", "tracker"], "category": "conveyor" },
-    { "query": "wake event 是什么?它怎么驱动控制面激活?", "expectedSourcePath": "concepts/wake-event.md", "expectedKeywords": ["WakeEvent", "WakeRule", "激活", "状态"], "category": "loop" },
-    { "query": "产物整包流转是怎么扩展传送带概念的?", "expectedSourcePath": "decisions/artifact-package-flow.md", "expectedKeywords": ["upstream", "inbox", "产物", "传送带"], "category": "conveyor" },
-    { "query": "为什么选 wiki 而不是只用备忘录做系统文档?", "expectedSourcePath": "decisions/wiki-over-memo-only.md", "expectedKeywords": ["WHAT", "RAW", "WHY", "跨会话"], "category": "truth-source" },
-    { "query": "dispatch 怎么和 graph policy 分离又不造 god object?", "expectedSourcePath": "decisions/separate-dispatch-and-graph-router.md", "expectedKeywords": ["dispatch", "graph", "分层", "god object"], "category": "conveyor" },
-    { "query": "operator 快照和 surface policy 的零旁路原则是什么?", "expectedSourcePath": "concepts/operator.md", "expectedKeywords": ["零旁路", "inspect", "snapshot", "policy"], "category": "operator" }
+    {
+      "query": "传送带原则是什么?它如何防止系统退化成乱麻?",
+      "expectedSourcePath": "wiki/concepts/conveyor-belt.md",
+      "expectedKeywords": [
+        "inbox",
+        "outbox",
+        "graph",
+        "派工"
+      ],
+      "category": "conveyor"
+    },
+    {
+      "query": "loop 是怎么工作的?loop 和传送带是什么关系?",
+      "expectedSourcePath": "wiki/concepts/loop.md",
+      "expectedKeywords": [
+        "loop-session",
+        "重复派工",
+        "LoopSpec"
+      ],
+      "category": "loop"
+    },
+    {
+      "query": "operator 是什么?它和普通 agent 有什么区别?",
+      "expectedSourcePath": "wiki/concepts/operator.md",
+      "expectedKeywords": [
+        "meta-agent",
+        "系统",
+        "CLI"
+      ],
+      "category": "operator"
+    },
+    {
+      "query": "硬路径和软路径应该怎么划分?",
+      "expectedSourcePath": "wiki/concepts/hard-soft-path.md",
+      "expectedKeywords": [
+        "代码负责流程",
+        "LLM 负责内容",
+        "确定性"
+      ],
+      "category": "hard-soft-path"
+    },
+    {
+      "query": "harness 是什么?它的四种模块是哪些?",
+      "expectedSourcePath": "wiki/concepts/harness.md",
+      "expectedKeywords": [
+        "guard",
+        "collector",
+        "gate",
+        "normalizer"
+      ],
+      "category": "harness"
+    },
+    {
+      "query": "agent binding 是什么?9+1 对象模型指什么?",
+      "expectedSourcePath": "wiki/concepts/agent-binding.md",
+      "expectedKeywords": [
+        "role",
+        "skills",
+        "tools",
+        "EffectiveProfile"
+      ],
+      "category": "agent-binding"
+    },
+    {
+      "query": "多 agent 系统为什么需要上下文隔离?",
+      "expectedSourcePath": "wiki/concepts/context-isolation.md",
+      "expectedKeywords": [
+        "独立上下文",
+        "subagent",
+        "污染"
+      ],
+      "category": "context"
+    },
+    {
+      "query": "graph edge 定义什么?动态协作受它约束吗?",
+      "expectedSourcePath": "wiki/concepts/graph-edge.md",
+      "expectedKeywords": [
+        "agent_graph",
+        "固定管线",
+        "动态协作"
+      ],
+      "category": "graph-edge"
+    },
+    {
+      "query": "contract 是什么?它经历怎样的生命周期?",
+      "expectedSourcePath": "wiki/concepts/contract.md",
+      "expectedKeywords": [
+        "assignee",
+        "replyTo",
+        "PENDING"
+      ],
+      "category": "contract"
+    },
+    {
+      "query": "运行时通讯协议的三层分别是什么?",
+      "expectedSourcePath": "wiki/concepts/three-layer-protocol.md",
+      "expectedKeywords": [
+        "dispatch",
+        "system_action",
+        "delivery"
+      ],
+      "category": "conveyor"
+    },
+    {
+      "query": "CLI System 用哪五个 surface 家族组织运行时操作?",
+      "expectedSourcePath": "wiki/concepts/cli-system.md",
+      "expectedKeywords": [
+        "hook",
+        "inspect",
+        "apply",
+        "verify"
+      ],
+      "category": "cli-system"
+    },
+    {
+      "query": "agent group 是什么?它和 loop 怎么正交?",
+      "expectedSourcePath": "wiki/concepts/agent-group.md",
+      "expectedKeywords": [
+        "passthrough",
+        "aggregate",
+        "race",
+        "宏展开"
+      ],
+      "category": "agent-group"
+    },
+    {
+      "query": "评估结果链有哪四个对象?",
+      "expectedSourcePath": "wiki/concepts/evaluation-result-chain.md",
+      "expectedKeywords": [
+        "HarnessRun",
+        "EvaluationResult",
+        "AutomationDecision",
+        "ProfileLifecycle"
+      ],
+      "category": "truth-source"
+    },
+    {
+      "query": "为什么决定让 graph 作为运行时真值,而不是只做 UI?",
+      "expectedSourcePath": "wiki/decisions/graph-as-runtime-truth.md",
+      "expectedKeywords": [
+        "运行时",
+        "授权",
+        "真值"
+      ],
+      "category": "graph-edge"
+    },
+    {
+      "query": "agent-as-classifier 这个决策当初要解决什么问题?",
+      "expectedSourcePath": "wiki/decisions/agent-as-classifier.md",
+      "expectedKeywords": [
+        "regex",
+        "LLM 判断",
+        "意图"
+      ],
+      "category": "operator"
+    },
+    {
+      "query": "god-role 消除是怎么简化系统架构的?",
+      "expectedSourcePath": "wiki/decisions/god-role-elimination.md",
+      "expectedKeywords": [
+        "bridge",
+        "worker",
+        "executionPolicy",
+        "policy"
+      ],
+      "category": "operator"
+    },
+    {
+      "query": "delivery 怎么统一不同类型的结果投递?",
+      "expectedSourcePath": "wiki/concepts/delivery.md",
+      "expectedKeywords": [
+        "delivery",
+        "system_action",
+        "replyTo"
+      ],
+      "category": "conveyor"
+    },
+    {
+      "query": "skill boundary 在分离关注点上起什么作用?",
+      "expectedSourcePath": "wiki/concepts/skill-boundary.md",
+      "expectedKeywords": [
+        "role",
+        "SOUL",
+        "skill",
+        "能力"
+      ],
+      "category": "operator"
+    },
+    {
+      "query": "派工队列怎么保证 contract 恰好一次 claim?",
+      "expectedSourcePath": "wiki/concepts/runtime-dispatch-queue.md",
+      "expectedKeywords": [
+        "claim",
+        "dispatch-runtime-state",
+        "queue",
+        "tracker"
+      ],
+      "category": "conveyor"
+    },
+    {
+      "query": "wake event 是什么?它怎么驱动控制面激活?",
+      "expectedSourcePath": "wiki/concepts/wake-event.md",
+      "expectedKeywords": [
+        "WakeEvent",
+        "WakeRule",
+        "激活",
+        "状态"
+      ],
+      "category": "loop"
+    },
+    {
+      "query": "产物整包流转是怎么扩展传送带概念的?",
+      "expectedSourcePath": "wiki/decisions/artifact-package-flow.md",
+      "expectedKeywords": [
+        "upstream",
+        "inbox",
+        "产物",
+        "传送带"
+      ],
+      "category": "conveyor"
+    },
+    {
+      "query": "为什么选 wiki 而不是只用备忘录做系统文档?",
+      "expectedSourcePath": "wiki/decisions/wiki-over-memo-only.md",
+      "expectedKeywords": [
+        "WHAT",
+        "RAW",
+        "WHY",
+        "跨会话"
+      ],
+      "category": "truth-source"
+    },
+    {
+      "query": "dispatch 怎么和 graph policy 分离又不造 god object?",
+      "expectedSourcePath": "wiki/decisions/separate-dispatch-and-graph-router.md",
+      "expectedKeywords": [
+        "dispatch",
+        "graph",
+        "分层",
+        "god object"
+      ],
+      "category": "conveyor"
+    },
+    {
+      "query": "operator 快照和 surface policy 的零旁路原则是什么?",
+      "expectedSourcePath": "wiki/concepts/operator.md",
+      "expectedKeywords": [
+        "零旁路",
+        "inspect",
+        "snapshot",
+        "policy"
+      ],
+      "category": "operator"
+    }
   ]
 }

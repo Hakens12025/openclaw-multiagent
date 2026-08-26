@@ -1,4 +1,4 @@
-import { readdir, rm, unlink } from "node:fs/promises";
+import { lstat, mkdir, readdir, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import { EVENT_TYPE } from "../core/event-types.js";
@@ -10,8 +10,13 @@ import {
   clearRecentOperationGuards,
   operationLocks,
 } from "../state.js";
-import { qqTypingStopAll } from "../channel-notify.js";
-import { clearContractStore, listSharedContractEntries } from "../store/contract-store.js";
+import { qqTypingStopAll } from "../transport/channel-notify.js";
+import {
+  clearContractStore,
+  listSharedContractEntries,
+  readContractSnapshotByPath,
+} from "../store/contract-store.js";
+import { isTerminalContractStatus } from "../core/runtime-status.js";
 import {
   clearDispatchChainStore, getDispatchChainSize,
 } from "../store/contract-flow-store.js";
@@ -19,9 +24,8 @@ import { clearTrackingStore, getTrackingSessionCount } from "../store/tracker-st
 import { clearAllTraces } from "../store/execution-trace-store.js";
 import { clearAllExecutionIncidents } from "../runtime/execution-incident-store.js";
 import { clearAllPendingSignals } from "../runtime/pending-signal-registry.js";
-import { clearSystemActionDeliveryTicketStore } from "../routing/delivery-system-action-ticket.js";
+import { clearSystemActionDeliveryTicketStore } from "../routing/delivery/delivery-system-action-ticket.js";
 // cancelAllPlanDispatches eliminated: DRAFT lifecycle removed.
-import { clearLoopSessionState } from "../loop/loop-session-store.js";
 import { clearTaskHistory, getTaskHistoryCount } from "../store/task-history-store.js";
 import { clearIgnoredHeartbeatSessions } from "../store/heartbeat-session-store.js";
 import {
@@ -30,15 +34,33 @@ import {
   listAgentIdsByRole,
   listRuntimeAgentIds,
 } from "../agent/agent-identity.js";
-import { concludeLoopRound, getActiveLoopRuntime } from "../loop/loop-round-runtime.js";
 import {
   clearDispatchQueue,
   persistDispatchRuntimeState,
   resetAllDispatchStates,
-} from "../routing/dispatch-runtime-state.js";
+} from "../routing/dispatch/dispatch-runtime-state.js";
 import { syncAllRuntimeWorkspaceGuidance } from "../workspace-guidance-writer.js";
-import { clearProtocolCommitReconcileState } from "../protocol-commit-reconcile.js";
-import { clearRuntimeDirectEnvelopeStores } from "../runtime-direct-envelope-queue.js";
+import { clearProtocolCommitReconcileState } from "../protocol/protocol-commit-reconcile.js";
+import { clearRuntimeDirectEnvelopeStores } from "../routing/runtime-direct-envelope-queue.js";
+
+// 清理面 lstat 化(批④刀2,备忘录143 §七):mailbox 本体先判链。链 → 只摘链本体+
+// 恢复真目录(经链 readdir 逐文件删=删穿树内正本);真目录 → 照旧逐文件清内容。
+// 真目录期无链,链分支恒不进=行为零变化。目录不存在 → lstat 抛给调用方(沿旧
+// readdir ENOENT 路径)。导出供行为锁测试直调。
+export async function clearMailboxDirSurface(mailboxDir) {
+  const mailboxStat = await lstat(mailboxDir);
+  if (mailboxStat.isSymbolicLink()) {
+    await unlink(mailboxDir);
+    await mkdir(mailboxDir, { recursive: true });
+    return { unlinkedSymlink: true, removedFiles: 0 };
+  }
+  let removedFiles = 0;
+  for (const file of await readdir(mailboxDir)) {
+    await rm(join(mailboxDir, file), { recursive: true, force: true }).catch(() => {});
+    removedFiles++;
+  }
+  return { unlinkedSymlink: false, removedFiles };
+}
 
 function getDefaultResetSessionAgents() {
   const runtimeAgentIds = listRuntimeAgentIds();
@@ -49,7 +71,6 @@ function getDefaultResetSessionAgents() {
   const ids = [
     ...listAgentIdsByRole(AGENT_ROLE.PLANNER),
     ...listAgentIdsByRole(AGENT_ROLE.RESEARCHER),
-    ...listAgentIdsByRole(AGENT_ROLE.REVIEWER),
     ...listAgentIdsByRole(AGENT_ROLE.EXECUTOR),
   ];
   return ids.length > 0
@@ -57,7 +78,6 @@ function getDefaultResetSessionAgents() {
     : [
         AGENT_IDS.CONTROLLER,
         AGENT_IDS.OPERATOR,
-        AGENT_IDS.QQ_BRIDGE,
         AGENT_IDS.PLANNER,
         "worker",
         "worker2",
@@ -79,7 +99,6 @@ export async function resetRuntimeState({
   const systemActionDeliveryTicketCount = await clearSystemActionDeliveryTicketStore();
   clearProtocolCommitReconcileState();
   const runtimeDirectEnvelopeClear = await clearRuntimeDirectEnvelopeStores(resetSessionAgents, { logger });
-  await clearLoopSessionState();
 
   clearTrackingStore();
   clearAllTraces();
@@ -106,16 +125,6 @@ export async function resetRuntimeState({
     logger?.warn?.(`[watchdog] RESET: failed to rewrite ${STATE_FILE}: ${error.message}`);
   }
 
-  try {
-    const prevLoopRuntime = await getActiveLoopRuntime();
-    if (prevLoopRuntime && prevLoopRuntime.currentStage && prevLoopRuntime.currentStage !== "concluded") {
-      await concludeLoopRound("watchdog_reset", logger);
-      logger?.info?.("[watchdog] RESET: loop concluded");
-    }
-  } catch (error) {
-    logger?.warn?.(`[watchdog] RESET: failed to reset loop runtime: ${error.message}`);
-  }
-
   let sessionFilesCleared = 0;
   let mailboxFilesCleared = 0;
   for (const agentId of resetSessionAgents) {
@@ -133,20 +142,33 @@ export async function resetRuntimeState({
     for (const mailboxName of ["inbox", "outbox"]) {
       const mailboxDir = join(agentWorkspace(agentId), mailboxName);
       try {
-        const files = await readdir(mailboxDir);
-        for (const file of files) {
-          await rm(join(mailboxDir, file), { recursive: true, force: true }).catch(() => {});
-          mailboxFilesCleared++;
+        const surface = await clearMailboxDirSurface(mailboxDir);
+        if (surface.unlinkedSymlink) {
+          logger?.info?.(`[reset] mailbox symlink unlinked (real dir restored): ${agentId}/${mailboxName}`);
         }
+        mailboxFilesCleared += surface.removedFiles;
       } catch (e) { logger?.warn?.(`[reset] mailbox cleanup error for ${agentId}/${mailboxName}: ${e?.message}`); }
     }
   }
 
+  // 重置的是**运行时**,不是账本。活跃合约(pending/running)是运行时状态,留着会让
+  // 下次 boot 的 recoverOrphanedContracts 把它们当孤儿补关,必须清;
+  // 终态合约是那个 run 的记录,该随 run 的 30 天 TTL 走。
+  //
+  // 2026-08-19 之前这里无条件删全部 —— 与 cleanTestArtifacts 的前缀盲删是同一个病的
+  // 两处发作,合起来让 354 个 run 的 contracts/ 全空。修了那处没修这处的话,reset 先跑,
+  // 合约照样没了(实测:清理日志显示 kept 0,因为扫描时 reset 已经清空)。
   let contractsRemoved = 0;
+  let contractsKept = 0;
   try {
     const entries = await listSharedContractEntries();
     for (const entry of entries) {
       try {
+        const snapshot = await readContractSnapshotByPath(entry.path, { preferCache: false }).catch(() => null);
+        if (snapshot?.status && isTerminalContractStatus(snapshot.status)) {
+          contractsKept++;
+          continue;
+        }
         await unlink(entry.path).catch((error) => {
           if (error?.code !== "ENOENT") throw error;
         });
@@ -166,7 +188,7 @@ export async function resetRuntimeState({
   logger?.info?.(
     `[watchdog] RESET: cleared ${sessionCount} sessions, ${historyCount} history, `
     + `${chainCount} chains, ${queueCount} queued, `
-    + `${contractsRemoved} contract files removed, ${contractCacheCount} cached contracts, ${executionIncidentCount} execution incidents, ${pendingSignalAgentCount} pending-signal agents, ${systemActionDeliveryTicketCount} delivery tickets, ${runtimeDirectEnvelopeClear.files} direct-envelope files, ${sessionFilesCleared} session files, `
+    + `${contractsRemoved} active contracts removed (${contractsKept} terminal kept as run records), ${contractCacheCount} cached contracts, ${executionIncidentCount} execution incidents, ${pendingSignalAgentCount} pending-signal agents, ${systemActionDeliveryTicketCount} delivery tickets, ${runtimeDirectEnvelopeClear.files} direct-envelope files, ${sessionFilesCleared} session files, `
     + `${mailboxFilesCleared} mailbox files`,
   );
 

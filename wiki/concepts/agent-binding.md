@@ -11,7 +11,7 @@ AgentBinding 是 9+1 对象模型中 Assembly 层的核心对象，负责将一�
 | 层 | 对象 |
 |----|------|
 | Semantic | RoleSpec, SkillSpec, ToolSpec |
-| Assembly | **AgentBinding**, EdgeSpec, LoopSpec |
+| Assembly | **AgentBinding**, EdgeSpec, GroupSpec |
 | Runtime | ContractSpec, MessageEnvelope |
 | Projection | ProjectionSpec |
 | 派生 | EffectiveProfile（系统计算，不可手编） |

@@ -1,26 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// GroupSession 店同样沙箱化:本文件会直写 group_session_state.json 验证删 agent 的
+// 级联剪枝,不能碰生产 research-lab。store 的路径是每次调用惰性解析的,在任何 IO 前
+// 设置 env 即可生效。
+process.env.OPENCLAW_GROUP_SESSION_DIR ||= mkdtempSync(join(tmpdir(), "openclaw-test-group-session-"));
+const GROUP_SESSION_STATE_FILE = join(process.env.OPENCLAW_GROUP_SESSION_DIR, "group_session_state.json");
 
 import { OC, agentWorkspace } from "../lib/state.js";
 import {
   createAgentDefinition,
   deleteAgentDefinition,
   hardDeleteAgentDefinition,
-} from "../lib/agent/agent-admin-agent-operations.js";
-import { saveConfig } from "../lib/agent/agent-admin-store.js";
+} from "../lib/agent/admin/agent-admin-agent-operations.js";
+import { saveConfig } from "../lib/agent/admin/agent-admin-store.js";
 import { loadGraph } from "../lib/agent/agent-graph.js";
-import { saveGraph } from "../lib/agent/agent-graph-mutations.js";
-import { listDispatchTargetIds } from "../lib/routing/dispatch-runtime-state.js";
-import {
-  loadGraphLoopRegistry,
-  saveGraphLoopRegistry,
-} from "../lib/loop/graph-loop-registry.js";
-import {
-  LOOP_SESSION_STATE_FILE,
-  loadLoopSessionState,
-} from "../lib/loop/loop-session-store.js";
+import { saveGraph as saveGraphUnattributed } from "../lib/agent/agent-graph-mutations.js";
+
+// §13 整写门:测试夹具写图报身份(writer),edge 级差异日志可追溯到本文件。
+const saveGraph = (graph) => saveGraphUnattributed(graph, { writer: "test:agent-delete-topology-cleanup.test.js" });
+import { listDispatchTargetIds } from "../lib/routing/dispatch/dispatch-runtime-state.js";
+import { loadGroupSessionState } from "../lib/agent/group-session-store.js";
 import { summarizeLocalAgentDiscovery } from "../lib/agent/agent-enrollment-discovery.js";
 import {
   buildAgentCard,
@@ -42,6 +46,54 @@ function runDeleteScenarioSerial(task) {
   return next;
 }
 
+// 级联剪枝的正向夹具:一条含待删 agent 的 active GroupSession(应被剪掉)+
+// 一条只含存活 agent 的历史 GroupSession(应留下)。
+async function writeGroupSessionFixture(staleAgentId, suffix) {
+  await mkdir(process.env.OPENCLAW_GROUP_SESSION_DIR, { recursive: true });
+  await writeFile(GROUP_SESSION_STATE_FILE, JSON.stringify({
+    activeGroup: {
+      id: `GS-stale-${suffix}`,
+      groupId: `group-stale-${suffix}`,
+      members: [staleAgentId, "worker"],
+      entryAgentId: staleAgentId,
+      outputMode: "aggregate",
+      status: "executing",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+    recentGroups: [
+      {
+        id: `GS-valid-${suffix}`,
+        groupId: `group-valid-${suffix}`,
+        members: ["planner", "worker"],
+        entryAgentId: "planner",
+        outputMode: "aggregate",
+        status: "concluded",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ],
+  }, null, 2), "utf8");
+}
+
+async function assertGroupSessionCascade(suffix) {
+  const state = await loadGroupSessionState();
+  assert.equal(state.activeGroup, null, "group session naming a deleted member must be pruned");
+  assert.deepEqual(
+    state.recentGroups.map((entry) => entry.id),
+    [`GS-valid-${suffix}`],
+    "group sessions whose members all survive must remain",
+  );
+}
+
+async function restoreGroupSessionState(originalRaw) {
+  if (originalRaw == null) {
+    await rm(GROUP_SESSION_STATE_FILE, { force: true });
+  } else {
+    await writeFile(GROUP_SESSION_STATE_FILE, originalRaw, "utf8");
+  }
+}
+
 async function withDeleteScenario(prefix, runAssertions) {
   return runGlobalTestEnvironmentSerial(() => runDeleteScenarioSerial(async () => {
     const tempAgentId = `${prefix}-${Date.now()}`;
@@ -49,8 +101,7 @@ async function withDeleteScenario(prefix, runAssertions) {
     const sentinelFile = join(workspaceDir, "output", "sentinel.txt");
     const originalConfigRaw = await readFile(join(OC, "openclaw.json"), "utf8");
     const originalGraph = await loadGraph();
-    const originalLoopRegistry = await loadGraphLoopRegistry();
-    const originalLoopSessionRaw = await readFile(LOOP_SESSION_STATE_FILE, "utf8").catch(() => null);
+    const originalGroupSessionRaw = await readFile(GROUP_SESSION_STATE_FILE, "utf8").catch(() => null);
 
     try {
       await createAgentDefinition({
@@ -70,46 +121,7 @@ async function withDeleteScenario(prefix, runAssertions) {
         ],
       });
 
-      await saveGraphLoopRegistry({
-        loops: [
-          {
-            id: "loop-valid-delete-cleanup",
-            nodes: ["planner", "worker"],
-            entryAgentId: "planner",
-          },
-          {
-            id: "loop-stale-delete-cleanup",
-            nodes: [tempAgentId, "worker"],
-            entryAgentId: tempAgentId,
-          },
-        ],
-      });
-
-      await mkdir(join(OC, "research-lab"), { recursive: true });
-      await writeFile(LOOP_SESSION_STATE_FILE, JSON.stringify({
-        activeSession: {
-          id: "LS-stale-delete-cleanup",
-          loopId: "loop-stale-delete-cleanup",
-          entryAgentId: tempAgentId,
-          currentStage: tempAgentId,
-          status: "active",
-          nodes: [tempAgentId, "worker"],
-          startedAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-        recentSessions: [
-          {
-            id: "LS-valid-delete-cleanup",
-            loopId: "loop-valid-delete-cleanup",
-            entryAgentId: "planner",
-            currentStage: "planner",
-            status: "concluded",
-            nodes: ["planner", "worker"],
-            startedAt: Date.now(),
-            updatedAt: Date.now(),
-          },
-        ],
-      }, null, 2), "utf8");
+      await writeGroupSessionFixture(tempAgentId, "delete-cleanup");
 
       await runAssertions({
         tempAgentId,
@@ -119,18 +131,13 @@ async function withDeleteScenario(prefix, runAssertions) {
     } finally {
       await saveConfig(JSON.parse(originalConfigRaw));
       await saveGraph(originalGraph);
-      await saveGraphLoopRegistry(originalLoopRegistry);
-      if (originalLoopSessionRaw == null) {
-        await rm(LOOP_SESSION_STATE_FILE, { force: true });
-      } else {
-        await writeFile(LOOP_SESSION_STATE_FILE, originalLoopSessionRaw, "utf8");
-      }
+      await restoreGroupSessionState(originalGroupSessionRaw);
       await rm(workspaceDir, { recursive: true, force: true });
     }
   }));
 }
 
-test("deleteAgentDefinition prunes graph, loop registry, and loop sessions for deleted agents while keeping workspace files", { concurrency: false }, async () => {
+test("deleteAgentDefinition prunes graph edges and group sessions for deleted agents while keeping workspace files", { concurrency: false }, async () => {
   await withDeleteScenario("delete-cleanup", async ({
     tempAgentId,
     sentinelFile,
@@ -154,18 +161,7 @@ test("deleteAgentDefinition prunes graph, loop registry, and loop sessions for d
       "unrelated graph edges should remain",
     );
 
-    const registry = await loadGraphLoopRegistry();
-    assert.deepEqual(
-      registry.loops.map((entry) => entry.id),
-      ["loop-valid-delete-cleanup"],
-    );
-
-    const sessionState = await loadLoopSessionState();
-    assert.equal(sessionState.activeSession, null);
-    assert.deepEqual(
-      sessionState.recentSessions.map((entry) => entry.id),
-      ["LS-valid-delete-cleanup"],
-    );
+    await assertGroupSessionCascade("delete-cleanup");
 
     const sentinel = await readFile(sentinelFile, "utf8");
     assert.equal(sentinel, "sentinel");
@@ -215,18 +211,7 @@ test("hardDeleteAgentDefinition removes workspace files from disk while pruning 
       "hard-deleted agent edges should be pruned from live graph",
     );
 
-    const registry = await loadGraphLoopRegistry();
-    assert.deepEqual(
-      registry.loops.map((entry) => entry.id),
-      ["loop-valid-delete-cleanup"],
-    );
-
-    const sessionState = await loadLoopSessionState();
-    assert.equal(sessionState.activeSession, null);
-    assert.deepEqual(
-      sessionState.recentSessions.map((entry) => entry.id),
-      ["LS-valid-delete-cleanup"],
-    );
+    await assertGroupSessionCascade("delete-cleanup");
 
     await assert.rejects(() => readFile(join(workspaceDir, "output", "sentinel.txt"), "utf8"));
   });
@@ -240,8 +225,7 @@ test("hardDeleteAgentDefinition removes unregistered local workspace residue via
     const sentinelFile = join(workspaceDir, "output", "sentinel.txt");
     const originalConfigRaw = await readFile(join(OC, "openclaw.json"), "utf8");
     const originalGraph = await loadGraph();
-    const originalLoopRegistry = await loadGraphLoopRegistry();
-    const originalLoopSessionRaw = await readFile(LOOP_SESSION_STATE_FILE, "utf8").catch(() => null);
+    const originalGroupSessionRaw = await readFile(GROUP_SESSION_STATE_FILE, "utf8").catch(() => null);
 
     try {
       await mkdir(workspaceDir, { recursive: true });
@@ -275,46 +259,7 @@ test("hardDeleteAgentDefinition removes unregistered local workspace residue via
         ],
       });
 
-      await saveGraphLoopRegistry({
-        loops: [
-          {
-            id: "loop-valid-local-residue-cleanup",
-            nodes: ["planner", "worker"],
-            entryAgentId: "planner",
-          },
-          {
-            id: "loop-stale-local-residue-cleanup",
-            nodes: [residueAgentId, "worker"],
-            entryAgentId: residueAgentId,
-          },
-        ],
-      });
-
-      await mkdir(join(OC, "research-lab"), { recursive: true });
-      await writeFile(LOOP_SESSION_STATE_FILE, JSON.stringify({
-        activeSession: {
-          id: "LS-stale-local-residue-cleanup",
-          loopId: "loop-stale-local-residue-cleanup",
-          entryAgentId: residueAgentId,
-          currentStage: residueAgentId,
-          status: "active",
-          nodes: [residueAgentId, "worker"],
-          startedAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-        recentSessions: [
-          {
-            id: "LS-valid-local-residue-cleanup",
-            loopId: "loop-valid-local-residue-cleanup",
-            entryAgentId: "planner",
-            currentStage: "planner",
-            status: "concluded",
-            nodes: ["planner", "worker"],
-            startedAt: Date.now(),
-            updatedAt: Date.now(),
-          },
-        ],
-      }, null, 2), "utf8");
+      await writeGroupSessionFixture(residueAgentId, "local-residue-cleanup");
 
       const result = await hardDeleteAgentDefinition({
         agentId: residueAgentId,
@@ -340,29 +285,13 @@ test("hardDeleteAgentDefinition removes unregistered local workspace residue via
         true,
       );
 
-      const registry = await loadGraphLoopRegistry();
-      assert.deepEqual(
-        registry.loops.map((entry) => entry.id),
-        ["loop-valid-local-residue-cleanup"],
-      );
-
-      const sessionState = await loadLoopSessionState();
-      assert.equal(sessionState.activeSession, null);
-      assert.deepEqual(
-        sessionState.recentSessions.map((entry) => entry.id),
-        ["LS-valid-local-residue-cleanup"],
-      );
+      await assertGroupSessionCascade("local-residue-cleanup");
 
       await assert.rejects(() => readFile(sentinelFile, "utf8"));
     } finally {
       await saveConfig(JSON.parse(originalConfigRaw));
       await saveGraph(originalGraph);
-      await saveGraphLoopRegistry(originalLoopRegistry);
-      if (originalLoopSessionRaw == null) {
-        await rm(LOOP_SESSION_STATE_FILE, { force: true });
-      } else {
-        await writeFile(LOOP_SESSION_STATE_FILE, originalLoopSessionRaw, "utf8");
-      }
+      await restoreGroupSessionState(originalGroupSessionRaw);
       await rm(workspaceDir, { recursive: true, force: true });
     }
   }));

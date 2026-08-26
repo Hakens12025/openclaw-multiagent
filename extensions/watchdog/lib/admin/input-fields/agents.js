@@ -72,7 +72,7 @@ export const AGENT_INPUT_FIELDS = Object.freeze({
         { value: "HEARTBEAT.md", label: "HEARTBEAT.md", detail: "Heartbeat wake-up contract." },
         { value: "AGENTS.md", label: "AGENTS.md", detail: "Operator rule + collaboration protocol." },
         { value: "BUILDING-MAP.md", label: "BUILDING-MAP.md", detail: "Building directory only." },
-        { value: "COLLABORATION-GRAPH.md", label: "COLLABORATION-GRAPH.md", detail: "Explicit collaboration permissions." },
+        { value: "COLLABORATION-GRAPH.md", label: "COLLABORATION-GRAPH.md", detail: "Fixed-pipeline topology (not collaboration authorization)." },
         { value: "DELIVERY.md", label: "DELIVERY.md", detail: "Terminal + system_action delivery semantics." },
         { value: "PLATFORM-GUIDE.md", label: "PLATFORM-GUIDE.md", detail: "Execution guidance + outbox contract." },
       ],
