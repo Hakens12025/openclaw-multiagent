@@ -43,8 +43,8 @@ import { assertRuntimeAgentIdIsNotReserved } from "../agent-plane-policy.js";
 // agent 删除的拓扑级联：图边 + GroupSession 两条腿。
 // GroupSession 走 groupIds:null（组维不参与判定）——group 没有独立注册表，成员失效才是
 // 删 agent 要级联的东西；不剪则被删 agent 会永久留在组的成员态里。
-export async function pruneTopologyArtifactsForKnownAgents(agentIds) {
-  const graphCleanup = await pruneGraphToAgentIds(agentIds);
+export async function pruneTopologyArtifactsForKnownAgents(agentIds, { writer = "unknown", logger = console } = {}) {
+  const graphCleanup = await pruneGraphToAgentIds(agentIds, { writer, logger });
   const groupSessionCleanup = await pruneGroupSessionsForTopology({
     agentIds,
     groupIds: null,
@@ -104,7 +104,10 @@ async function removeAgentDefinition({
   }
 
   const remainingAgentIds = listConfiguredAgentIds(config);
-  const topologyCleanup = await pruneTopologyArtifactsForKnownAgents(remainingAgentIds);
+  const topologyCleanup = await pruneTopologyArtifactsForKnownAgents(remainingAgentIds, {
+    writer: `agent-delete:${normalizedAgentId}`,
+    logger,
+  });
 
   let workspaceDeleted = false;
   if (deleteWorkspace) {

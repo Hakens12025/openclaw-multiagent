@@ -29,7 +29,11 @@ export async function mutateGraphEdge({
   logger,
   onAlert,
   runtimeContext,
+  surfaceId = null,
 }) {
+  // 写者身份=来源 surface(operator 链路带 originSurfaceId 更准);edge 级日志由突变层
+  // 统一点名(2026-08-27 归一),本端点只递身份不自打日志。
+  const writer = `admin-surface:${normalizeString(runtimeContext?.originSurfaceId) || normalizeString(surfaceId) || `graph.edge.${mode}`}`;
   const from = normalizeString(payload.from);
   const to = normalizeString(payload.to);
   if (!from || !to) {
@@ -67,13 +71,14 @@ export async function mutateGraphEdge({
     ? await addEdge(from, to, {
       label: payload.label,
       metadata: payload.metadata,
+      writer,
+      logger,
     })
-    : await removeEdge(from, to);
+    : await removeEdge(from, to, { writer, logger });
   const cycles = detectCycles(graph);
   if (runtimeContext?.api?.config) {
     await syncAllRuntimeWorkspaceGuidance(runtimeContext.api.config, logger);
   }
-  logger?.info?.(`[watchdog] graph edge ${mode === "add" ? "added" : "removed"}: ${from} -> ${to}`);
   onAlert?.({
     type: EVENT_TYPE.GRAPH_UPDATED,
     action: mode === "add" ? "edge_added" : "edge_removed",
@@ -158,7 +163,12 @@ export async function composeGraphGroup({
       skippedEdges.push({ from: edge.from, to: edge.to });
       continue;
     }
-    await addEdge(edge.from, edge.to, { label: edge.label || null, metadata: edge.metadata });
+    await addEdge(edge.from, edge.to, {
+      label: edge.label || null,
+      metadata: edge.metadata,
+      writer: `admin-surface:graph.group.compose:${groupId}`,
+      logger,
+    });
     addedEdges.push({ from: edge.from, to: edge.to });
   }
 

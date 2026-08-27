@@ -78,3 +78,67 @@ test("saveGraph writer 缺省 => 日志点名 writer=unknown(过渡容错但可�
     await saveGraph(originalGraph, { writer: WRITER });
   }
 });
+
+// ── 2026-08-27 归一批:四写口全员署名,edge 级日志单源=突变层 ──────────────────
+
+test("pruneGraphToAgentIds:实际剪掉的边逐条署名,零剪静默", async () => {
+  const { pruneGraphToAgentIds } = await import("../lib/agent/agent-graph-mutations.js");
+  const originalGraph = await loadGraph();
+  try {
+    await saveGraph({ edges: [
+      { from: "gw-keep-a", to: "gw-keep-b" },
+      { from: "gw-keep-a", to: "gw-gone-x" },
+    ] }, { writer: WRITER });
+
+    const spy = makeLoggerSpy();
+    const pruned = await pruneGraphToAgentIds(["gw-keep-a", "gw-keep-b"], { writer: WRITER, logger: spy });
+    assert.equal(pruned.changed, true);
+    assert.deepEqual(
+      spy.lines,
+      [`[watchdog] graph edge removed: gw-keep-a -> gw-gone-x (writer=${WRITER})`],
+      "批量剪边必须逐条点名写者",
+    );
+
+    const idemSpy = makeLoggerSpy();
+    const idem = await pruneGraphToAgentIds(["gw-keep-a", "gw-keep-b"], { writer: WRITER, logger: idemSpy });
+    assert.equal(idem.changed, false);
+    assert.deepEqual(idemSpy.lines, [], "零剪必须静默");
+  } finally {
+    await saveGraph(originalGraph, { writer: WRITER });
+  }
+});
+
+test("addEdge/removeEdge:实际改边署名,幂等/缺席静默", async () => {
+  const { addEdge, removeEdge } = await import("../lib/agent/agent-graph-mutations.js");
+  const originalGraph = await loadGraph();
+  try {
+    await saveGraph({ edges: [] }, { writer: WRITER });
+
+    const addSpy = makeLoggerSpy();
+    await addEdge("gw-e1", "gw-e2", { writer: WRITER, logger: addSpy });
+    assert.deepEqual(addSpy.lines, [`[watchdog] graph edge added: gw-e1 -> gw-e2 (writer=${WRITER})`]);
+
+    const dupSpy = makeLoggerSpy();
+    await addEdge("gw-e1", "gw-e2", { writer: WRITER, logger: dupSpy });
+    assert.deepEqual(dupSpy.lines, [], "已存在的边重复 add 必须静默");
+
+    const rmSpy = makeLoggerSpy();
+    await removeEdge("gw-e1", "gw-e2", { writer: WRITER, logger: rmSpy });
+    assert.deepEqual(rmSpy.lines, [`[watchdog] graph edge removed: gw-e1 -> gw-e2 (writer=${WRITER})`]);
+
+    const absentSpy = makeLoggerSpy();
+    await removeEdge("gw-e1", "gw-e2", { writer: WRITER, logger: absentSpy });
+    assert.deepEqual(absentSpy.lines, [], "删不存在的边必须静默");
+  } finally {
+    await saveGraph(originalGraph, { writer: WRITER });
+  }
+});
+
+test("归一源守卫:admin 端点只递身份,不再自打 edge 日志(第二套日志复活即红)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../lib/admin/operations/admin-surface-graph-operations.js", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /graph edge \$\{|graph edge added|graph edge removed/, "端点不得再有自己的 edge 日志模板");
+  assert.match(src, /admin-surface:\$\{/, "端点必须构造 admin-surface: 前缀写者身份");
+  assert.match(src, /removeEdge\(from, to, \{ writer, logger \}\)/, "removeEdge 必须递身份");
+  assert.match(src, /graph\.group\.compose:\$\{groupId\}/, "组装配循环必须递身份");
+});
