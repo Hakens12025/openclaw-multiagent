@@ -139,14 +139,24 @@ test("active implementation plans avoid executable retired contract-mode cleanup
 });
 
 test("root entry docs and root agent card avoid retired protocol vocabulary", async () => {
-  const files = {
+  // CODEX.md/agent-card.json 是私有策展/运行时件,公开树 fresh checkout 缺席=无物可守,
+  // 逐文件剔除;在场文件照常全力(私有活树全员在场)。
+  const readOptional = async (...parts) => {
+    try {
+      return await readOpenClawFile(...parts);
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
+  };
+  const files = Object.fromEntries(Object.entries({
     readme: await readOpenClawFile("README.md"),
     systemMap: await readOpenClawFile("SYSTEM_MAP.md"),
     claude: await readOpenClawFile("CLAUDE.md"),
-    codex: await readOpenClawFile("CODEX.md"),
-    agentCard: await readOpenClawFile("agent-card.json"),
+    codex: await readOptional("CODEX.md"),
+    agentCard: await readOptional("agent-card.json"),
     workspaceGuidance: await readOpenClawFile("wiki", "concepts", "workspace-guidance.md"),
-  };
+  }).filter(([, content]) => content !== null));
 
   for (const [label, content] of Object.entries(files)) {
     assert.doesNotMatch(content, /fast-track|fast-full-path|full-path|short contract/i, `${label} leaks retired contract split vocabulary`);
@@ -156,6 +166,6 @@ test("root entry docs and root agent card avoid retired protocol vocabulary", as
     assert.doesNotMatch(content, /phaseFlows|dashboard\.js:67-76|graph-driven pipeline|pipeline \/ loop/i, `${label} leaks retired dashboard or loop wording`);
   }
 
-  assert.match(files.agentCard, /runtime-result-json/);
+  if (files.agentCard) assert.match(files.agentCard, /runtime-result-json/);
   await assert.rejects(readOpenClawFile("RUNTIME-RETURN.md"), /ENOENT/);
 });

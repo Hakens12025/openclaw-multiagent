@@ -13,20 +13,31 @@ async function readOpenClawFile(...parts) {
 }
 
 test("root development entry docs require primary System Block before code changes", async () => {
-  const files = {
-    claude: await readOpenClawFile("CLAUDE.md"),
-    codex: await readOpenClawFile("CODEX.md"),
-    agents: await readOpenClawFile("AGENTS.md"),
-    systemMap: await readOpenClawFile("SYSTEM_MAP.md"),
+  // CODEX.md 私有策展、AGENTS.md 运行时生成:公开树缺席=剔除;在场照常全力。
+  const readOptional = async (name) => {
+    try {
+      return await readOpenClawFile(name);
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
   };
+  const files = Object.fromEntries(Object.entries({
+    claude: await readOpenClawFile("CLAUDE.md"),
+    codex: await readOptional("CODEX.md"),
+    agents: await readOptional("AGENTS.md"),
+    systemMap: await readOpenClawFile("SYSTEM_MAP.md"),
+  }).filter(([, content]) => content !== null));
 
   for (const [label, content] of Object.entries(files)) {
     assert.match(content, /System Blocks|System Block|system-blocks\.md/, `${label} must point to System Blocks`);
   }
 
   assert.match(files.claude, /primary System Block/i);
-  assert.match(files.codex, /primary System Block/i);
-  assert.match(files.codex, /openclaw-block-check\.js --primary <block-id>/);
+  if (files.codex) {
+    assert.match(files.codex, /primary System Block/i);
+    assert.match(files.codex, /openclaw-block-check\.js --primary <block-id>/);
+  }
 });
 
 test("per-block handoff docs stay in sync with registry", async () => {

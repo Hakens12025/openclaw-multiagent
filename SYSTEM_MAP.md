@@ -16,6 +16,7 @@
 | 单 run 查账时间线 | `node extensions/watchdog/scripts/run-inspect.js <runId\|contractId\|threadId>` |
 | 技能注入 | `skills/` |
 | 概念与架构决策 | `wiki/index.md` |
+| System Blocks 板块图（改代码先声明 primary System Block，校验 `node scripts/openclaw-block-check.js --primary <block-id>`） | `wiki/concepts/system-blocks.md` + `docs/system-blocks/` |
 
 ## 2. 分层速览
 

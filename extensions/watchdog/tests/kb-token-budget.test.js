@@ -143,13 +143,17 @@ test("脚本可复跑:--json 退出码 0,语料分类完备", async () => {
   });
   const out = JSON.parse(stdout);
   assert.equal(out.corpora.wiki.available, true);
-  assert.equal(out.corpora.memos.available, true);
-  for (const key of ["wiki", "wikiAll", "memos"]) {
+  // memos = use guide/ 私有备忘录语料,公开树(CI fresh checkout)天然缺席=无物可数,
+  // 相关断言剔除;wiki 语料随仓同步,两态都全力断言。
+  const memosAvailable = out.corpora.memos.available === true;
+  for (const key of ["wiki", "wikiAll", ...(memosAvailable ? ["memos"] : [])]) {
     const c = out.corpora[key].counts;
     assert.equal(c.cjk + c.other, c.chars, `${key} 的字符分类应为完备划分`);
     assert.ok(c.chars > 0);
   }
   // wiki 检索口径 = 全目录减去 4 个 meta 页(wiki-rag-store.js:71 的 WIKI_META_PAGES)
   assert.equal(out.corpora.wikiAll.fileCount - out.corpora.wiki.fileCount, 4);
-  assert.ok(out.corpora.memos.counts.chars > out.corpora.wiki.counts.chars * 5, "memos 体量应远大于 wiki");
+  if (memosAvailable) {
+    assert.ok(out.corpora.memos.counts.chars > out.corpora.wiki.counts.chars * 5, "memos 体量应远大于 wiki");
+  }
 });

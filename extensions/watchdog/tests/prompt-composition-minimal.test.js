@@ -196,7 +196,15 @@ test("root managed guidance avoids negative tutorial prompt copy", async () => {
   ];
 
   for (const sourcePath of rootGuidancePaths) {
-    const content = await readFile(join(OC, sourcePath), "utf8");
+    // 根托管文档是运行时生成物(platform-doc-builder),fresh checkout(公开 CI)缺席
+    // = 无物可守,逐文件跳过;私有活树文件在,守卫照常全力。
+    let content;
+    try {
+      content = await readFile(join(OC, sourcePath), "utf8");
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
     assertPositivePromptCopy(sourcePath, content);
   }
 });
