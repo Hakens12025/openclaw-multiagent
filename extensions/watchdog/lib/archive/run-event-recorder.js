@@ -177,8 +177,11 @@ function scheduleFlush(state) {
     return;
   }
   if (state.flushTimer) return;
+  // 不 unref(2026-08-28 定谳):appendRunEvent 的 resolve 悬在这只 timer 上,unref 掉它
+  // ①进程收尾时 25ms 窗口内的 buffered run_event 静默丢失(违"run_event 无降级"纪律)
+  // ②node 22/24 下 await append 的调用方随事件循环空转而悬死(CI 首跑 6 文件连坐实证)。
+  // 保活代价 = 退出至多多活一个 flush 窗口,换账不丢。
   state.flushTimer = setTimeout(() => queueFlush(state), FLUSH_WINDOW_MS);
-  state.flushTimer.unref?.();
 }
 
 function queueFlush(state) {

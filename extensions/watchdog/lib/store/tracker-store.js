@@ -466,7 +466,9 @@ export function waitForTrackingContractClaim(sessionKey, contractId, timeoutMs =
         reason: "timeout",
       });
     }, Math.max(0, Number(timeoutMs) || 0));
-    waiter.timer?.unref?.();
+    // 不 unref(2026-08-28,与 run-event-recorder flushTimer 同谳):此 timer 是被 await
+    // 的等待者兜底,unref 掉它在 node 22/24 下事件循环空转即悬死(CI 实证连坐 26 例);
+    // 活跃等待撑住进程是正确语义,超时上限本就有界。
     waiters.add(waiter);
   });
 }

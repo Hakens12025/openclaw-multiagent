@@ -29,8 +29,9 @@ const SYNC_DIRS = [
   ".github", // CI 矩阵属产品面(watchdog 离线单测),公开仓要带;门A/门B 照常全扫 staging 含此目录
 ];
 // 顶层单文件同步清单(SYNC_DIRS 只覆盖目录):openclawctl.js 是产品运维唯一入口,
-// 公开 README/SETUP 全面指向它,不同步则 fresh clone 直接断头。门A/门B 照常全扫。
-const SYNC_FILES = ["openclawctl.js"];
+// 公开 README/SETUP 全面指向它,不同步则 fresh clone 直接断头;三个 bash 转发壳
+// 同步走真值版(公开仓滞留旧 77/193 行版会绊 compat-shell 守卫,CI 第二轮实证)。
+const SYNC_FILES = ["openclawctl.js", "start.sh", "setup.sh", "clean.sh"];
 // .replay-cache=RAG 测试重放缓存(内嵌备忘录私有语料);__pycache__=二进制产物。都不公开。
 const EXCLUDES = ["node_modules", "research-lab", "test-reports", ".DS_Store", ".replay-cache", "__pycache__"];
 
