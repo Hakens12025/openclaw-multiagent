@@ -34,8 +34,7 @@ The canonical file ownership rules live in `extensions/watchdog/lib/dev/system-b
 
 ## Minimal Tests
 
-- `extensions/watchdog/tests/harness-module-contract.test.js`
-- `extensions/watchdog/tests/harness-module-runner.test.js`
+- 当时为 `harness-module-contract.test.js` 与 `harness-module-runner.test.js`（两测试已随 v226 harness 退役一并删除，仅存于 git 历史）
 
 ## Agent Assignment
 

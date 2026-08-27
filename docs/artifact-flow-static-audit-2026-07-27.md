@@ -37,7 +37,7 @@
 
 ### 🔴 H1 · `inbox/upstream/` 永不清理 → 跨合约上下文污染（L3-F1 ＋ L4-F1 ＋ L2-F3 合并）
 
-**坏在哪**：写入端 `dest = join(upstreamRoot, up, f.relPath)`（`lib/lifecycle/artifact-store.js:275`）**不带 contractId**，而唯一的 inbox 清理器只删顶层文件：
+**坏在哪**：写入端 `dest = join(upstreamRoot, up, f.relPath)`（`artifact-store.js:275`，该模块已于 v218 收店，后继=`lib/delivery/upstream-package-inflow.js`）**不带 contractId**，而唯一的 inbox 清理器只删顶层文件：
 
 ```js
 // lib/routing/mailbox/runtime-mailbox-transport.js:69-71
@@ -45,7 +45,7 @@ for (const entry of entries) {
   if (!entry.isFile()) continue;   // ← inbox/upstream/ 是目录，永不被删
 ```
 
-全库生产代码零处删除 `inbox/upstream`（只有 admin RESET 和测试 fixture 会 `rm -rf`）。而 `tests/artifact-flow.test.js` 每个用例前都自己 `rm -rf upstreamRoot` —— **测试亲手做了生产代码不做的那件事**，所以这个洞永远不会红。
+全库生产代码零处删除 `inbox/upstream`（只有 admin RESET 和测试 fixture 会 `rm -rf`）。而当时的 `artifact-flow.test.js`（该测试已随 v218 artifact-store 收店删除）每个用例前都自己 `rm -rf upstreamRoot` —— **测试亲手做了生产代码不做的那件事**，所以这个洞永远不会红。
 
 **现场证据（磁盘，只读）**：`~/.openclaw/workspaces/worker/inbox/` 当前只剩 `upstream/planner/{brief.md,manifest.json}`，`manifest.contractId = TC-1785095975012-ba2e06`，同目录 `contract.json` 已被 cleanInbox 删除。另在 workflow-trace 里抓到 `TC-1780258898729-ea03c3/reviewer1/inbox/upstream/worker-e/` 同时躺着三个不同 contract 的交付物，而该包 manifest 只列 1 个文件；同一 trace 的 `inbox/contract.json` 里 `upstreamPackages:["upstream/worker-e/"]` —— **指针正指向这个混着三代产物的目录**。
 
@@ -80,7 +80,7 @@ return CONTROL_TEXT_PATTERNS.some((pattern) => pattern.test(normalized));
 
 ### 🔴 H3 · handoff 完成门不覆盖 loop 分支（L5-F3，我独立确证）
 
-**坏在哪**：`lib/lifecycle/agent-end-graph-route.js:440-447`：
+**坏在哪**：`agent-end-graph-route.js:440-447`（现址=`lib/lifecycle/agent-end/graph-route.js`，行号为当时快照）：
 
 ```js
 const contractStage = contractRouteStage(contractData);
@@ -112,11 +112,11 @@ if (artifactPaths.length === 0 && primaryOutputPath) artifactPaths = [primaryOut
 
 `contract.output` 是每合约**唯一固定路径** `join(outputDir, ${contractId}.md)`（`dispatch-execution-contract-entry.js:310`），graph 转发复用同一 contractId（`agent-end-graph-route.js:481/490`），所以 A/B/C 三跳共用同一个文件。而 `artifact-store.js:151-154` 的唯一筛选是 `.filter(p => p && existsSync(p))` —— **无 producer 归属、无 mtime 新鲜度**。同仓 `protocol-commit-reconcile.js:271-278` 对 outbox commit 已有 `commitMtimeMs < contractStartMs → commit_file_stale` 的判据，说明这套标准在本仓有先例。
 
-**决定性证据（把"可能"推到"必然"）**：让 agent 能写 `contract.output` 的工作区软链 `ensureWorkspaceContractOutputAlias` **全库零调用点**（只命中定义 `lib/delivery/runtime-contract-output-alias.js:56` 与其测试）。全库对 `control-plane/output/<cid>.md` 的唯一写者是 `runtime-mailbox-outbox-helpers.js:161-165` 的 mirror。所以在 hop≥2 上，`contract.output` 的内容**只可能**是上一跳（或本 agent 上一轮）的镜像 —— "空转的下游 agent 生成一个内容属于别人的产物包"是构造性成立的。
+**决定性证据（把"可能"推到"必然"）**：让 agent 能写 `contract.output` 的工作区软链 `ensureWorkspaceContractOutputAlias` **全库零调用点**（只命中定义 `runtime-contract-output-alias.js:56` 与其测试；该模块后已整体删除，与本条 L1 的处置建议一致）。全库对 `control-plane/output/<cid>.md` 的唯一写者是 `runtime-mailbox-outbox-helpers.js:161-165` 的 mirror。所以在 hop≥2 上，`contract.output` 的内容**只可能**是上一跳（或本 agent 上一轮）的镜像 —— "空转的下游 agent 生成一个内容属于别人的产物包"是构造性成立的。
 
 **失败场景**：A→B→C。A 完成并 mirror；B 进程 success 退出但没写 outbox（`runtime-mailbox.js:89-92` 返回 `{collected:false}`）→ 回退到 A 留下的 `output/<cid>.md` → 落成 `artifacts/<cid>/B/` 包 + `manifest{producer:B, status:completed}` → C 的 inbox 收到 `upstream/B/` 实为 A 的正文。同时 `resolveIncompleteHandoffGate` 在 outputPath 为空时 `return null` 不拦，链路照常转发，B 的空转被产物包完全掩盖。
 
-**修法**：**不能删回退**——`tests/artifact-flow.test.js:240` 静态断言了这一行；但测试锁的是 `artifactPaths.length===0 && primaryOutputPath`，**没锁** `|| trackingState?.contract?.output` 这个来源。加门不会撞护栏：仅当 `obs.collected === true`，或该文件 `mtime >= trackingState.startMs` 时才允许把 `contract.output` 当本 producer 的产物。
+**修法**：**不能删回退**——`artifact-flow.test.js:240` 静态断言了这一行；但测试锁的是 `artifactPaths.length===0 && primaryOutputPath`，**没锁** `|| trackingState?.contract?.output` 这个来源。加门不会撞护栏：仅当 `obs.collected === true`，或该文件 `mtime >= trackingState.startMs` 时才允许把 `contract.output` 当本 producer 的产物。
 
 ---
 
@@ -185,7 +185,7 @@ normalized.collected = normalized.collected === true || Boolean(
 | L4 | manifest 非原子写 + status 恒 `completed`（失败轮次也写） | `artifact-store.js:190-191/185`；`preserve_artifact` 无 match 恒执行（`agent-end-lifecycle.js:27`） | manifest.status 全库无消费方，但撕裂的 manifest 会随包进下游 LLM 上下文 |
 | L5 | basename 扁平化 + 同名先到先得静默丢弃 | `artifact-store.js:159-171` `if (seen.has(name)) continue;` | 只影响 external absolute artifacts；无 failures、无 marker、下游无从知晓 |
 | L6 | 压缩清单自身不计入 2MB 预算、无条目上限 | `context-compression.js:86-95` 遍历全部 rows；`artifact-store.js:292-298` 直接 writeFile | 纯函数实测 2300 条即越过 2,000,000 字节。但包文件数受 outbox 平铺限制，现实拓扑远达不到 |
-| L7 | 溢出恢复指令是死指针：`<contractId>` 从未被替换 | `context-compression.js:83` 字面量；函数签名 `:76` 根本不接 contractId；`tests/context-compression.test.js:67` 把它锁死 | 清单能说"缺了谁"，给不出可执行的取回动作 |
+| L7 | 溢出恢复指令是死指针：`<contractId>` 从未被替换 | `context-compression.js:83` 字面量；函数签名 `:76` 根本不接 contractId；`context-compression.test.js:67`（该测试已随 2026-08-16 批④ workspace 视图化删除）把它锁死 | 清单能说"缺了谁"，给不出可执行的取回动作 |
 | L8 | `_MISSING.md` 写了但无指针：全失败时 `packages=[]` → 不写 upstreamPackages | `artifact-store.js:255-259`；`runtime-mailbox.js:46` 硬门控；`role-spec-registry.js:13` 只教了指针一条读法 | marker 从"只 warn 看不见"升级成"落盘但没人被指引去读"。注：`artifact-store.js:97` 已有 warn，运维侧可见 |
 | L9 | 共享池按 graph 边序先到先得 | `artifact-store.js:264` `[...perProducer.values()].flat()`；`context-compression.js:52-57` 按输入序贪心 | 顺序对调结论完全反转（纯函数实测）。**但 live 图当前无任何 fan-in 节点**，今天不可触发 |
 | L10 | `stat` 失败记 size=0，恒进 included 绕过预算 | `artifact-store.js:71-76`；`used+0<=cap` 在 `used<=cap` 不变式下恒真 | 竞态触发，概率极低 |
@@ -240,9 +240,9 @@ normalized.collected = normalized.collected === true || Boolean(
 
 2. **`contract.output` 有"两个写者"（agent 直写 + 镜像覆盖）** — **REFUTED**。`agent-end-stage-definitions.js:215-216` 注释提到的"单交付物直接写 contract.output（WebUI 链路）"是 **gateway agent**，而 gateway agent **根本没有 outbox 采集**（`runtime-mailbox-transport.js:13-18` 对 `isGatewayAgent` 返回 null，`runtime-mailbox.js:76-77` 直接 `{collected:false}`），镜像永远不会在那条链路上跑，两个写者在同一合约上不可能并存。`before-tool-call.js:296-299` 的 `isContractOutputTarget` 是跨工作区守卫的**豁免项**，不是写入路径的存在证明。**不要按此改镜像逻辑**——加"仅当 contract.output 不存在才覆盖"反而会与 M2 的陈旧产物场景打架。
 
-3. **`saveAgentArtifact` 整段吞错、成功也不抛** — 意图，`artifact-store.js:16` 写死红线「绝不破坏 agent_end」，`:195` 注释「保存失败静默」。stage 外层那层不可达的 catch 也不是缺陷，`:205` 注释明说是二层兜底，`tests/artifact-flow.test.js:244` 还静态断言它必须存在。**可批评的只有"不抛 ≠ 不记日志"**（见 L 级 #L2）。
+3. **`saveAgentArtifact` 整段吞错、成功也不抛** — 意图，`artifact-store.js:16` 写死红线「绝不破坏 agent_end」，`:195` 注释「保存失败静默」。stage 外层那层不可达的 catch 也不是缺陷，`:205` 注释明说是二层兜底，`artifact-flow.test.js:244` 还静态断言它必须存在。**可批评的只有"不抛 ≠ 不记日志"**（见 L 级 #L2）。
 
-4. **空 artifactPaths 回退 primaryOutputPath 打包** — 回退本身是意图，被 `tests/artifact-flow.test.js:240` 静态锁死。H4 缺的是**归属/新鲜度门**，不是回退本身；且测试没锁 `|| trackingState.contract.output` 这个来源，加门不撞护栏。
+4. **空 artifactPaths 回退 primaryOutputPath 打包** — 回退本身是意图，被 `artifact-flow.test.js:240` 静态锁死。H4 缺的是**归属/新鲜度门**，不是回退本身；且测试没锁 `|| trackingState.contract.output` 这个来源，加门不撞护栏。
 
 5. **reviewer verdict=fail 仍判 COMPLETED** — 意图，`tests/terminal-outcome.test.js:112-127` 明确锁定：返工走 transition/graph，不走结局判定；`deriveTestsPassed` 只填 evidence。推论要记住：`status=completed && testsPassed=false` 是**合法状态**，下游消费者不能只看 status。
 
@@ -262,8 +262,8 @@ normalized.collected = normalized.collected === true || Boolean(
 ### 真正扎实的部分（不是客套）
 
 - **单一真值这条纪律守住了**：`evaluateContractOutcome` 只有一份实现（`contract-outcome.js:181`，`contracts.js:251` 只是 re-export，全库唯一语义调用点 `terminal-outcome.js:76`）；`commitSemanticTerminalState` 是唯一写 COMPLETED/FAILED 的入口（只有 2 个调用方）；`saveAgentArtifact` 全库单一调用点（旧的 `cleanup_transport` 调用已删且有反向测试守）；`computeContextBudgetPlan` 是唯一的字节取舍真值（无 I/O、无 Date、无随机，输入顺序即决策顺序，入参防御完整）；outbox 协议以 `runtime_result.json` 为唯一真值，legacy `_manifest.json` 硬拒并带 error。**没有野生的平行实现。**
-- **最关键的那条防线立得住**：「runtime_result 的 `status:completed` 只是元数据、不构成完成，必须有文件系统证据」——`contract-outcome.js:255-286` + `tests/contract-outcome-runtime-result-boundary.test.js:39-61` 明确锁定"runtime 说完成 + artifacts:[] → FAILED"。这挡住了 agent 自我宣告完成，是整个门控最重要的一条。
-- **阶段序被静态护栏锁死**：`collect_transport(107) → extract_output_markers(124) → preserve_artifact(206) → graph_route(240)`，留存严格早于任何下一跳派工，`tests/artifact-flow.test.js` 用 stage id 索引断言；`routeInbox` 里 `handlerIdx < copyIdx` 同样被钉死。
+- **最关键的那条防线立得住**：「runtime_result 的 `status:completed` 只是元数据、不构成完成，必须有文件系统证据」——`contract-outcome.js:255-286` + `contract-outcome-runtime-result-boundary.test.js:39-61`（该测试后随判决机拆除删除）明确锁定"runtime 说完成 + artifacts:[] → FAILED"。这挡住了 agent 自我宣告完成，是整个门控最重要的一条。
+- **阶段序被静态护栏锁死**：`collect_transport(107) → extract_output_markers(124) → preserve_artifact(206) → graph_route(240)`，留存严格早于任何下一跳派工，`artifact-flow.test.js` 用 stage id 索引断言；`routeInbox` 里 `handlerIdx < copyIdx` 同样被钉死。
 - **v133 mirror-bug 的修复在 reorg 后完整存活并三重加固**（长注释 + 还原 live 事故形态的命名回归测试 + `E-CONTRACT-004` 登记复发点）。这说明大重排没有伤到核心逻辑。
 - **hard-stop 收口是 fail-closed 的**：`resolveAuthoritativeHardStopOutcome`（`hard-stop-terminalize.js:77-108`）只在有真实证据时才接受 COMPLETED，否则回落 FAILED。这个方向是对的。
 - **有界注入的消费侧比生产侧扎实**：枚举失败/单文件复制失败/清单写失败全部记入 failures 并落可见 `_MISSING.md`；超大单文件进 overflow 但不累加 `used`，不会饿死后面的小文件（有注释有两个测试）；`readHead` 只读前 4096 字节不整读大文件；`packages`（copied ∪ compressed）而非 `copied` 作为指针门控——这是个极容易写成 `if (copied.length>0)` 然后让"全溢出的上游"彻底隐身的地方，这里没写错。

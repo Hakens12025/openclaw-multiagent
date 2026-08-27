@@ -23,7 +23,7 @@
 - 复用:`inspect.graph_loops`(loop 高亮)、`inspect.agent_graph`、`inspect.tracking_states`/`active_loop_session`、SSE `/watchdog/stream`。
 
 ### 前端(P-WF2/3/4)
-- nav 加 tab;`workflow.html`/`dashboard-workflow.js`/`.css`;route `/watchdog/workflow-view`。
+- nav 加 tab;`workflow.html`/`dashboard-workflow` 页脚本/`.css`;route `/watchdog/workflow-view`（旧 dashboard 前端,已随 v233 前端重制整删,现前端=ui/ 零构建 SPA）。
 - 三区:右上**缩略图**(镜像主页,复用 `dashboard-svg`)/ 左**workflow 拓扑**(连通分量,自顶向下,SSE 动态闪)/ 中**session 查看器**(下拉切 session+文件超链接→reveal)。
 - 主题:NASA-Punk 变量,扁平(无圆角/阴影/渐变/毛玻璃),`dispatch-pulse`/`data-refresh` keyframe 做闪动。
 

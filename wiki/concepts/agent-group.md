@@ -72,7 +72,7 @@ AgentGroup 的 `parallel` 和 `race` 输出模式直接映射到 graph 的同名
 宏展开本体已落地（v119）：
 
 - `lib/agent/agent-group-spec.js`：`normalizeGroupSpec`（members ≥ 2；`internalEdges` 两端必须都是成员，否则不是组内协作、会污染拓扑——**无 group-internal 免授权暗门**）+ `expandAgentGroup`（GroupSpec → 显式 `EdgeSpec[]` 带 `metadata.groupId`）+ `OUTPUT_MODES`（passthrough/aggregate/race，default aggregate）+ `buildOutputPolicies`。
-- `lib/agent/group-session-store.js` + `lib/agent/group-session-normalize.js`：运行层追踪（在 `lib/agent/`；曾经并列的 `lib/loop/loop-session-store.js` 已随回路退役删除，GroupSession 现在是图上唯一的运行层会话）。
+- `lib/agent/group-session-store.js` + `lib/agent/group-session-normalize.js`：运行层追踪（在 `lib/agent/`；曾经并列的回路会话存储模块 loop-session-store 已随回路退役（v215）连同整个 `lib/loop/` 目录删除，GroupSession 现在是图上唯一的运行层会话）。
 - `lib/agent/agent-workflow-grouping.js`：工作流分组。
 - 可观测：`inspect.agent_groups`。
 

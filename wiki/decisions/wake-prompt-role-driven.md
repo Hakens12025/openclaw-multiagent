@@ -1,6 +1,6 @@
 # wake 提示词数据驱动接入 role-spec
 
-> ⚠️ **一个载体已消失（标注于 2026-08-09）**：正文多处提到的 `lib/soul-template-builder.js`（6 个 per-role SOUL 模板生成器）**已被删除** —— role 内容随 role→IDENTITY 拆分迁走，SOUL 回归纯用户人格，见 [role/SOUL/wake 解耦](./role-soul-wake-decoupling.md)。本决策的结论（wake 提示词按 role-spec 数据驱动）不变。以下正文保留当时原貌。
+> ⚠️ **一个载体已消失（标注于 2026-08-09）**：正文多处提到的 soul-template-builder 模块（原在 lib 根，6 个 per-role SOUL 模板生成器）**已被删除**（v164） —— role 内容随 role→IDENTITY 拆分迁走，SOUL 回归纯用户人格，见 [role/SOUL/wake 解耦](./role-soul-wake-decoupling.md)。本决策的结论（wake 提示词按 role-spec 数据驱动）不变。以下正文保留当时原貌。
 
 > 系统派工(wake)提示词从 role-spec 派生 per-role 个性,消除「6 role 实际只有 2 种 wake 提示词」的真值分裂。
 
@@ -20,7 +20,7 @@
 调研确认,改前存在两套提示词,且 wake 路径几乎不用 role 设计:
 
 - **两套提示词,载体不同**
-  - SOUL.md(`lib/soul-template-builder.js`,6 个 per-role 模板)→ 写进 agent workspace,**仅用户直连时生效**。
+  - SOUL.md(soul-template-builder 模块,6 个 per-role 模板;载体已删,见页首注记)→ 写进 agent workspace,**仅用户直连时生效**。
   - contract-session-override(`lib/prompt/contract-session-prompt-override.js` 的 `buildContractSessionSystemPrompt`)→ 经 `hooks/before-prompt-build.js` 在 `before_prompt_build` **系统派工时替换 SOUL**(index.js 注册)。
   - 选择逻辑:`lib/agent/agent-session-system-prompt.js`(`isDispatch ? agentAwake : soul`)。
 - **wake 时 6 role 只有 2 种提示词**:`buildOutputDirectives(role)` 只判断 `role === PLANNER`,其余 5 个 role 在 wake 时拿到**逐字相同**的提示词。
@@ -54,7 +54,7 @@ role-spec-registry  (唯一英文源)
 ## 实施结果(2026-05-31)
 
 - `lib/prompt/role-spec-registry.js`:6 role 全英文 + 新增 `outputDirectives` + `renderRolePersonaLines`(共享渲染)+ 删 `getDispatchInstruction`/`dispatchInstruction`/`joinDispatchInstruction`。
-- `lib/soul-template-builder.js`:6 个 SOUL 模板全英文化(只改语言,结构不动)+ 复用 `renderRolePersonaLines`。
+- soul-template-builder(当时在 lib 根):6 个 SOUL 模板全英文化(只改语言,结构不动)+ 复用 `renderRolePersonaLines`。
 - `lib/prompt/contract-session-prompt-override.js`:`buildContractSessionSystemPrompt` 注入 `## Role`(summary + persona 行)+ `getRoleOutputDirectives` 替代 `buildOutputDirectives`(已删)+ `upstreamPackages` 读取入骨架。
 - 测试:7 个测试的中文断言改英文等价 + 2 个 mock 测试删无效遗留 `getDispatchInstruction` mock。
 - 验证:完整串行门 **1544/0**。wake 每 role 性格分化(executor=工程师 / reviewer=审查者 / planner=规划者);planner 产简报 + `[STAGE]`,其余产交付物。
@@ -67,4 +67,4 @@ role-spec-registry  (唯一英文源)
 
 ## 出处
 
-讨论日期: 2026-05-31。调研代码真值:`lib/prompt/contract-session-prompt-override.js`、`lib/prompt/role-spec-registry.js`、`lib/soul-template-builder.js`、`lib/agent/agent-session-system-prompt.js`、`hooks/before-prompt-build.js`;消费链 grep 确认 `getDispatchInstruction` 改前生产零消费。
+讨论日期: 2026-05-31。调研代码真值:`lib/prompt/contract-session-prompt-override.js`、`lib/prompt/role-spec-registry.js`、soul-template-builder(已删)、`lib/agent/agent-session-system-prompt.js`、`hooks/before-prompt-build.js`;消费链 grep 确认 `getDispatchInstruction` 改前生产零消费。

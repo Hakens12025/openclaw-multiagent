@@ -133,7 +133,7 @@ cd extensions/watchdog
 node test-runner.js                    # 默认 health：零 LLM 系统体检
 node test-runner.js --preset single    # 最小 live 派工链路
 node test-runner.js --preset full      # 全部 suite 串行全量体检
-node test-runner.js --list             # 打印全部 12 个预设
+node test-runner.js --list             # 打印 live 预设表(清单以此为准)
 ```
 
 每个检查产出 CheckResult，失败必带 `E-*` 错误码，报告 failures-first 写到 `~/.openclaw/test-reports/`。

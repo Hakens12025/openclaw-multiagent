@@ -196,9 +196,10 @@ _产物如何生成、独立留存、整包流转到下游 inbox/upstream/，上
 - **上游产物整包流入 (upstream-package-inflow)** — 把上游 agent 的树 outbox 整包送进下游 inbox/upstream/<producer>/，每 producer 独立包互不覆盖。数据源只有树 outbox 一处：已封包→symlink 零拷贝，未封包→拷当前内容
   - 功能: `copyUpstreamArtifactsToInbox` `resolveUpstreamProducers` `listPackageFiles` `readPackagePrimary`
   - 文件: `lib/delivery/upstream-package-inflow.js`
-  - ⚠ 2026-08-19 改名并收店：原 `lib/lifecycle/artifact-store.js`；`control-plane/artifacts/` 副本店与 `saveAgentArtifact`/`artifactPackageDir`/`preserve-stage.js` 全部删除。上游名单不再反查图入边，改读 `contract.upstreamProducers` 指针（写者 `dispatch-graph-policy.js` 的 `applyUpstreamProducerPointer`）
-- **上游上下文有界注入·溢出压缩** — 唯一字节预算真值(纯函数)：决定哪些上游文件整包流入、哪些溢出改压缩清单/缺料标记，可单测不读写盘
-  - ⚠ 2026-08-19 本条已失真：`lib/delivery/context-compression.js` 与 `computeContextBudgetPlan` 全库零命中，上游上下文预算面已被其他工作重写，定址前先 find。（非回路退役造成）
+  - ⚠ 2026-08-19 改名并收店：原 `artifact-store.js`（原址在 lib/lifecycle/ 下，已删）；`control-plane/artifacts/` 副本店与 `saveAgentArtifact`/`artifactPackageDir`/`preserve-stage.js` 全部删除。上游名单不再反查图入边，改读 `contract.upstreamProducers` 指针（写者 `dispatch-graph-policy.js` 的 `applyUpstreamProducerPointer`）
+- **上游导览与缺料标记 (upstream-guide)** — 原「上游上下文有界注入·溢出压缩」：字节预算取舍已于 2026-08-16 批④ workspace 视图化退役（`context-compression.js` 与 `computeContextBudgetPlan` 已删），上游文件一律整包在场（树链或拷贝）；COMPRESSED_MANIFEST 导览化为 UPSTREAM_GUIDE
+  - 功能: `buildUpstreamGuide (UPSTREAM_GUIDE.md 导览)` `buildMissingMarker (_MISSING.md 缺料标记)`
+  - 文件: `lib/delivery/upstream-guide.js`
 - **下游收包接线 (routeInbox 尾部)** — before_agent_start 时把上游产物包拷进 inbox，并把 upstreamPackages 指针写进刚 stage 的 contract.json
   - 功能: `writeUpstreamPackagesPointer` `resolveStagedContractId` `upstreamPackages 白名单字段`
   - 文件: `lib/routing/mailbox/runtime-mailbox.js` `lib/routing/mailbox/runtime-mailbox-inbox-handlers.js`
@@ -229,7 +230,7 @@ _operator 消费的知识层：wiki-RAG hybrid 检索(向量 cosine+词法 BM25-
   - 文件: `lib/knowledge/wiki-rag-rerank.js` `lib/knowledge/wiki-rag-judge.js`
 - **召回评测引擎 (eval)** — 纯函数评测：recall@k/MRR/ghostHitRate+faithfulness/context-precision；searchFn/judgeFn 注入可单测可 live
   - 功能: `evaluateWikiRagRecall` `formatRecallReport` `evaluateFaithfulness` `evaluateContextPrecision`
-  - 文件: `lib/knowledge/wiki-rag-eval.js` `tests/fixtures/wiki-rag-eval-set.json`
+  - 文件: `lib/knowledge/wiki-rag-eval.js` 与评测集 fixture `wiki-rag-eval-set.json`(位于 tests/fixtures/ 下)
 - **多知识库注册表·ingestion (KB)** — 多 KB 注册表(种子 wiki∪用户库)+任意文件/文件夹 ingestion+per-agent 检索合并；建库/检索全复用 wiki-rag 核心
   - 功能: `listKnowledgeBaseSpecs` `buildKbIndex` `searchKb/searchAgentKnowledge` `selectAgentKnowledgeBases/mergeAgentKbResults` `normalizeKnowledgeBaseSpec`
   - 文件: `lib/knowledge/knowledge-base.js` `lib/knowledge/knowledge-base-registry.js`
@@ -246,19 +247,19 @@ _如何验证系统正确性：formal-runtime 测试系统(CheckResult+E-码注�
 
 - ~~**Harness 目录·注册表·组装校验** —（已退役 v226）~~ harness 静态真值：10 模块(guard/collector/gate/normalizer)+4 profile+选择归一(coverage 比率派生 mode)+组装连贯性软建议
   - 功能: `listHarnessModuleCatalog` `summarizeHarnessRegistry` `normalizeHarnessSelection` `HARNESS_PROFILES` `validateHarnessComposition (no_gate/no_guard/gate_without_collector)`
-  - 文件: `lib/harness/harness-module-catalog.js` `lib/harness/harness-registry.js` `lib/harness/harness-composition.js`
+  - 文件(已随 v226 全删，原 lib/harness/ 下): `harness-module-catalog.js` `harness-registry.js` `harness-composition.js`
 - ~~**Harness Run 生命周期** —（已退役 v226）~~ HarnessSpec/HarnessRun 归一与 start/finalize，从 automationSpec 建 spec，reviewerResult 从模块结果派生
   - 功能: `normalizeHarnessRun` `startHarnessRun` `finalizeHarnessRun` `buildHarnessSpec` `HARNESS_RUN_STATUS/HARNESS_GATE_VERDICT`
-  - 文件: `lib/harness/harness-run.js` `lib/harness/harness-run-normalizers.js`
+  - 文件(已随 v226 全删，原 lib/harness/ 下): `harness-run.js` `harness-run-normalizers.js`
 - ~~**Harness 模块执行器 (pass/fail 判定)** —（已退役 v226）~~ 每模块实际判定：guard 评工具白名单/网络/scope/沙箱/预算，gate 判 artifact/schema/test，normalizer 判 eval_input/failure；worst-status 合并
   - 功能: `initializeHarnessRunModules` `finalizeHarnessRunModules` `evaluateToolAccessGuard/evaluateScopeGuard` `GUARD_REGISTRY` `combineStatuses (failed>passed>skipped)`
-  - 文件: `lib/harness/harness-module-runner.js` `lib/harness/harness-module-evaluators.js` `lib/harness/harness-guard-checks.js`
+  - 文件(已随 v226 全删，原 lib/harness/ 下): `harness-module-runner.js` `harness-module-evaluators.js` `harness-guard-checks.js`
 - ~~**Run-Shape 覆盖塑形 + 评审/评估结果** —（已退役 v226）~~ coverage 三层对象化(RunShapeMap)+完整性校验(消除假安全感)+softGuided 反逼；reviewer/evaluation/stage 结果构造归一
   - 功能: `buildRunShapeMap/validateRunShapeMap` `validateCoverageCompleteness` `buildReviewerResult/isPassingReviewerResult` `buildEvaluationResult` `listMissingStageArtifacts`
-  - 文件: `lib/harness/run-shape-map.js` `lib/harness/soft-guidance.js` `lib/harness/reviewer-result.js`
+  - 文件(已随 v226 全删，原 lib/harness/ 下): `run-shape-map.js` `soft-guidance.js` `reviewer-result.js`
 - ~~**Harness 存储 + Dashboard 投影** —（已退役 v226）~~ HarnessRun 落盘/按 contract 或最近查询 + dashboard 目录投影(模块/profile 用量、placements、recentRuns)
   - 功能: `recordHarnessRun/getHarnessRun` `listRecentHarnessRuns/listHarnessRunsByContract` `summarizeHarnessDashboard` `buildPlacementSummary` `summarizeRecentRuns`
-  - 文件: `lib/harness/harness-run-store.js` `lib/harness/harness-dashboard.js`
+  - 文件(已随 v226 全删，原 lib/harness/ 下): `harness-run-store.js` `harness-dashboard.js`
 - **CheckResult 引擎 + E-码注册表** — 测试系统原子：CheckResult(pass/fail/skip/blocked)归一/校验/统计，fail/blocked/skip 必带已注册 E-码；105 条错误码单一注册表(code→meaning+hint)
   - 功能: `createCheckContext/addCheck` `runCheck` `markBlocked` `summarizeChecks` `getErrorCode/ERROR_CODES`
   - 文件: `lib/formal-runtime/checks/check-runner.js` `lib/formal-runtime/error-codes.js`
@@ -293,15 +294,15 @@ _cron/schedule 到点触发 + automation 自治轮次的注册与运行，把任
 - **轮次驱动/Executor** — mode-B 生产驱动：到点轮询起跑新一轮、把上轮教训拼进任务文本、周期对账运行时真值
   - 功能: `pollDueAutomations` `startAutomationRound` `reconcileAutomationRuntimeStates` `composeEntryMessageWithRework` `buildNextWakeAt`
   - 文件: `lib/automation/automation-executor.js` `lib/automation/automation-start.js` `lib/automation/automation-reconcile.js`
-- **Harness 生命周期编织** — 为每轮 automation 构建/续接 harness spec+run，建合约索引，把 dispatch 结果分类为 started/busy
+- ~~**Harness 生命周期编织** —（已退役 v226）~~ 为每轮 automation 构建/续接 harness spec+run，建合约索引，把 dispatch 结果分类为 started/busy
   - 功能: `buildActiveHarnessLifecycle` `buildContractIndex` `classifyStartResult` `appendHarnessRun/hasRecordedRound` `resolveRoundFromContext`
-  - 文件: `lib/automation/automation-harness-lifecycle.js`
+  - 文件(已随 v226 删除，原 lib/automation/ 下): `automation-harness-lifecycle.js`
 - **轮次收敛与决策** — 合约终态回收本轮：跑 gate、算改善/spin、按预算与 reviewer verdict 派生 continue/rework/conclude/pause/abandon
   - 功能: `handleAutomationContractTerminal` `deriveDecision (maxRounds/earlyStop/no_progress_repeat)` `computeImprovementState (fingerprint spin)` `buildReworkGuidance` `extractContractScore`
   - 文件: `lib/automation/automation-finalize.js` `lib/automation/automation-decision.js`
 - **治理与画像生命周期** — 由决策证据派生 profileLifecycle(trust ladder)与 governanceSnapshot(收紧参数)，达阈值沉淀因果 skill
   - 功能: `buildProfileLifecycle/TRUST_LADDER` `resolveGovernance (唯一合流点)` `normalizeGovernanceSnapshot` `shouldPrecipitateSkill/extractCausalSkill` `precipitateSkill`
-  - 文件: `lib/automation/profile-lifecycle.js` `lib/automation/resolve-governance.js` `lib/automation/automation-skill-precipitation.js`
+  - 文件: `lib/automation/profile-lifecycle.js` `lib/automation/resolve-governance.js`（skill 沉淀件 `automation-skill-precipitation.js` 已随 v226 harness 退役删除）
 
 ### L9 控制面·元层 (Control-plane / Meta-agent)
 _元 agent(operator+viz-master)经 cli-system 四表面(inspect/apply/verify/observe)零旁路读写系统结构本身，配 structure-snapshot 原子回滚+表面所有权守卫，回答如何安全改系统表象/结构_
@@ -381,9 +382,9 @@ _人如何观测系统：零构建 SPA `extensions/watchdog/ui/`(指挥台/透�
 - RESOLVED 2026-08-18: the `loop` naming collision is fully gone. 'repeated tool-call hard-stop' moved out of the old lib/loop/ to `lib/runtime/execution-hard-stop-registry.js` (L3 sandbox safety, consumed by hooks/before+after-tool-call), and loop-epoch-key.js to `lib/runtime/session-epoch-key.js`; then lib/loop/ itself was deleted with the loop retirement. **Every surviving `loop` literal in lib/ now means one of exactly three things**: (a) execution hard-stop (`lib/runtime/*`, hooks/*-tool-call.js, `[LOOP DETECTED]` marker), (b) graph cycle detection (`detectCycles` and its dashboard/prompt consumers), (c) the second naming family — self-governance / Inspect-Apply-Verify / tool loop (`lib/operator/operator-knowledge.js`, `lib/knowledge/knowledge-toolface.js`, `wiki/concepts/self-governance-loop.md`). The anti-runaway guard `dispatch-depth-guard.js` remains in routing/ (deliberate: it rides the contract snapshot, not a registry).
 
 ### 3.3 死码 / 孤儿 / 残壳 (确认后处理,勿自动删)
-- lib/task-stage-planner.js — 21-line stub whose planTaskStages() returns null; a thin/likely-dead re-export superseded by materializeTaskStagePlan in task-stage-plan.js. Confirm no importer, then delete (do NOT auto-remove — get explicit approval per dead-code hygiene).
+- lib/stage/task-stage-planner.js（调研时位于 lib/ 根）— 21-line stub whose planTaskStages() returns null; a thin/likely-dead re-export superseded by materializeTaskStagePlan in task-stage-plan.js. Confirm no importer, then delete (do NOT auto-remove — get explicit approval per dead-code hygiene).
 - lib/dev/system-block-registry.js — a one-file dir with NO runtime consumers; only two test files + README doc-sync reference it. A build/introspection tool inside the runtime lib/ tree; orphan-by-runtime standards but intentionally retained per the prior /simplify audit. Keep, but it doesn't belong in the runtime import graph.
-- lib/agent/agent-admin.js, lib/agent/agent-admin-agent-operations.js, lib/agent/agent-binding-store.js, lib/harness/harness-module-contract.js — NOT dead (still re-exported) but vestigial facade/shim remnants of prior god-object splits; harness-module-contract is a thin re-export over harness-module-schema worth folding in. Flagged as churn signals, not deletions.
+- lib/agent/agent-admin.js, lib/agent/admin/agent-admin-agent-operations.js（调研时位于 lib/agent/ 根）, lib/agent/agent-binding-store.js, 及 `harness-module-contract.js`（原 lib/harness/ 下，已随 v226 harness 退役删除）— NOT dead (still re-exported) but vestigial facade/shim remnants of prior god-object splits; harness-module-contract is a thin re-export over harness-module-schema worth folding in. Flagged as churn signals, not deletions.
 
 ### 3.4 已内聚·保持原样
 - lib/automation/ — cohesive well-factored L8 (15 single-concern files mapping cleanly to taxonomy modules; no cross-layer intruders). Only nit: admin-helpers.js is shared with lib/schedule/ but lives only here (asymmetric, no neutral home).
@@ -418,12 +419,13 @@ watchdog/  (extension root)
 ├── shared/                       # NEW — front/back straddle vocab (served + imported by lib)
 │   └── protocol-registry.js      # from repo root (L0/L1 protocol id vocab)
 ├── dashboard/                    # NEW — all 39 loose dashboard-*.js (+ .html/.css)
-│   ├── dashboard-init.js  dashboard-nav.js  dashboard-bus.js  dashboard-i18n.js
-│   ├── dashboard-common.js  dashboard-ux.js  dashboard-drag.js  dashboard-draggable-widget.js
-│   ├── dashboard.js  dashboard-work-items.js  dashboard-contract-lane.js  ...
-│   ├── dashboard-graph.js  dashboard-runtime-graph.js  dashboard-svg.js  dashboard-flow-visuals.js
-│   ├── dashboard-workflow.js  dashboard-harness*.js  dashboard-devtools*.js
-│   └── dashboard-operator.js  dashboard-knowledge.js  dashboard-charts*.js  dashboard-control-plane.js
+│   │                             # (2026-08 注: 该目录后随 v233 前端重制整删,现前端=extensions/watchdog/ui/ 零构建 SPA;下列历史名单省略 .js 后缀)
+│   ├── dashboard-init  dashboard-nav  dashboard-bus  dashboard-i18n
+│   ├── dashboard-common  dashboard-ux  dashboard-drag  dashboard-draggable-widget
+│   ├── dashboard.js  dashboard-work-items  dashboard-contract-lane  ...
+│   ├── dashboard-graph  dashboard-runtime-graph  dashboard-svg  dashboard-flow-visuals
+│   ├── dashboard-workflow  dashboard-harness*  dashboard-devtools*
+│   └── dashboard-operator  dashboard-knowledge  dashboard-charts*  dashboard-control-plane
 └── lib/
     ├── index.js/state.js NO LONGER loose ── see state/ below
     ├── core/                     # KEEP (clean L0 primitives)
@@ -511,7 +513,7 @@ watchdog/  (extension root)
 | 目标目录 | 数量 | 来源 | 理由 |
 |----------|------|------|------|
 | `dashboard/` | 39 | repo-root dashboard-*.js (all 39) | 39 loose UI modules — incl. the 4 largest files in the tree (devtools 1912, workflow 1440, dashboard 1332, agents 1167) — sit at the extension root intermixed with backend index.js/runtime-mailbox.js/protocol-registry.js. routes/ already pr |
-| `lib/formal-runtime/` | 9 | loose lib/test-*.js + lib/formal-test-presets.js | Smell (d): the formal test system's preset single-source + suite dispatch + HTTP/CLI orchestration + report-artifact naming sit loose at lib/ root while the suites/checks/error-codes they drive all live in lib/formal-runtime/. Reunites the  |
+| `lib/formal-runtime/` | 9 | loose lib/test-*.js + lib 根的 formal-test-presets.js | Smell (d): the formal test system's preset single-source + suite dispatch + HTTP/CLI orchestration + report-artifact naming sit loose at lib/ root while the suites/checks/error-codes they drive all live in lib/formal-runtime/. Reunites the  |
 | `lib/stage/` | 10 | stage/task-stage/execution-observation loose lib root files | A cohesive ~1500-line L2 stage subsystem (plan/planner/projection/results/witness-engine/marker-parser/progress) plus the scattered execution/io/stage observation data-models live entirely loose at lib/ root, while far smaller concerns (loo |
 | `lib/contract/` | 6 | loose lib/contract*.js + terminal-outcome + tracking-work-item | The contract-* family is a cohesive L2 state-machine + outcome-judgement + lifecycle-view group sitting loose at top-level with no owning dir; a lib/contract/ subdir removes the naming-drift smell. (contract-session-prompt-override.js is L4 |
 | `lib/routing/` | 7 | loose L1 routing/delivery/mailbox strays at lib root + repo-root runtime-mailbox.js | replyTo/returnContext normalization, direct-envelope FIFO transport, SEMANTIC_WORKFLOWS constants, QQ reply-target, coordination primitives, and the runtime-mailbox façade all duplicate the concern of lib/routing/ where every consumer (disp |
@@ -547,19 +549,19 @@ watchdog/  (extension root)
 - `lib/management/capability-management-targets.js` → `lib/management/` (L9) — L9 management read-model aggregator; pairs with capability-registry.js in lib/management/.
 - `lib/security/capability-preset-registry.js` → `lib/security/` (L3) — A HARD per-role tool/path security preset enforced by before_tool_call — belongs with the L3 enforcement layer (security.js), not beside L9 management read-models. Its move empties lib/capability/ entirely.
 - `protocol-registry.js` → `shared/` (L0/L1) — Protocol id vocab imported by BOTH the statically-served frontend (dashboard-flow-visuals) and backend lib/*. Genuine layering ambiguity — neither lib/ nor dashboard/ can cleanly own it. A shared/ (served vocab) dir formalizes the straddle instead of squatting at root intermixed with UI.
-- ~~`lib/ingress/conversations.js`~~ — 已于 2026-08-19 整删（buildPriorContext 零下游消费者，跨 run 索引归 thread）。
+- ~~`conversations.js`（原 lib/ingress/ 下）~~ — 已于 2026-08-19 整删（buildPriorContext 零下游消费者，跨 run 索引归 thread）。
 - `lib/transport/channel-notify.js` → `lib/transport/` (L1) — QQ outbound channel sender (qqbot plugin bridge) consumed by delivery-terminal-runtime/delivery-targets; a transport channel like sse.js which already lives in lib/transport/.
 - `lib/system-action/collaboration-policy.js` → `lib/system-action/` (L1) — prepareCollaborationTarget + planCollaborationSystemActionDelivery, both consumed only by system-action-runtime/request-review. Belongs with the system-action subsystem.
 - `lib/effective-profile-composer.js` → `lib/agent/` (L3) — composeEffectiveProfile/Binding/CapabilityProfile merges execution-policy + capability + skills + card; every consumer lives in lib/agent/. An agent-config composer stranded at top-level.
 - `lib/workspace-guidance-writer.js` → `lib/agent/` (L4) — Main managed-guidance writer (syncAgentWorkspaceGuidance); the rest of the guidance family (managed-guidance-files, agent-guidance-drift, agent-enrollment-guidance) already lives in lib/agent/.
-- `lib/finding-marker-parser.js` → `lib/harness/` (L7) — Extracts [BLOCKING]/[SUGGESTION] reviewer markers into ReviewerResult-compatible findings; pairs with lib/harness/reviewer-result.js.
-- `lib/review-context-builder.js` → `lib/harness/` (L7) — Assembles ReviewContext (cross-round history + guard results + artifact refs) into reviewer inbox; sibling of lib/harness/reviewer-result.js.
+- `finding-marker-parser.js`（原 lib/ 根）→ `lib/harness/` (L7) — Extracts [BLOCKING]/[SUGGESTION] reviewer markers into ReviewerResult-compatible findings; pairs with harness 侧 reviewer-result.js.（该族已随 v225 评审链/v226 harness 退役全删）
+- `review-context-builder.js`（原 lib/ 根）→ `lib/harness/` (L7) — Assembles ReviewContext (cross-round history + guard results + artifact refs) into reviewer inbox; sibling of harness 侧 reviewer-result.js.（同上，已随 v225/v226 退役全删）
 - `lib/error-ledger.js` → `lib/runtime/` (L0) — Global crash-pattern ledger + auto-generates error-avoidance SKILL.md; same family as lib/runtime/execution-incident-store.js, consumed by crash-recovery + before-tool-call.
 - `lib/heartbeat-gate.js` → `lib/runtime/` (L0) — Passive-session actionable-work policy reading lib/runtime/pending-signal-registry.js; belongs beside it.
 
 ### 4.3 风险
 
-"Real cost is ESM/CJS relative-import churn, not logic. ~136 file moves (82 loose lib-root + 39 dashboard + ~15 cross-subdir misplacements) each rewrite two edge sets: (a) the moved file's own relative refs to non-moved siblings (./x -> ../x or ../subdir/x), and (b) EVERY importer of the moved file (./x -> ./subdir/x). Fan-out is heavily skewed — most files have a handful of importers, but a few are catastrophic: lib/state.js (cfg/tracker) and lib/state-collections.js are imported by nearly the whole tree, so lib/state/ alone could touch 100+ import sites; contracts.js, contract-outcome.js, session-keys.js, core/* and the routing primitives are next-tier fan-in. Conservative estimate: 500-900 import-site edits across the reorg, dominated by the state/ and contract/ buckets. Secondary breakage surfaces beyond require paths: (1) leading `// lib/<oldname>.js` header comments (already drifted — must be rewritten too); (2) routes/dashboard.js static-serve paths + any <script src> for the 39 UI files; (3) package.json `files` whitelist / any glob-based loaders; (4) the 18 test-locks.js dependencies + test-report filenames + harness/test fixtures that hard-code paths; (5) protocol-registry.js dual front/back import path. Safe method: DO NOT hand-edit. Write/borrow a path-rewriting codemod (jscodeshift or a resolve-based script that reads the actual import graph) and run it PER BUCKET, never all at once. After each bucket: `node --check` all touched files, run test-runner --preset health (zero-LLM, ~5s), then the bucket's targeted suite (single/pipeline/operator/knowledge), then commit + tag vN-stable per the repo convention. Keep git mv (preserves blame). Gateway must be kickstarted to reload after backend moves. The frontend and formal-runtime buckets are near-zero-risk (self-contained sibling imports); state/ is the only bucket with genuine blast radius — isolate it as the final phase and consider leaving state.js itself at root as the kernel entrypoint (move only its satellites) to cap churn."
+"Real cost is ESM/CJS relative-import churn, not logic. ~136 file moves (82 loose lib-root + 39 dashboard + ~15 cross-subdir misplacements) each rewrite two edge sets: (a) the moved file's own relative refs to non-moved siblings (./x -> ../x or ../subdir/x), and (b) EVERY importer of the moved file (./x -> ./subdir/x). Fan-out is heavily skewed — most files have a handful of importers, but a few are catastrophic: lib/state.js (cfg/tracker) and lib/state/state-collections.js are imported by nearly the whole tree, so lib/state/ alone could touch 100+ import sites; contracts.js, contract-outcome.js, session-keys.js, core/* and the routing primitives are next-tier fan-in. Conservative estimate: 500-900 import-site edits across the reorg, dominated by the state/ and contract/ buckets. Secondary breakage surfaces beyond require paths: (1) leading `// lib/<oldname>.js` header comments (already drifted — must be rewritten too); (2) routes/dashboard.js static-serve paths + any <script src> for the 39 UI files; (3) package.json `files` whitelist / any glob-based loaders; (4) the 18 test-locks.js dependencies + test-report filenames + harness/test fixtures that hard-code paths; (5) protocol-registry.js dual front/back import path. Safe method: DO NOT hand-edit. Write/borrow a path-rewriting codemod (jscodeshift or a resolve-based script that reads the actual import graph) and run it PER BUCKET, never all at once. After each bucket: `node --check` all touched files, run test-runner --preset health (zero-LLM, ~5s), then the bucket's targeted suite (single/pipeline/operator/knowledge), then commit + tag vN-stable per the repo convention. Keep git mv (preserves blame). Gateway must be kickstarted to reload after backend moves. The frontend and formal-runtime buckets are near-zero-risk (self-contained sibling imports); state/ is the only bucket with genuine blast radius — isolate it as the final phase and consider leaving state.js itself at root as the kernel entrypoint (move only its satellites) to cap churn."
 
 ### 4.4 安全分期 rollout (低风险先行, state/ 最后)
 
@@ -597,7 +599,7 @@ watchdog/  (extension root)
 - `lib/error-ledger.js` · Runtime 信号·故障·硬停 ⚠→`lib/runtime/`
 - `lib/heartbeat-gate.js` · Runtime 信号·故障·硬停 ⚠→`lib/runtime/`
 - `lib/stage/io-observation.js` · 会话追踪与会话键
-- `lib/late-completion-lease.js` · 崩溃恢复·超时·终结·归档
+- ~~`late-completion-lease.js`（原 lib/ 根）~~ · 崩溃恢复·超时·终结·归档（已随 2026-08 死码清理批删除）
 - `lib/lease-manager.js` · 崩溃恢复·超时·终结·归档
 - `lib/lifecycle/agent-end/contract-refresh.js` · agent_end 阶段编排
 - `lib/lifecycle/agent-end/graph-route.js` · agent_end 阶段编排
@@ -644,7 +646,7 @@ watchdog/  (extension root)
 
 - `lib/transport/channel-notify.js` · Delivery 结果回传 (replyTo) ⚠→`lib/transport/`
 - `lib/system-action/collaboration-policy.js` · System-action 运行时 (agent 主动平台操作) ⚠→`lib/system-action/`
-- ~~`lib/ingress/conversations.js`~~ · 已删（2026-08-19）
+- ~~`conversations.js`（原 lib/ingress/ 下）~~ · 已删（2026-08-19）
 - `lib/routing/coordination-primitives.js` · Delivery 结果回传 (replyTo) ⚠→`lib/routing/`
 - `lib/ingress/before-start-ingress.js` · Ingress 外部入口 (bridge)
 - `lib/ingress/dispatch-entry.js` · Ingress 外部入口 (bridge)
@@ -661,7 +663,7 @@ watchdog/  (extension root)
 - `lib/routing/delivery/delivery-result.js` · Delivery 结果回传 (replyTo)
 - `lib/routing/delivery/delivery-system-action-chain.js` · System-action 运行时 (agent 主动平台操作)
 - `lib/routing/delivery/delivery-system-action-helpers.js` · System-action 运行时 (agent 主动平台操作)
-- `lib/routing/delivery/delivery-system-action-review-verdict.js` · System-action 运行时 (agent 主动平台操作)
+- ~~`delivery-system-action-review-verdict.js`（原 lib/routing/delivery/ 下）~~ · System-action 运行时（已随 v225 评审链退役删除）
 - `lib/routing/delivery/delivery-system-action-runtime-result.js` · System-action 运行时 (agent 主动平台操作)
 - `lib/routing/delivery/delivery-system-action-ticket-route.js` · System-action 运行时 (agent 主动平台操作)
 - `lib/routing/delivery/delivery-system-action-ticket.js` · System-action 运行时 (agent 主动平台操作)
@@ -681,13 +683,13 @@ watchdog/  (extension root)
 - `lib/routing/mailbox/runtime-mailbox-inbox-handlers.js` · Runtime mailbox (inbox/outbox)
 - `lib/routing/mailbox/runtime-mailbox-outbox-handlers.js` · Runtime mailbox (inbox/outbox)
 - `lib/routing/mailbox/runtime-mailbox-outbox-helpers.js` · Runtime mailbox (inbox/outbox)
-- `lib/routing/mailbox/runtime-mailbox-outbox-reviewer-verdict.js` · Runtime mailbox (inbox/outbox)
+- ~~`runtime-mailbox-outbox-reviewer-verdict.js`（原 lib/routing/mailbox/ 下）~~ · Runtime mailbox（已随 v225 评审链退役删除）
 - `lib/routing/mailbox/runtime-mailbox-transport.js` · Runtime mailbox (inbox/outbox)
 - `lib/routing/runtime-direct-envelope-queue.js` · Dispatch runtime state (队列真值) ⚠→`lib/routing/`
 - `lib/routing/runtime-workflow-semantics.js` · Delivery 结果回传 (replyTo) ⚠→`lib/routing/`
 - `lib/session/service-session.js` · Ingress 外部入口 (bridge)
 - `lib/system-action/system-action-consumer.js` · System-action 运行时 (agent 主动平台操作)
-- `lib/system-action/system-action-request-review.js` · System-action 运行时 (agent 主动平台操作)
+- ~~`system-action-request-review.js`（原 lib/system-action/ 下）~~ · System-action 运行时（request_review 已随 v225 评审链退役删除）
 - `lib/system-action/system-action-role-policy.js` · System-action 运行时 (agent 主动平台操作)
 - `lib/system-action/system-action-runtime-ledger.js` · System-action 运行时 (agent 主动平台操作)
 - `lib/system-action/system-action-runtime.js` · System-action 运行时 (agent 主动平台操作)
@@ -706,13 +708,13 @@ watchdog/  (extension root)
 - `lib/agent/agent-workflow-grouping.js` · Agent Group 空间原语
 - `lib/agent/group-session-normalize.js` · Agent Group 空间原语
 - `lib/agent/group-session-store.js` · Agent Group 空间原语
-- `lib/artifact-lane-registry.js` · Contract 结局判定
+- ~~`artifact-lane-registry.js`（原 lib/ 根）~~ · Contract 结局判定（已随 v225 评审链退役删除）
 - `lib/contract/contract-lifecycle-builders.js` · Contract 生命周期视图
 - `lib/contract/contract-lifecycle-view.js` · Contract 生命周期视图
 - `lib/contract/contracts.js` · Contract 状态机与持久化
 - `lib/stage/lifecycle-stage-truth.js` · Contract 生命周期视图
-- `lib/runtime/execution-hard-stop-registry.js` · 执行硬停登记处(L3 沙箱;2026-08-18 自已退役的 lib/loop/loop-detection.js 迁入)
-- `lib/runtime/session-epoch-key.js` · 执行代号键(L0 运行时;2026-08-18 自已退役的 lib/loop/loop-epoch-key.js 迁入)
+- `lib/runtime/execution-hard-stop-registry.js` · 执行硬停登记处(L3 沙箱;2026-08-18 自已退役的 `loop-detection.js`(原 lib/loop/ 下)迁入)
+- `lib/runtime/session-epoch-key.js` · 执行代号键(L0 运行时;2026-08-18 自已退役的 `loop-epoch-key.js`(原 lib/loop/ 下)迁入)
 - `lib/stage/runtime-stage-progress.js` · Contract 生命周期视图 ⚠→`lib/stage/`
 - `lib/stage/stage-marker-parser.js` · Contract 生命周期视图 ⚠→`lib/stage/`
 - `lib/stage/stage-projection.js` · Contract 生命周期视图 ⚠→`lib/stage/`
@@ -734,7 +736,7 @@ watchdog/  (extension root)
 - `lib/security/capability-preset-registry.js` · 能力预设与角色工具限制
 - `lib/effective-profile-composer.js` · 能力预设与角色工具限制 ⚠→`lib/agent/`
 - `lib/security/execution-policy-defaults.js` · 执行策略预算默认 (per-role budget)
-- `lib/security/hard-path-autoexec.js` · 安全检查 (敏感路径/密钥/写大小)
+- ~~`hard-path-autoexec.js`（原 lib/security/ 下）~~ · 安全检查（已随 2026-08 死码清理批删除）
 - `lib/routing/dispatch/dispatch-depth-guard.js` · dispatch 跳数守卫
 - `lib/security/security.js` · 安全检查 (敏感路径/密钥/写大小)
 
@@ -775,7 +777,7 @@ watchdog/  (extension root)
 - `lib/agent/agent-session-transcript.js` · 产物包读取器 (produced-files)
 - `lib/stage/execution-observation.js` · agent_end 产物落点（`preserve_artifact` 站已于 2026-08-19 退役）
 - `lib/lifecycle/agent-end/transport.js` · agent_end 产物落点（`preserve_artifact` 站已于 2026-08-19 退役）
-- `lib/delivery/upstream-package-inflow.js` · 上游产物整包流入 (upstream-package-inflow) ⚠2026-08-19 自 `lib/lifecycle/artifact-store.js` 改名
+- `lib/delivery/upstream-package-inflow.js` · 上游产物整包流入 (upstream-package-inflow) ⚠2026-08-19 自 `artifact-store.js`(原 lib/lifecycle/ 下)改名
 - `lib/delivery/runtime-user-facing-output.js` · 用户可见产出判定
 
 </details>
@@ -798,7 +800,7 @@ watchdog/  (extension root)
 
 <details><summary><b>L7 Harness·验证·测试</b> — 58 文件</summary>
 
-- `lib/finding-marker-parser.js` · Run-Shape 覆盖塑形 + 评审/评估结果 ⚠→`lib/harness/`
+- ~~`finding-marker-parser.js`（原 lib/ 根）~~ · Run-Shape 覆盖塑形 + 评审/评估结果（已随 v225/v226 评审链与 harness 退役删除）
 - `lib/formal-runtime/checks/check-http.js` · Checks 探针库 + Infra + 报告
 - `lib/formal-runtime/checks/check-runner.js` · CheckResult 引擎 + E-码注册表
 - `lib/formal-runtime/checks/health-gateway.js` · Checks 探针库 + Infra + 报告
@@ -822,31 +824,32 @@ watchdog/  (extension root)
 - `lib/formal-runtime/suite-viz.js` · Suite 驱动 (子系统探针)
 - `lib/formal-runtime/test-locks.js` · Checks 探针库 + Infra + 报告
 - `lib/formal-runtime/formal-test-presets.js` · 预设 + Suite 分发 + CLI ⚠→`lib/formal-runtime/`
-- `lib/harness/evaluator-result.js` · Run-Shape 覆盖塑形 + 评审/评估结果
-- `lib/harness/harness-composition.js` · Harness 目录·注册表·组装校验
-- `lib/harness/harness-dashboard-runs.js` · Harness 存储 + Dashboard 投影
-- `lib/harness/harness-dashboard-stages.js` · Harness 存储 + Dashboard 投影
-- `lib/harness/harness-dashboard.js` · Harness 存储 + Dashboard 投影
-- `lib/harness/harness-evidence-vocab.js` · Harness 模块执行器 (pass/fail 判定)
-- `lib/harness/harness-guard-checks.js` · Harness 模块执行器 (pass/fail 判定)
-- `lib/harness/harness-guard-registry.js` · Harness 模块执行器 (pass/fail 判定)
-- `lib/harness/harness-module-catalog.js` · Harness 目录·注册表·组装校验
-- `lib/harness/harness-module-contract.js` · Harness Run 生命周期
-- `lib/harness/harness-module-evaluators.js` · Harness 模块执行器 (pass/fail 判定)
-- `lib/harness/harness-module-evidence.js` · Harness 模块执行器 (pass/fail 判定)
-- `lib/harness/harness-module-runner.js` · Harness 模块执行器 (pass/fail 判定)
-- `lib/harness/harness-module-schema.js` · Harness Run 生命周期
-- `lib/harness/harness-registry.js` · Harness 目录·注册表·组装校验
-- `lib/harness/harness-run-constants.js` · Harness Run 生命周期
-- `lib/harness/harness-run-normalizers.js` · Harness Run 生命周期
-- `lib/harness/harness-run-store.js` · Harness 存储 + Dashboard 投影
-- `lib/harness/harness-run.js` · Harness Run 生命周期
-- `lib/harness/reviewer-result.js` · Run-Shape 覆盖塑形 + 评审/评估结果
-- `lib/harness/run-shape-map.js` · Run-Shape 覆盖塑形 + 评审/评估结果
-- `lib/harness/soft-guidance.js` · Run-Shape 覆盖塑形 + 评审/评估结果
-- `lib/harness/stage-harness.js` · Run-Shape 覆盖塑形 + 评审/评估结果
-- `lib/lifecycle/agent-end/harness-recorder.js` · Harness Run 生命周期
-- `lib/review-context-builder.js` · Run-Shape 覆盖塑形 + 评审/评估结果 ⚠→`lib/harness/`
+- （下列 harness 族对应文件已随 v226 harness 退役全删，原址 lib/harness/ 下，保留为历史记录）
+- `evaluator-result.js` · Run-Shape 覆盖塑形 + 评审/评估结果
+- `harness-composition.js` · Harness 目录·注册表·组装校验
+- `harness-dashboard-runs`(.js 省略) · Harness 存储 + Dashboard 投影
+- `harness-dashboard-stages`(.js 省略) · Harness 存储 + Dashboard 投影
+- `harness-dashboard.js` · Harness 存储 + Dashboard 投影
+- `harness-evidence-vocab.js` · Harness 模块执行器 (pass/fail 判定)
+- `harness-guard-checks.js` · Harness 模块执行器 (pass/fail 判定)
+- `harness-guard-registry.js` · Harness 模块执行器 (pass/fail 判定)
+- `harness-module-catalog.js` · Harness 目录·注册表·组装校验
+- `harness-module-contract.js` · Harness Run 生命周期
+- `harness-module-evaluators.js` · Harness 模块执行器 (pass/fail 判定)
+- `harness-module-evidence.js` · Harness 模块执行器 (pass/fail 判定)
+- `harness-module-runner.js` · Harness 模块执行器 (pass/fail 判定)
+- `harness-module-schema.js` · Harness Run 生命周期
+- `harness-registry.js` · Harness 目录·注册表·组装校验
+- `harness-run-constants.js` · Harness Run 生命周期
+- `harness-run-normalizers.js` · Harness Run 生命周期
+- `harness-run-store.js` · Harness 存储 + Dashboard 投影
+- `harness-run.js` · Harness Run 生命周期
+- `reviewer-result.js` · Run-Shape 覆盖塑形 + 评审/评估结果
+- `run-shape-map.js` · Run-Shape 覆盖塑形 + 评审/评估结果
+- `soft-guidance.js` · Run-Shape 覆盖塑形 + 评审/评估结果
+- `stage-harness.js` · Run-Shape 覆盖塑形 + 评审/评估结果
+- `harness-recorder.js`（原 lib/lifecycle/agent-end/ 下，已随 v226 删除） · Harness Run 生命周期
+- `review-context-builder.js`（原 lib/ 根，已随 v225/v226 退役删除） · Run-Shape 覆盖塑形 + 评审/评估结果
 - `lib/formal-runtime/test-output-validation.js` · Suite 驱动 (子系统探针)
 - `lib/formal-runtime/test-run-artifacts.js` · Checks 探针库 + Infra + 报告
 - `lib/formal-runtime/test-run-presets.js` · 预设 + Suite 分发 + CLI
@@ -866,13 +869,13 @@ watchdog/  (extension root)
 - `lib/automation/automation-decision.js` · 轮次收敛与决策
 - `lib/automation/automation-executor.js` · 轮次驱动/Executor
 - `lib/automation/automation-finalize.js` · 轮次收敛与决策
-- `lib/automation/automation-harness-lifecycle.js` · Harness 生命周期编织
-- `lib/automation/automation-harness-projection.js` · 自动化运行时状态
+- ~~`automation-harness-lifecycle.js`（原 lib/automation/ 下）~~ · Harness 生命周期编织（已随 v226 harness 退役删除）
+- ~~`automation-harness-projection.js`（原 lib/automation/ 下）~~ · 自动化运行时状态（已随 v226 harness 退役删除）
 - `lib/automation/automation-reconcile.js` · 轮次驱动/Executor
 - `lib/automation/automation-registry.js` · 自动化注册表与管理面
 - `lib/automation/automation-result-extractors.js` · 轮次收敛与决策
 - `lib/automation/automation-runtime.js` · 自动化运行时状态
-- `lib/automation/automation-skill-precipitation.js` · 治理与画像生命周期
+- ~~`automation-skill-precipitation.js`（原 lib/automation/ 下）~~ · 治理与画像生命周期（已随 v226 harness 退役删除）
 - `lib/automation/automation-start.js` · 轮次驱动/Executor
 - `lib/automation/profile-lifecycle.js` · 治理与画像生命周期
 - `lib/automation/resolve-governance.js` · 治理与画像生命周期
@@ -962,7 +965,7 @@ watchdog/  (extension root)
 - `lib/operator/operator-brain.js` · operator 大脑 (元 agent 规划)
 - `lib/operator/operator-context.js` · operator 大脑 (元 agent 规划)
 - `lib/operator/operator-executor.js` · operator 执行器 (原子应用+元→元委派)
-- `lib/operator/operator-harness-recommend.js` · operator 大脑 (元 agent 规划)
+- ~~`operator-harness-recommend.js`（原 lib/operator/ 下）~~ · operator 大脑 (元 agent 规划)（已随 v226 harness 退役删除）
 - `lib/operator/operator-plan.js` · operator 大脑 (元 agent 规划)
 - `lib/operator/operator-snapshot-draft-relations.js` · operator 大脑 (元 agent 规划)
 - `lib/operator/operator-snapshot-runtime.js` · operator 大脑 (元 agent 规划)

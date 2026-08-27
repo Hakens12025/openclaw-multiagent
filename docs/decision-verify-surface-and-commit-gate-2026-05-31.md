@@ -33,9 +33,9 @@
 ## 2. commit 强制 verify 门（核心，代码硬路径）
 
 - 门逻辑独立成模块（避免 executor god-object）：
-  `extensions/watchdog/lib/admin/admin-change-set-commit-gate.js`（`evaluateCommitVerificationGate` /
+  `extensions/watchdog/lib/admin/change-sets/admin-change-set-commit-gate.js`（`evaluateCommitVerificationGate` /
   `isVerificationRequiredForCommit` / `CommitVerificationBlockedError`）。
-- 插入点：`extensions/watchdog/lib/admin/admin-change-set-executor.js`
+- 插入点：`extensions/watchdog/lib/admin/change-sets/admin-change-set-executor.js`
   - 函数签名加 `requireVerification = true`（默认开启）。
   - apply 成功后、`recordAdminChangeSetExecution(applied)` 之前插门（约 L92-114）：
     门 `required && !passed` → 记 `executionStatus:"verification_blocked"`（status:"failed"）+ 抛
@@ -84,8 +84,8 @@ verify 只验证不提交（不退化成"没抛异常=成功"）：门要求**�
 ## 6. 引用代码位置
 
 - verify 暴露：`extensions/watchdog/lib/admin/catalog/apply-rest.js:315,326`
-- 门模块：`extensions/watchdog/lib/admin/admin-change-set-commit-gate.js`
-- 门插入点：`extensions/watchdog/lib/admin/admin-change-set-executor.js`（apply 后 / record applied 前 + 外层 catch 放行门错）
+- 门模块：`extensions/watchdog/lib/admin/change-sets/admin-change-set-commit-gate.js`
+- 门插入点：`extensions/watchdog/lib/admin/change-sets/admin-change-set-executor.js`（apply 后 / record applied 前 + 外层 catch 放行门错）
 - 路由透传：`extensions/watchdog/routes/admin-change-sets.js:124`
 - verify 字段链：`admin-change-set-verification.js`、`admin-change-set-history.js:18,60,115`、`admin-change-sets.js:258,280`
 - verificationCapability：`admin-surface-registry.js:217`

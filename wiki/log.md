@@ -1,5 +1,17 @@
 # Wiki Operation Log
 
+## [2026-08-28] lint | 活文档死代码路径清扫(wiki 包)
+
+- 门 = `node scripts/check-doc-paths.js`(活文档死引用即红)。本批清 wiki 名下 11 文件全部失效路径引用:
+  搬迁的改现路径(role-spec-registry→lib/prompt、brain-model-resolver→lib/llm、
+  admin-surface-operations→lib/admin/operations、capability-registry→lib/management、
+  formal-test-presets→lib/formal-runtime、workflow-trace-snapshot→run-tree-snapshot v199、
+  contract-outcome→terminal-outcome v189、context-compression→upstream-guide v200、
+  artifact-store→upstream-package-inflow v218、protocol-registry→lib/protocol);
+  退役的去路径形留注记(harness 族 v226、loop 族 v215、dashboard-* 前端族 v233、soul-template-builder v164)。
+- 页面级:`concepts/dashboard.md` 加 v233 整体退役页首注记 + 当前状态改「已废弃」(比照 harness/evaluator 惯例);
+  其余页仅正文引用改写,历史语义保真,不删原貌。
+
 ## [2026-08-23] ingest | harness 判定账全退役 (v226)
 
 - 承备忘录149 裁决（harness 全套删掉，只保留「标准化」设计思想）与备忘录150（评审链先删，
@@ -28,7 +40,7 @@
   (传送带派工与动态派工在这里汇合)。图边从此只管投递授权。
 - 受影响页面:`concepts/artifact-handoff.md`(交互关系与实现表改写)、`decisions/artifact-package-flow.md`
   (加 v218 升级标注,正文保留原貌)、`docs/system-map.md` L5 板块与附录归位清单。
-- 模块改名:`lib/lifecycle/artifact-store.js` → `lib/delivery/upstream-package-inflow.js`。
+- 模块改名:原 lifecycle 侧 artifact-store → `lib/delivery/upstream-package-inflow.js`。
 
 ## [2026-08-18] ingest | 回路(Loop)机制整体退役 — 文档/技能/定址真值收官
 
@@ -67,9 +79,9 @@
 编译本次重构（role/SOUL/wake 解耦 + 提示词英文化，原子核未提交）的 WHY 进 wiki。
 
 产出:
-- 新概念页 `concepts/prompt-assembly.md` — 六层装配模型（①框架/②工具/③skill头/④role/⑤SOUL/⑥wake）+ 两条装配路径（用户直连 / 系统派工，sessionKey 判定）+ 缓存裁定（SOUL 末尾、contractId 不内联）。引代码 `lib/role-spec-registry.js`/`workspace-guidance-writer.js`/`contract-session-prompt-override.js`。
+- 新概念页 `concepts/prompt-assembly.md` — 六层装配模型（①框架/②工具/③skill头/④role/⑤SOUL/⑥wake）+ 两条装配路径（用户直连 / 系统派工，sessionKey 判定）+ 缓存裁定（SOUL 末尾、contractId 不内联）。引代码 `lib/prompt/role-spec-registry.js`(时在 lib 根,后随目录重排迁入 lib/prompt/)/`workspace-guidance-writer.js`/`contract-session-prompt-override.js`。
 - 更新 `concepts/soul-identity.md` — 修正与代码冲突的旧描述（SOUL 不再含 role 品质）：⑤SOUL=纯用户、④role→托管 IDENTITY.md；加演化条目 + 决策内链。
-- 新决策页 `decisions/role-soul-wake-decoupling.md` — 含否决方案：role 烘焙进 SOUL（迁移闸 `scripts/migrate-soul-identity.js` 拆开 + 删 `lib/soul-template-builder.js`）/ 框架 append system 区块不可行（只能整体替换→watchdog 字符串拼接）/ contractId 内联破缓存。
+- 新决策页 `decisions/role-soul-wake-decoupling.md` — 含否决方案：role 烘焙进 SOUL（迁移闸 `scripts/migrate-soul-identity.js` 拆开 + 删 soul-template-builder,原 lib 根）/ 框架 append system 区块不可行（只能整体替换→watchdog 字符串拼接）/ contractId 内联破缓存。
 - 同步 index.md（「Agent 与角色」+1 概念，决策表 +1 行）。
 
 诚实记录:live-complex 全派发实测仍被空 agent-graph(0 edges) 挡着（运行态阻塞，非提示词代码问题），单测全绿、网关单跑 FULLY INITIALIZED。
@@ -91,7 +103,7 @@
 
 1. **operator designer-only 重定义** — operator = 结构设计者，不替用户跑具体任务：build plan 终态 = 结构 active + `inspect.structure_preview`，**绝不**末尾 emit `runtime.loop.start` 携带用户任务（跑由用户/ingress 下游触发）。代码核实 `lib/operator/operator-brain.js`:~210（"You DESIGN the control plane; you do NOT run..."）+ `operator-knowledge.js` `new-task-workflow` 片段（`skills/operator-new-task/SKILL.md`）。同步：concepts/operator.md（新增「设计者 vs 运行者边界」节 + 演化行）。
 2. **operator 手已通（SUPERSEDES v115「operatorExecutable=0 / 手仍瘫」）** — 38 个 `operatorExecutable` surface 上线（`lib/admin/catalog/apply-rest.js` 28 + `agents-apply.js` 10，实测 grep -c=28/10）；`operator-executor.js` `executeOperatorExecutablePlan` 真跑 plan：per-step `executeCliSystemSurface`（`actor:'operator'`，executor 行 22 硬要求 `operatorExecutable !== true` 则拒）+ explicit-confirm 闸 + `captureStructureSnapshot`/`restoreStructureSnapshot` 原子回滚 + `forceVerify=true` after-apply + soft-fail（`{ok:false}`）也回滚。死链 (b) 闭合。同步：concepts/operator.md（当前状态/演化）、cli-system.md（line ~67 谎言重写）、self-governance-loop.md 经交叉链接对齐。
-3. **planner 可靠性批次** — single-retry（`callPlannerWithSingleRetry` @ operator-brain.js:244，abort/GLM-socket 首次即重抛不掩盖）/ resilient step-drop normalize（`normalizeOperatorBrainPlanResult` @ operator-plan.js:285，丢坏单步保全盘）/ glm-socket dispatcher + 截断 JSON 修复（`repairTruncatedJsonText` @ llm-planner.js:70）/ GLM-5.1 fallback（`resolveOperatorBrainModel` @ `lib/brain-model-resolver.js`）。同步：concepts/operator.md（新增「可靠性」节）。
+3. **planner 可靠性批次** — single-retry（`callPlannerWithSingleRetry` @ operator-brain.js:244，abort/GLM-socket 首次即重抛不掩盖）/ resilient step-drop normalize（`normalizeOperatorBrainPlanResult` @ operator-plan.js:285，丢坏单步保全盘）/ glm-socket dispatcher + 截断 JSON 修复（`repairTruncatedJsonText` @ llm-planner.js:70）/ GLM-5.1 fallback（`resolveOperatorBrainModel` @ `lib/llm/brain-model-resolver.js`,时在 lib 根,后随目录重排迁入 lib/llm/）。同步：concepts/operator.md（新增「可靠性」节）。
 4. **agent-map 紧凑片段** — `operator-knowledge.js` `buildAgentMapFragment`（:157）是 operator 读结构的视图。同步：concepts/operator.md「可靠性」节。
 5. **inspect surface 22→26（静态 catalog）** — 实测 `lib/cli-system/cli-surface-catalog.js` inspect.* = 26；v112 后新增 `inspect.profile_lifecycle` / `inspect.agent_groups` / `inspect.structure_preview`。apply/verify 族**已编目**（`apply-rest.js`/`agents-apply.js`，family 经 `cli-surface-registry.js` `normalizeAdminSurface` 从 `stage` 字段派生，非缺 catalog）。同步：concepts/cli-system.md（inspect 清单/演化/当前状态）。
 
@@ -99,7 +111,7 @@
 - concepts/agent-group.md — 「未开始/概念阶段/god-role 前置」全翻为「设计冻结 + v119 宏展开已落地」；cite `lib/agent/agent-group-spec.js`（`normalizeGroupSpec` members≥2 + `internalEdges` 两端必须成员 line 33-34 无免授权暗门 + `OUTPUT_MODES` passthrough/aggregate/race + `expandAgentGroup` + `buildOutputPolicies`）、`group-session-store.js` / `group-session-normalize.js`（**在 lib/agent/ 非 lib/loop/**）、`agent-workflow-grouping.js`；observable via `inspect.agent_groups`；移除 god-role 前置；tasks #38/#46 done。
 - concepts/evaluation-result-chain.md — 「ProfileLifecycle 尚未实现」改为「均已实现（v115）」，cite `lib/automation/profile-lifecycle.js`（TRUST_LADDER experimental/provisional/stable，连 2 fail→retired）+ `resolve-governance.js` + 闭环 `tests/automation-profile-lifecycle-closed-loop-p4.test.js`；与 self-governance-loop.md 对齐。
 - concepts/loop.md — 新增「环自带 limit（v120）」（`loop-budget.js` DEFAULT 3/30，`resolveLoopStartBudget` 优先级 DEFAULT<LoopSpec<runtime<config，超限复用既有 budget governance force-conclude）+「reviewer 控制环（v121）」（artifact-branch idle 误判修复=已绑定 contract 即有活干，`lib/heartbeat-gate.js` `hasActionableHeartbeatWork`:62-72）；演化加 v120/v121。
-- concepts/harness.md — 正式入口强调 `harness-module-catalog.js`（10 模块/4 kind：guard.budget/tool_access/scope · collector.artifact/trace · gate.artifact/schema/test · normalizer.eval_input/failure，`freezeCatalog` 经 `validateHarnessModuleDefinition`）；当前状态→接口已冻结(v109)+v115 灵魂落地完成；新增 operator 装 harness 层（`lib/operator/operator-harness-recommend.js` 只挑 moduleRef 粒度不当第二 planner + `skills/harness-build/SKILL.md` + `automations.create`）；演化加 v109/v115。
+- concepts/harness.md — 正式入口强调 `harness-module-catalog.js`（10 模块/4 kind：guard.budget/tool_access/scope · collector.artifact/trace · gate.artifact/schema/test · normalizer.eval_input/failure，`freezeCatalog` 经 `validateHarnessModuleDefinition`）；当前状态→接口已冻结(v109)+v115 灵魂落地完成；新增 operator 装 harness 层（operator 侧 operator-harness-recommend 模块——后随 harness 全退役 v226 删除——只挑 moduleRef 粒度不当第二 planner + `skills/harness-build/SKILL.md` + `automations.create`）；演化加 v109/v115。
 
 同步元页：
 - index.md — 刷新注记到 ~v132-stable（2026-06-02）；cli-system 行 22→26 inspect surfaces；operator 行→designer-only + 手已通；AgentGroup 行「待实现」→「已落地」；新增 ORPHAN 页 `concepts/runtime-dispatch-queue.md` 入口（此前无任何页链接它）。
@@ -202,7 +214,7 @@
 同步：
 - index.md 刷新注记到 v112 + cli-system（22 surface）/ dashboard（工作流页）行
 
-代码位置已 lint 校验：agent-workflow-grouping.js / agent-session-store.js / agent-session-transcript.js / agent-reveal-file.js（均 lib/agent/）/ workflow-trace-snapshot.js（实际在 **lib/lifecycle/**，非 lib/agent/）/ routes/api.js / dashboard-workflow.js。
+代码位置已 lint 校验：agent-workflow-grouping.js / agent-session-store.js / agent-session-transcript.js / agent-reveal-file.js（均 lib/agent/）/ workflow-trace-snapshot.js（实际在 **lib/lifecycle/**，非 lib/agent/）/ routes/api.js / dashboard-workflow 前端模块（后随 v233 前端整删）。
 实测：inspect.* = 22；`/watchdog/inspect` 校验 family==="inspect" 否则 403；reveal-file 白名单 = {workspaces,control-plane,contracts,agents} + startsWith(root+sep) + execFile open -R。
 源: 备忘录112/113/114。
 
@@ -216,7 +228,7 @@
 同步：
 - index.md 刷新注记到 v111 + cli-system 行状态（全族收口，19 surface）
 
-代码位置已 lint 校验存在：cli-surface-inspector.js / routes/dashboard.js / routes/operator-catalog.js / routes/api.js / lib/admin/admin-surface-operations.js（executeAdminSurfaceOperation）/ lib/capability/capability-registry.js。
+代码位置已 lint 校验存在：cli-surface-inspector.js / routes/dashboard.js / routes/operator-catalog.js / routes/api.js / lib/admin/operations/admin-surface-operations.js（executeAdminSurfaceOperation）/ lib/management/capability-registry.js（后两者已随目录重排迁至现址,原在 lib/admin/ 根与 lib/capability/）。
 实测：inspect.* = 19；新 3 surface 在编目内；bare /graph/edge 已无，仅余 /add + /delete。
 源: 备忘录112/113/114。
 
@@ -338,7 +350,7 @@ catalog 实测 inspect.* = 16 个。
 
 - 重写 `concepts/test-system.md`：8 预设（health 默认零 LLM 体检 / dispatch / pipeline / loop / system-action / operator / knowledge / full）、CheckResult 四态（pass/fail/skip/blocked）、E-* 错误码单一注册表 `lib/formal-runtime/error-codes.js`、failures-first `.txt` + `.json` 镜像报告、verify 门预设 single→dispatch
 - 更新 `index.md` 测试系统摘要行
-- 源：本次重写无备忘录（代码先行），代码真值见 `extensions/watchdog/lib/formal-test-presets.js`
+- 源：本次重写无备忘录（代码先行），代码真值见 `extensions/watchdog/lib/formal-runtime/formal-test-presets.js`（时在 lib 根,后随目录重排迁入 lib/formal-runtime/）
 
 ## 2026-07-27 Ingest — 统一 FC 证据面 P3 批次二
 
@@ -361,7 +373,7 @@ catalog 实测 inspect.* = 16 个。
 - 最硬的删除理由不是"没触发",而是 `_MISSING.md` **违反第一原则**——把拷贝失败写成自然语言交给 LLM 决策,硬路径失败泄漏进软路径
 - 替代:枚举→拷贝→对 manifest 自查(数量+大小)→齐则写指针(指针即回执)/缺则重拷/超限报框架错误并阻止派工。**不变式 5 改由代码保证而非 marker 告知 LLM;不变式 6 需拆细为生产侧 vs 消费侧**
 - 记账:尺寸小是结构性的(LLM 逐字写出,一轮上限十几 KB);真正的重新设计触发条件是"产物不再由 LLM 逐字写出"(脚本产数据/web_fetch 落盘/二进制)
-- 源:备忘录130 §十(前两版结论已在文内标注作废);代码真值 `extensions/watchdog/lib/delivery/context-compression.js`、`lib/lifecycle/artifact-store.js`
+- 源:备忘录130 §十(前两版结论已在文内标注作废);代码真值(当时) delivery 侧 context-compression(已按本决策于 v200 拆除,COMPRESSED_MANIFEST 导览化为 `lib/delivery/upstream-guide.js`)与 lifecycle 侧 artifact-store(v218 改名 `lib/delivery/upstream-package-inflow.js`)
 
 ## 2026-08-06 Ingest — 概念上提:产物交接 → Agent 工作空间
 

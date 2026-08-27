@@ -15,7 +15,7 @@
 
 ## 决策
 
-1. **检测到环 ≠ 注册 loop**：`detectCycles` 发现 graph 有环，前端只弹提示（`dashboard-graph.js` LOOP DETECTED toast），**不自动注册**。注册是单独的显式动作 `graph.loop.compose`（写 LoopSpec：entry/continue/conclude 信号 + maxRounds）。
+1. **检测到环 ≠ 注册 loop**：`detectCycles` 发现 graph 有环，前端只弹提示（当时 dashboard-graph 模块的 LOOP DETECTED toast；该模块后随 v233 前端整删），**不自动注册**。注册是单独的显式动作 `graph.loop.compose`（写 LoopSpec：entry/continue/conclude 信号 + maxRounds）。
 2. **环自带 limit = LoopSpec 声明式 maxRounds**：LoopSpec 携带 maxRounds/maxExperiments，经 `resolveLoopStartBudget` 注入 loop-session budget，由**现有** `evaluateLoopBudgetGovernance` 超限强制优雅收敛（terminalOutcome=COMPLETED），即使环内无 agent 发 concludeSignal。缺省 fall-through 平台默认 3。
 3. **前端注册按钮**：检测到未注册环时出现"REGISTER CYCLE AS LOOP"按钮，弹表单选 entry/conclude/maxRounds，POST `graph.loop.compose`，注册后自动撤按钮（`cyclesMatchNodesClient` 判已注册/未注册）。
 

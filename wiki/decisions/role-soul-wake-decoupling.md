@@ -22,7 +22,7 @@
 
 ## 否决的替代方案
 
-- **role 烘焙进 SOUL（原方案）** —— 已否决。用户身份层被系统内容污染，且三者无法独立演化。已写一次性迁移闸 `scripts/migrate-soul-identity.js` 把烘焙版拆开，并删除旧的 `lib/soul-template-builder.js`（role-baked SOUL 生成器）。
+- **role 烘焙进 SOUL（原方案）** —— 已否决。用户身份层被系统内容污染，且三者无法独立演化。已写一次性迁移闸 `scripts/migrate-soul-identity.js` 把烘焙版拆开，并删除旧的 soul-template-builder 模块（role-baked SOUL 生成器，原在 lib 根，v164 删）。
 - **靠框架 append 一段 system 区块实现"叠加 wake"** —— 不可行。框架 `before_prompt_build` 只支持整体替换 systemPrompt 或 prependContext（进 user message），无法 append system 区块。故"叠加"在 watchdog 内用字符串拼接实现（`buildContractSessionSystemPrompt`）。
 - **把 contractId / output path 内联进提示词前缀** —— 否决。每个新合约都会 cache miss；这些 volatile 值改由 wake 消息 + `inbox/contract.json` 提供。
 

@@ -253,11 +253,15 @@ test("上一轮残件按会话起点隔离,不再混进本轮产物包(live 复�
   const past = new Date(sessionStartMs - 600_000);
   await utimes(j(outboxDir, "stale-from-previous.md"), past, past);
 
-  // 本轮产物 + runtime_result
+  // 本轮产物 + runtime_result。mtime 显式钉在会话起点之后:写盘与 Date.now() 同毫秒时
+  // 文件系统时间戳量化可落到起点之前,被误判残件(ubuntu+node22 CI 实证),utimes 消竞态。
+  const fresh = new Date(sessionStartMs + 5_000);
   await wf(j(outboxDir, "fresh-deliverable.md"), "本轮交付物", "utf8");
+  await utimes(j(outboxDir, "fresh-deliverable.md"), fresh, fresh);
   await wf(j(outboxDir, "runtime_result.json"), JSON.stringify({
     status: "completed", summary: "done", artifacts: [],
   }), "utf8");
+  await utimes(j(outboxDir, "runtime_result.json"), fresh, fresh);
 
   const result = await collectRuntimeResult({
     agentId: "worker-stale-test",

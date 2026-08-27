@@ -96,10 +96,10 @@ agent 写 outbox/ → ①采集 → ②整包留存 → ③流转下游 → ④�
 | 采集 + 中央镜像 | `lib/routing/mailbox/runtime-mailbox-outbox-helpers.js` |
 | 上游整包流入下游 inbox | `lib/delivery/upstream-package-inflow.js` |
 | 上游身份登记(派工收口) | `lib/routing/dispatch/dispatch-graph-policy.js` · `applyUpstreamProducerPointer` |
-| 字节预算 + 溢出压缩 | `lib/delivery/context-compression.js` |
+| 上游包导览(原字节预算+溢出压缩 context-compression 已按 §② 决策于 v200 拆除,COMPRESSED_MANIFEST 导览化为 UPSTREAM_GUIDE) | `lib/delivery/upstream-guide.js` |
 | 阶段序(留存早于派工) | `lib/lifecycle/agent-end/stage-definitions.js` |
 | 取件条写入 | `lib/routing/mailbox/runtime-mailbox.js` |
-| 完成判定 | `lib/contract/contract-outcome.js` |
+| 完成判定(原 contract-outcome 五路优先链已于 v189 拆除,合约结局收敛为 resolveTerminalOutcome) | `lib/contract/terminal-outcome.js` |
 
 ## 演化
 

@@ -82,7 +82,7 @@ summarizeVerificationRun 读）；成功标准=run 完成无 failedCases（norma
 
 - 门逻辑：`extensions/watchdog/lib/cli-system/cli-surface-verify-gate.js`
 - 焊入点：`extensions/watchdog/lib/operator/operator-executor.js`（apply 后 runVerifyAfterApply）
-- 配置透传：`extensions/watchdog/lib/operator-runtime.js`（forceVerify 默认 true）
+- 配置透传：`extensions/watchdog/lib/operator/operator-runtime.js`（forceVerify 默认 true；后迁入 operator/ 子目录）
 - 复用：`admin-surface-registry.js:217`（verificationCapability）、`apply-rest.js`（test_runs.start）、
   `admin-change-set-verification.js`（summarizeVerificationRun）、`admin-change-set-history.js:18`（normalizeVerificationStatus）
 - P3 互补对照：`admin-change-set-commit-gate.js`

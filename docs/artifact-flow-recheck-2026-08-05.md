@@ -59,7 +59,7 @@
 | **高1** | provenanceNonce 零写入 | **仍开** | 全库仅 `stage-definitions.js:359-362` 两处**读**点，:359 注释自认 "stays null until SOUL injection"。⚠️ 但"防伪完全失效"高估了：`action-marker-parser.js:200` 结构化 ```action 通道在无 nonce 时是 **fail-CLOSED**，:155/:191 引用块跳过，:151-153 非 action 围栏不透明。裸奔的只有"未引用、未入围栏的正文行内 [ACTION]" |
 | **高2** | contractPathsById 无共享路径守卫 | **仍开（存疑级）** | `contract-store.js:29-37 isSharedContractPath` 定义完整但唯一使用点是 :154 的**列举过滤器**，索引写入 :55-57 对任意路径无条件执行。中毒读取点先验都没点全：`removeInboxContractIfExists` **自身第一行** `inbox-handlers.js:60` 就是 `preferCache:false` 读，:61-63 direct_request 分支 return 不 evict → 污染读+不清理的完整序列。危害端 `outbox-handlers.js:20 readContractSnapshotById(id)` 不传 hint。**仍判存疑**：`inbox-handlers.js:98` 缓存的是**未投影全量对象**，常态读仍带 output；v133 有静态误判前科 |
 | **高3** | collectOutbox 三条静默 | **仍开** | 同 P2 |
-| 附 | review 腿 role-fallback 断链 | **证伪** | `collaboration-policy.js:139-162` 的 `hasDirectedEdge` 硬闸在 staging **之前**，无边直接 INVALID_STATE + 广播 GRAPH_COLLABORATION_BLOCKED，合约不建、包不存在。`tests/review-lane-semantics.test.js:285-341` 把这条语义钉死 |
+| 附 | review 腿 role-fallback 断链 | **证伪** | `collaboration-policy.js:139-162` 的 `hasDirectedEdge` 硬闸在 staging **之前**，无边直接 INVALID_STATE + 广播 GRAPH_COLLABORATION_BLOCKED，合约不建、包不存在。当时的评审 lane 语义测试 `review-lane-semantics.test.js:285-341`(已随 v225 评审链退役删除)把这条语义钉死 |
 | 附 | staged 包 manifest 身份错误 | **仍开，但危害应降级** | `artifacts/DIRECT-1785134198487-c946d0/worker/manifest.json` 的 contractId 写着源约 `TC-1785134137963-ad5789`（盘证）。但 `producer` 字段是对的，且**全库无代码读 manifest.contractId**（`agent-session-transcript.js:66` 只取 primary/producer/producedAt/summary），`artifactDir(cid)` 在 lib/ 下零消费方。是溯源脏，不是消费方拿错 |
 | 附 | 判决①"固定管线语义齐全" | **应下调** | `artifact-store.js:233/:245/:253` 三态（本腿无上游 / 上游未产出 / 包存在但空）在下游 inbox 完全同相，且 :86 `failures.length===0 return` 使三条都不落 _MISSING.md。memo 自己的 P6 建议①与判决①互相打脸。正确表述："搬运机制齐全，缺料语义不齐全" |
 
@@ -189,7 +189,7 @@ seq7 session_close
 - **健康的**：没有造第二条搬运协议（staging 只落包，入仓仍由 `copyUpstreamArtifactsToInbox` 沿图入边完成，B8 预算/COMPRESSED_MANIFEST/_MISSING 全套照常生效）；图授权闸门无旁路且有测试钉死；`fede51d` 的 preserved∪manifest 并集是真修复（盘证：`DIRECT-1785145407509-51be4c/planner` 修前只有 preserved 的 review_request.md、缺 [ACTION] 显式声明且当时确实存在的 .js；两次 post-fix 探针 reviewer 正常给出 [BLOCKING]）。
 - **缺口 1（真 bug 但今天不可达）**：`hasReviewCapability` 只认 `skills.includes("review-findings")`，而 reviewer1 的 binding `skills.configured=[]`（preset 的 skills 走 capabilities 另一通道）→ `:114 graphTargets.find(hasReviewCapability)` 恒 undefined，永远落到全局 role fallback `[0]`。单 reviewer 拓扑下行为与正确实现一致；多 reviewer 时会无谓拒绝。
 - **缺口 2（当下最痛）**：任务文本 `:174` 承诺"未入仓则按上列路径读取"，但 reviewer 读白名单只有 `[inbox, contract.output, previousArtifact, workingDir]`（`before-tool-call.js:325-338`，且 DIRECT 信封不设 workingDir）→ manifest 的源侧绝对路径**结构性不可能**命中。Live 铁证：`artifacts/DIRECT-1785134198487-c946d0/reviewer1/*.md:9-11` 逐条记录了"读 manifest 路径被拒 → 猜 inbox 文件名全 ENOENT → 交 BLOCKED 白卷"。**且成功路径同样没人指路**——平台算得出 `inbox/upstream/<producer>/<basename>` 却从不写进任务文本；两次成功探针纯属 basename 恰好猜对。顺带：绝对主机路径进任务文本违反"只用相对路径"硬规则。
-- **缺口 3**：`collectReviewArtifacts:61-85` 全程无 fs 检查，把未物化的 contract.output 当评审对象登记并打印（盘证 `control-plane/output/TC-1785134137963-ad5789.md` 从不存在）；`tests/review-lane-semantics.test.js:220-269` 甚至**用测试钉死了"幽灵路径照样开约"**。
+- **缺口 3**：`collectReviewArtifacts:61-85` 全程无 fs 检查，把未物化的 contract.output 当评审对象登记并打印（盘证 `control-plane/output/TC-1785134137963-ad5789.md` 从不存在）；当时的 `review-lane-semantics.test.js:220-269`(已随 v225 评审链退役删除)甚至**用测试钉死了"幽灵路径照样开约"**。
 - **缺口 4**：staging 失败/空包时全链零标记（`:137` 无条件 mkdir 留下空目录 → `_MISSING.md` 判据是"报错"而非"该有却没有" → 静默）；`reviewContext.staging.staged` **全库零消费方**且 catch 会丢弃已累积的 stagedFrom（假阴性）。
 
 ---

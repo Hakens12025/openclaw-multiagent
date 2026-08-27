@@ -25,17 +25,17 @@ Harness 是执行层工具箱，不是平台总控。
 | `gate` | 完成/验证门控 |
 | `normalizer` | evaluator 输入与失败归一化 |
 
-当前代码里的正式入口：
+当时代码里的正式入口（整个 harness 代码目录已随 v226 全退役删除）：
 
-- [extensions/watchdog/lib/harness/harness-registry.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-registry.js)
-- [extensions/watchdog/lib/harness/harness-run.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-run.js)
-- [extensions/watchdog/lib/harness/harness-module-runner.js](/Users/hakens/.openclaw/extensions/watchdog/lib/harness/harness-module-runner.js)
+- harness-registry（模块注册表）
+- harness-run（HarnessRun 生成）
+- harness-module-runner（模块执行器）
 
 ## 冻结的模块接口
 
-v109-stable 起，module 注册非静默拒绝不合规项：`lib/harness/harness-module-schema.js` 的 `validateHarnessModuleDefinition` 要求 `id` 必带 `harness:` 前缀、`kind`∈{guard,collector,gate,normalizer}。
+v109-stable 起，module 注册非静默拒绝不合规项：harness-module-schema 模块的 `validateHarnessModuleDefinition` 要求 `id` 必带 `harness:` 前缀、`kind`∈{guard,collector,gate,normalizer}。
 
-正式入口 `lib/harness/harness-module-catalog.js` 冻结 **10 个模块 / 4 kind**（`freezeCatalog` 逐项经 `validateHarnessModuleDefinition`）：
+正式入口 harness-module-catalog 冻结 **10 个模块 / 4 kind**（`freezeCatalog` 逐项经 `validateHarnessModuleDefinition`）：
 
 | Kind | 模块 |
 |------|------|
@@ -48,14 +48,14 @@ v109-stable 起，module 注册非静默拒绝不合规项：`lib/harness/harnes
 
 ### operator 装 harness 层
 
-operator 装配 harness 经 `lib/operator/operator-harness-recommend.js` —— **只挑 `moduleRef` 粒度**（不编 module 实现、不当第二 planner），配套 `skills/harness-build/SKILL.md`，最终经 `automations.create` 组装。
+operator 装配 harness 经 operator 侧的 operator-harness-recommend 模块（已随 harness 退役删除）—— **只挑 `moduleRef` 粒度**（不编 module 实现、不当第二 planner），配套 `skills/harness-build/SKILL.md`，最终经 `automations.create` 组装。
 
 ## 灵魂落地（v115，P0/P0.5）
 
 接口归一后补齐 harness 作为"塑形工具"的完整性：
 
-- **Run-Shape Map**：正式对象（`lib/harness/run-shape-map.js`），描述一次 run 该长什么形状 + coverage 完整性校验。
-- **soft 段反逼**：`lib/harness/soft-guidance.js` 从 run 实况反推建议，喂回塑形。
+- **Run-Shape Map**：正式对象（run-shape-map 模块），描述一次 run 该长什么形状 + coverage 完整性校验。
+- **soft 段反逼**：soft-guidance 模块从 run 实况反推建议，喂回塑形。
 - **Meta-harness 严格闸**：module 注册/组合走严格校验，拒绝不合规拼图。
 
 ## 为什么存在

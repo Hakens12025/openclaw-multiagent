@@ -22,7 +22,12 @@ const WATCHDOG = join(ROOT, "extensions", "watchdog");
 const includeArchival = process.argv.slice(2).includes("--all");
 
 // 归档目录：历史计划/规格，引用的文件可能已被重构删除，属正常历史记录。
-const ARCHIVAL_PREFIXES = ["docs/superpowers/plans/", "docs/superpowers/specs/"];
+const ARCHIVAL_PREFIXES = [
+  "docs/superpowers/plans/",
+  "docs/superpowers/specs/",
+  "extensions/watchdog/docs/superpowers/plans/",
+  "extensions/watchdog/docs/superpowers/specs/",
+];
 // 跳过运行态/非源码目录(对齐 .gitignore)——这些含 agent 生成的临时 .md，不是文档。
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build",

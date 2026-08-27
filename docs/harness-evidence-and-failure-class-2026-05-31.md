@@ -1,7 +1,7 @@
 # HarnessModule evidence key 命名规范 + failure_class 归一清单
 
 > 日期 2026-05-31 · P0 HarnessModule 接口归一产出
-> 权威代码：`extensions/watchdog/lib/harness/harness-evidence-vocab.js`
+> 权威代码（当时）：`harness-evidence-vocab.js`（原 lib/harness 下；已随 harness 全退役整删，v226）
 > 本文档是说明，**代码常量是真值**（冲突以代码为准）。
 
 > **已退役 v226（2026-08-23）**：harness 判定账已全退役（代码全删），裁决与施工单见

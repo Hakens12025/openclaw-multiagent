@@ -2,6 +2,10 @@
 
 > NASA-Punk 美学的前端控制面板，纯 HTML/CSS/vanilla JS，数据驱动 SVG 拓扑。
 
+> **整体退役 v233（2026-08-25）**：本页所述旧 dashboard（多页面 + `dashboard-*` 前端模块族）
+> 已随前端重制批 1-4 整删（−27k 行），后继是零构建 SPA `extensions/watchdog/ui/`
+> （唯一入口 `/watchdog/`）。本页保留作历史设计记录。
+
 ## 是什么
 
 OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
@@ -29,7 +33,7 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 
 ## 工作流页（v112）
 
-第二个 dashboard 页 `/watchdog/workflow-view`（前端 `dashboard-workflow.js`），三区联动：
+第二个 dashboard 页 `/watchdog/workflow-view`（前端 dashboard-workflow 模块，已随旧 dashboard 整删 v233），三区联动：
 
 - **右上缩略图**：镜像主页 agent 方框 + graph 连线。
 - **左 workflow 拓扑**：自顶向下，只含该 workflow 成员。
@@ -60,11 +64,11 @@ OpenClaw 系统的可视化控制界面，遵循 NASA-Punk 设计语言：
 
 1. V3（03-09）：三角拓扑
 2. V4（03-09）：多 Worker 垂直指挥塔
-3. 03-11：交互式系统（拖拽/CRUD/缩放），单文件 733 行（后拆分为 `dashboard-drag.js` / `dashboard-ux.js` / `dashboard-nav.js` 等）
+3. 03-11：交互式系统（拖拽/CRUD/缩放），单文件 733 行（后拆分为 drag / ux / nav 等 dashboard 前端模块，模块族已随 v233 整删）
 4. 后续：Devtools 面板、隔离测试传输
 5. 前端测试开发者工具系列迭代
 6. v112 (P-WF1~4)：新增「工作流」页 `/watchdog/workflow-view`，缩略图/拓扑/session 三区联动，后端经 inspect 家族可观测。
 
 ## 当前状态
 
-**功能完整。可交互。** 主页遗留的硬编码拓扑假设需要清理（显示层问题，不影响运行时）；工作流页为新增第二页。
+**已废弃（v233 整体退役）。** 本页描述的旧 dashboard 多页面体系已整删，前端现役真值是零构建 SPA `extensions/watchdog/ui/`。历史遗留问题（硬编码拓扑假设等）随整删一并消亡。

@@ -51,7 +51,7 @@ cd extensions/watchdog
 node test-runner.js              # health:零 LLM 体检
 node test-runner.js --preset single
 node test-runner.js --preset full
-node test-runner.js --list       # 12 预设以 live 输出为准
+node test-runner.js --list       # 预设清单以 live 输出为准
 ```
 
 ## 6. 10 分钟接手路径

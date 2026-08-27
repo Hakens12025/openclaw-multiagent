@@ -96,13 +96,15 @@ LLM 软路径负责：
 
 ## 5. 运维与测试
 
-### 5.1 启动
+### 5.1 启动与运维（跨平台唯一入口）
 
 ```bash
-bash ~/.openclaw/start.sh
+node ~/.openclaw/openclawctl.js start     # 启动(预检→env→装服务→等就绪)
+node ~/.openclaw/openclawctl.js restart   # 重启唯一正道
+node ~/.openclaw/openclawctl.js doctor    # 环境体检
 ```
 
-该脚本会启动 SSH 隧道与 Gateway，并写日志到 `/tmp/openclaw-*.log`。
+服务单元由宿主 `openclaw gateway install` 按平台生成（launchd/systemd/schtasks）；个人部署特性（代理/SSH 隧道/CA）经 `profiles/default.env` 显式声明。日志在 `~/.openclaw/logs/gateway.log`（stderr 同目录 `.err.log`）。旧 bash 层（start.sh/setup.sh/clean-restart-gateway.sh）已退役为转发壳。
 
 ### 5.2 测试（唯一入口）
 
@@ -113,8 +115,7 @@ node ~/.openclaw/extensions/watchdog/test-runner.js --preset full      # 全部 
 node ~/.openclaw/extensions/watchdog/test-runner.js --list             # 打印 live 预设表
 ```
 
-预设清单以 `--list` 的 live 输出为准（本文不复刻清单——复刻必然滞后；2026-08-18 回路退役后
-对照 live 核得 13 个预设，`full` = 12 个 suite）。
+预设清单以 `--list` 的 live 输出为准（本文不复刻清单也不复刻数量——复刻必然滞后）。
 每个检查产出 CheckResult，fail/blocked/skip 必带 `E-*` 错误码（注册表
 `extensions/watchdog/lib/formal-runtime/error-codes.js`），报告 failures-first。
 
@@ -178,10 +179,10 @@ node ~/.openclaw/extensions/watchdog/test-runner.js --list             # 打印 
 
 - `openclaw.json` 含密钥，严禁外泄
 - 提交前先区分“代码变更”和“运行产物”（`research-lab/`、`test-reports/` 等）
-- push 常用代理：
+- 大 push 直连不带代理：
 
 ```bash
-HTTPS_PROXY=http://127.0.0.1:8080 git push
+git -c http.version=HTTP/1.1 push origin <ref>
 ```
 
 ---

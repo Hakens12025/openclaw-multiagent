@@ -76,10 +76,10 @@
 
 ## 8. 引用代码位置
 
-- 沉淀机制：`extensions/watchdog/lib/automation/automation-skill-precipitation.js`
+- 沉淀机制：`automation-skill-precipitation.js`（原 lib/automation 下；已随 harness 全退役整删，v226）
   （shouldPrecipitateSkill / extractCausalSkill / precipitateSkill / maybePrecipitateSkillFromRound）
 - 触发点：`extensions/watchdog/lib/automation/automation-finalize.js`（finalizeAutomationRound 尾段）
 - 事件：`extensions/watchdog/lib/core/event-types.js`（SKILL_PRECIPITATED）
 - 复用：`harness/harness-evidence-vocab.js`（HARNESS_FAILURE_CLASS / FAILURE_CLASS_STRATEGIES / HARNESS_EVIDENCE_KEY，P0）、
   `automation/profile-lifecycle.js`（successStreak，P4）、`harness/evaluator-result.js`（EvaluationResult）
-- 测试：`extensions/watchdog/tests/automation-skill-precipitation.test.js`（13 用例）
+- 测试：`automation-skill-precipitation.test.js`（13 用例；已随沉淀机制整删，v226）

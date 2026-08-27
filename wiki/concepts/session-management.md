@@ -39,7 +39,7 @@ runtimeWakeAgentDetailed(agentId, reason, api, logger, {
 
 - 会话存于 `agents/<a>/sessions/sessions.json`（updatedAt 倒序）+ `.jsonl` transcript（`lib/agent/agent-session-store.js` / `agent-session-transcript.js`）。
 - **`.jsonl` 已内嵌读/写文件全文（非指针）**，故工作流页回放无需改 session 保存方式；transcript 解析出输入/输出消息 + 引用文件（解析到正本 + persistent 判定），经 `inspect.session_transcript` 暴露。
-- 但测试 `session-clean`（`runtime-admin.js:resetRuntimeState`）会清 `agents/<a>/sessions/` —— 常态运行不清。为补 inbox 过滤副本缺口，`agent_end` 清理前由 `snapshotInboxToTrace`（`lib/lifecycle/workflow-trace-snapshot.js`）快照到 `control-plane/workflow-trace/<contractId>/<agent>/`（try/catch，绝不破坏清理）。
+- 但测试 `session-clean`（`runtime-admin.js:resetRuntimeState`）会清 `agents/<a>/sessions/` —— 常态运行不清。为补 inbox 过滤副本缺口，`agent_end` 清理前做 inbox 快照（try/catch，绝不破坏清理）：v112 时由 snapshotInboxToTrace 快照到 `control-plane/workflow-trace/<contractId>/<agent>/`；workflow-trace 店已于 v199（2026-08-16 二店归并）断代退役，现役形态是 `snapshotInboxToRunTree`（`lib/lifecycle/run-tree-snapshot.js`），落 run 树 participants/。
 
 ## 和谁交互
 

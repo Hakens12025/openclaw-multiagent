@@ -91,7 +91,7 @@ Contractor 的 `executionPolicy` 模式可直接复用于 evaluator 去特化。
 
 - **设计方向**: 明确
 - **executionPolicy 模式**: 来自 contractor，可复用
-- **实现**: 已落地 —— `buildEvaluationResult` 在 `lib/harness/evaluator-result.js`，由 `lib/automation/automation-finalize.js:159` 消费，被 `tests/w3-truth-convergence.test.js` 钉死
+- **实现**: 曾落地 —— `buildEvaluationResult` 位于 harness 侧的 evaluator-result 模块，由 `lib/automation/automation-finalize.js` 消费，被 `tests/w3-truth-convergence.test.js` 钉死；该模块已随 harness 全退役（v226）删除，EvaluationResult 环随之下线（见页首注记）
 - **来源**: 备忘录 76, 88, 89, 94
 
 相关概念: [evaluation-result-chain](evaluation-result-chain.md) | [god-role-elimination](god-role-elimination.md) | [agent-binding](agent-binding.md)

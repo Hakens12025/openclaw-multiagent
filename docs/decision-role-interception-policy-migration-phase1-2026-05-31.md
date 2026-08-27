@@ -70,7 +70,7 @@ artifact-lane（heartbeat-gate.js:62 `listArtifactLaneBindingsForRole(identity.r
 - policy schema：`extensions/watchdog/lib/agent/agent-binding-store-read.js`（OUTPUT_POLICY_BOOLEANS / INBOX_POLICY_BOOLEANS + sanitize）
 - helper：`extensions/watchdog/lib/agent/agent-identity.js`（canAgentReceiveRework /
   agentRequiresContractForHeartbeat / agentDedupesConcurrentTrackerForHeartbeat）
-- #1 消费：`extensions/watchdog/lib/routing/runtime-mailbox-outbox-reviewer-verdict.js:45`
-- #2 删除：`extensions/watchdog/lib/routing/runtime-mailbox-handler-registry.js`
+- #1 消费：`runtime-mailbox-outbox-reviewer-verdict.js:45`（原 lib/routing 下；已随评审链/reviewer 退役整删，v225）
+- #2 删除：`extensions/watchdog/lib/routing/mailbox/runtime-mailbox-handler-registry.js`（后迁入 mailbox/ 子目录）
 - #3 消费：`extensions/watchdog/lib/heartbeat-gate.js`
 - 测试：`extensions/watchdog/tests/role-interception-policy-migration.test.js`（7 用例）

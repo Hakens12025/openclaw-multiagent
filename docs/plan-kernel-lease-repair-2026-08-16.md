@@ -935,7 +935,7 @@ revert 单位 = 单 Task commit，合法顺序为逆序（Task6 → … → Task
 1. `lib/store/tracker-store.js` — 两个定时器 Map（`pendingTrackerRemovalTimers`/`pendingTrackingContractWaiters`，:12-13）入租约 → block `local-execution`。前提已备：lease 账本 Set 自压缩，高频 set/delete 换手（:42-45）不留尸体；注意该店有 clearTimeout 换手语义，收编时用"先 dispose 旧凭证再登记新凭证"表达
    ⚠ **原语升级前置**：收编任何 async close 资源（如 `run-event-recorder.js:219` 的 `await handle.close()`）之前，lease 原语须先升级出 await 语义的 disposeAll——当前同步专属是结构性拒收（thenable 即报错），别绕它
 2. `lib/store/contract-store.js` — 三个模块单例（`contractSnapshotsByPath`/`contractPathsById`/`sharedContractsLoaded`，:13-15）加 owner/reset → `runtime-core`
-3. 五个二代 registry：`lib/prompt/role-spec-registry.js`、`lib/prompt/semantic-skill-registry.js`、`lib/agent/agent-binding-store.js`、`lib/effective-profile-composer.js`、`lib/management/capability-registry.js` — 条目补 owner+存活谓词（原列第五项 `lib/loop/graph-loop-registry.js` 已随 2026-08-18 回路退役删除，不再是待收编对象）
+3. 五个二代 registry：`lib/prompt/role-spec-registry.js`、`lib/prompt/semantic-skill-registry.js`、`lib/agent/agent-binding-store.js`、`lib/effective-profile-composer.js`、`lib/management/capability-registry.js` — 条目补 owner+存活谓词（原列第五项 `graph-loop-registry.js`〔原 lib/loop 下〕已随 2026-08-18 回路退役删除，不再是待收编对象）
 4. `bootLedger` 声明从 index.js 种子块下放到各属主模块
 5. 内核干预事件入账首例：tracker 超时判死合约时经 `appendRunEvent()` 写归因事件（`source=kernel, reason=tracker_timeout`，`causeRefs` 指向该合约的 dispatch 事件；替换现散装 `runtimeDiagnostics` 写法）— 遵循理想内核定义第 6 条 → block `runtime-core`
 6. `hooks/before-tool-call.js` 411 行复合拦截拆分 + 硬停改降级 — **另立计划**（L3 执行面，非 kernel）

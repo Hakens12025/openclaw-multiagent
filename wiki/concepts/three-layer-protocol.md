@@ -15,7 +15,7 @@
 
 - graph-based next hop 不再是独立业务协议，而是 `dispatch` 体系内的 graph policy
 - `execution_contract / direct_request / review_artifact / heartbeat` 是 carrier，不是协议族
-- 前端流线展示通过 `extensions/watchdog/protocol-registry.js` + `extensions/watchdog/dashboard-flow-visuals.js` 统一映射
+- 前端流线展示的协议映射真值在 `extensions/watchdog/lib/protocol/protocol-registry.js`（旧 dashboard 侧的 flow-visuals 消费端已随 v233 前端重制整删，现由零构建 SPA `extensions/watchdog/ui/` 消费）
 
 ## 为什么存在
 

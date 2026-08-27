@@ -101,7 +101,7 @@ surface 数据有三处"来源/视图"，实测合并后完全自洽：
 
 - 合并：`extensions/watchdog/lib/cli-system/cli-surface-registry.js:83-92`
 - 四道门：`extensions/watchdog/lib/cli-system/cli-surface-executor.js:19-30`
-- apply 落点：`extensions/watchdog/lib/admin/admin-surface-operations.js:317`
+- apply 落点：`extensions/watchdog/lib/admin/operations/admin-surface-operations.js`（后迁入 operations/ 子目录；当时行锚 :317 已漂移）
 - operator 执行通道：`extensions/watchdog/lib/operator/operator-executor.js:26`
 - apply 过滤视图：`extensions/watchdog/lib/operator/operator-surface-policy.js`
 - admin 写层真值：`extensions/watchdog/lib/admin/admin-surface-registry.js`（`normalizeSurface:197` 用 `hasAdminSurfaceOperationHandler` 算 `executable`）

@@ -7,6 +7,10 @@
 > 现行真值为 **3 份**：graph / agent bindings(config) / automation specs；写入顺序相应收为
 > bindings(`saveConfig`) → graph(`saveGraph`) → automations(`writeAutomationStore`)。
 > 当前实现以 `lib/control-plane/structure-snapshot.js` 为准，本文仅作设计意图与取舍的历史记录。
+>
+> **2026-08 补注**：本文引用的旧 dashboard 前端族（`dashboard-devtools` / `dashboard-control-plane` 等 dashboard-* 页面脚本）
+> 已随 v233 前端重制整删，现前端 = `extensions/watchdog/ui/` 零构建 SPA。正文中的 dashboard-* 名称与行号均为当时快照，
+> 下文一律以不带扩展名的模块名书写。`admin-change-set-history.js` 现址 = `lib/admin/change-sets/admin-change-set-history.js`。
 
 # ⑤ Operator Self-Evolution Control Plane — Design Doc Draft
 
@@ -26,10 +30,10 @@
 | **Right panel — diff** | `buildAdminChangeSetPreview()` / `previewAdminChangeSetExecution()` return `{request:{method,path,payload}, inputFields, missingFields, ready}` (read-only, no write). This is the raw diff source. | `admin-change-set-preview.js:10-54`, `admin-change-set-executor.js:17-28` |
 | **Right panel — apply / commit gate** | `executeAdminChangeSet({id, dryRun, explicitConfirm, startVerification, requireVerification})` is the SOLE apply entry. Confirmation gating (`:44-46`), commit-verification gate (`:101-120`, throws `CommitVerificationBlockedError`), applied/blocked status all already enforced. | `admin-change-set-executor.js:30-202` |
 | **Right panel — verify** | `evaluateCommitVerificationGate()` is sole arbiter `{required, passed, reason, failedCaseIds, blockedCaseIds}`; `attachAdminChangeSetVerification()` merges test-run into `verificationHistory`. UI **reads & displays** the gate, never re-implements it. | `admin-change-set-commit-gate.js:28-58`, `admin-change-sets.js:258-292` |
-| **Left panel — operator review results** | Operator snapshot already loads operator/loop/draft context + `loadSnapshotCoreData()` reads graph/loops/automations via inspect surfaces. Fetched via `/watchdog/operator-snapshot` (the dashboard already calls this). EvaluationResult / run reports surface through the operator's existing output. | `operator-snapshot.js:83`; dashboard `dashboard-devtools.js:1316,1724` |
+| **Left panel — operator review results** | Operator snapshot already loads operator/loop/draft context + `loadSnapshotCoreData()` reads graph/loops/automations via inspect surfaces. Fetched via `/watchdog/operator-snapshot` (the dashboard already calls this). EvaluationResult / run reports surface through the operator's existing output. | `operator-snapshot.js:83`; dashboard `dashboard-devtools:1316,1724` |
 | **Tiering — danger ranking** | `surface.risk` (+ `confirmation`, `operatorPhase`) copied onto draft as `riskLevel`/`confirmation` at save time. 6 declared levels: read/observe/runtime_gate/safe/structural/destructive. No secondary `isStructural` flag — structural = `risk:"structural"`. | `admin-change-sets.js` (riskLevel copy), catalog `apply-rest.js:267-360`, `agents-apply.js:191-211` |
 | **Rollback (NEW, but reuses writers)** | Restore re-writes the 4 truths via existing writers: `saveGraph` (`agent-graph-mutations.js:34`), `saveGraphLoopRegistry` (`graph-loop-registry.js:123`), `writeAutomationStore` (`automation-registry.js:180`), **`saveConfig`** (`agent-admin-store.js:95`). Atomic infra: `atomicWriteFile`/`withLock` (`state-file-utils.js:13,121`). Restore proven by test pattern `suite-loop-direct.js:93-102`. | as cited |
-| **Page shell / nav / token / requestJson / confirm** | New tab inside existing `/watchdog/devtools` as a 4th `VIEW_MODES` entry; `createControlPlaneView` factory `{renderActions,renderSummary,renderHistory}`; `tokenParam()`+`requestJson()`; native `confirm()`. | `dashboard-devtools.js:3-7,1784-1805,88-104` |
+| **Page shell / nav / token / requestJson / confirm** | New tab inside existing `/watchdog/devtools` as a 4th `VIEW_MODES` entry; `createControlPlaneView` factory `{renderActions,renderSummary,renderHistory}`; `tokenParam()`+`requestJson()`; native `confirm()`. | `dashboard-devtools:3-7,1784-1805,88-104` |
 
 **Gap-driven new builds (flagged from findings):** rollback/restore primitive (finding #2 gap 1), structure snapshot capture/store (finding #3 gaps 2-5), revert status values (finding #2 gap 3), tiering function (finding #4 gap 1), double-confirm gate for structural (finding #4 gap 2), control-plane routes (finding #5 gap 1). **NOT a gap (finding wrong):** openclaw.json atomic writer.
 
@@ -126,7 +130,7 @@ Pure function `evaluateProposalTier(surface|draft)` in a new tiny `lib/control-p
 
 ## 4. Page layout + data flow
 
-**Lives inside `/watchdog/devtools` as `VIEW_MODES.CONTROL_PLANE` (4th tab).** No new HTML page, no new route registration for the page itself — add to `VIEW_MODES` (`dashboard-devtools.js:3-7`), `renderViewTabs()` (`:1810-1823`), `getActiveView()` (`:1801-1805`), and inject `<script src="/watchdog/dashboard-control-plane.js">` in `devtools.html` before `dashboard-devtools.js`. Factory `createControlPlaneView(app) → {renderActions, renderSummary, renderHistory}` exactly like `createManagementView`.
+**Lives inside `/watchdog/devtools` as `VIEW_MODES.CONTROL_PLANE` (4th tab).** No new HTML page, no new route registration for the page itself — add to `VIEW_MODES` (`dashboard-devtools:3-7`), `renderViewTabs()` (`:1810-1823`), `getActiveView()` (`:1801-1805`), and inject the `dashboard-control-plane` script (`/watchdog/dashboard-control-plane` 路径) in `devtools.html` before the `dashboard-devtools` script. Factory `createControlPlaneView(app) → {renderActions, renderSummary, renderHistory}` exactly like `createManagementView`.
 
 ```
 ┌─ CONTROL PLANE tab ─────────────────────────────────────────────┐
@@ -143,14 +147,14 @@ Pure function `evaluateProposalTier(surface|draft)` in a new tiny `lib/control-p
 └──────────────────────────┴──────────────────────────────────────┘
 ```
 
-- **LEFT reads:** `/watchdog/operator-snapshot` (already exists; `dashboard-devtools.js:1316`). Renders operator's consumed run reports / EvaluationResult + attention queue + the rationale tying a review to its proposal (`sourceDraftId` linkage). Read-only.
+- **LEFT reads:** `/watchdog/operator-snapshot` (already exists; `dashboard-devtools:1316`). Renders operator's consumed run reports / EvaluationResult + attention queue + the rationale tying a review to its proposal (`sourceDraftId` linkage). Read-only.
 - **RIGHT reads:** `GET /watchdog/admin-change-sets` (lists drafts = proposals) → group/sort by `evaluateProposalTier()`. Each row's diff via `GET /watchdog/admin-change-sets/preview?id=X` (`routes/admin-change-sets.js:109-117`). Verify status via the draft's `verificationHistory` + gate eval (already on `decorateDraft`).
 - **Apply → verify → rollback flow (all reuse change-sets):**
   1. **Diff:** preview endpoint, read-only. Show `request.method path` + payload + `missingFields`.
   2. **Verify:** `POST /watchdog/admin-change-sets/execute` with `dryRun:true` then attach test-run via existing verification route, OR `startVerification:true` on real apply. Gate shown from `evaluateCommitVerificationGate`.
   3. **Apply:** `POST …/execute` `{dryRun:false, explicitConfirm:true, requireVerification:true}`. For **T3/T4**, the control-plane apply wrapper first calls `captureStructureSnapshot({reason:"pre-apply", sourceDraftId})`, **then** executes. The returned `SNAP-…` code is stored on the execution record so the row shows "rollback to SNAP-… (state before this apply)".
   4. **Rollback:** `POST /watchdog/control-plane/rollback {snapshotId, expectHash}` → `restoreStructureSnapshot`. Reversible by design.
-- **Double-confirm UX (T3/T4):** first click → row expands inline to a confirm strip ("This is a STRUCTURAL change. A snapshot SNAP-… will be captured first. Apply?") with a second **APPLY** button. Two distinct clicks, no auto-fire. T4 adds a typed token (e.g. type the surfaceId) before the second button enables — reuses native pattern (`dashboard-devtools.js:1442` confirm style), no modal lib.
+- **Double-confirm UX (T3/T4):** first click → row expands inline to a confirm strip ("This is a STRUCTURAL change. A snapshot SNAP-… will be captured first. Apply?") with a second **APPLY** button. Two distinct clicks, no auto-fire. T4 adds a typed token (e.g. type the surfaceId) before the second button enables — reuses native pattern (`dashboard-devtools:1442` confirm style), no modal lib.
 - **NASA-Punk flat:** inherit `dashboard-devtools.css`; new classes `.cp-tier-row`, `.cp-tier-{1..4}` (left-border color = tier, per the v116 "status-driven left border" convention, NOT badges/glows), `.cp-snapshot-bar`. Zero radius/shadow/gradient. Tier color is a left border + label, consistent with the agents-page refactor.
 - **Refresh:** new `refreshControlPlane()` re-fetches `/operator-snapshot` + `/admin-change-sets` after any apply/rollback, then `renderDevtools()` (finding #4 gap 6). Reuses existing `requestJson`/render dispatch.
 
@@ -178,7 +182,7 @@ One config addition: `structureSnapshotsFile` in `CONTROL_PLANE_PATHS` (`control
 1. **Phase 0 — Structure Snapshot module (foundation).** `lib/control-plane/structure-snapshot.js` (capture/restore/verify) + `CONTROL_PLANE_PATHS.structureSnapshotsFile` + reuse `saveConfig`/`saveGraph`/`saveGraphLoopRegistry`/`writeAutomationStore`. Unit-test capture→mutate→restore→verify round-trip (model on `suite-loop-direct.js:93-102`). **Gate:** round-trip restores all 4 truths, hash matches. Ships standalone, usable from CLI before any UI.
 2. **Phase 1 — Control-plane routes.** `routes/control-plane.js`: `snapshot` (POST/GET) + `rollback` (POST). Token auth like admin-change-sets routes. **Gate:** can capture and rollback via HTTP, verified by test-runner, no UI yet.
 3. **Phase 2 — Tier function + status extension.** `proposal-tier.js` + `resolveDraftStatus` `reverted` states. Pure functions, unit-tested against the 5 structural + 5 destructive surfaces. **Gate:** correct tier for every catalog surface.
-4. **Phase 3 — Control-plane view (UI).** `dashboard-control-plane.js` factory + `VIEW_MODES.CONTROL_PLANE` tab + left (operator-snapshot) / right (tiered drafts + diff/verify/apply). Reuse `requestJson`/`tokenParam`. **Gate:** headless-Chrome screenshot per the v116 method; renders both panels.
+4. **Phase 3 — Control-plane view (UI).** `dashboard-control-plane` 视图 factory + `VIEW_MODES.CONTROL_PLANE` tab + left (operator-snapshot) / right (tiered drafts + diff/verify/apply). Reuse `requestJson`/`tokenParam`. **Gate:** headless-Chrome screenshot per the v116 method; renders both panels.
 5. **Phase 4 — Double-confirm + auto-snapshot-on-apply wiring.** T3/T4 two-click + typed ack; control-plane apply handler captures snapshot before `executeAdminChangeSet` and stamps `SNAP-…` on the execution record; rollback button per applied structural/destructive row. **Gate:** structural apply captures a snapshot and is rollback-able end-to-end.
 
 Each phase is independently revertable (delete the module/route/tab; no edits to existing apply path semantics — all additive).
@@ -200,10 +204,10 @@ Each phase is independently revertable (delete the module/route/tab; no edits to
 - NEW `/Users/hakens/.openclaw/extensions/watchdog/lib/control-plane/structure-snapshot.js`
 - NEW `/Users/hakens/.openclaw/extensions/watchdog/lib/control-plane/proposal-tier.js`
 - NEW `/Users/hakens/.openclaw/extensions/watchdog/routes/control-plane.js`
-- NEW `/Users/hakens/.openclaw/extensions/watchdog/dashboard-control-plane.js`
+- NEW `dashboard-control-plane` 页面脚本（当时位于扩展根；该 dashboard 族已随 v233 整删）
 - EDIT `/Users/hakens/.openclaw/extensions/watchdog/lib/control-plane/control-plane-paths.js` (add `structureSnapshotsFile`)
-- EDIT `/Users/hakens/.openclaw/extensions/watchdog/lib/admin/admin-change-set-history.js` (add `reverted`/`revert_failed` to `resolveDraftStatus`, ~:115-143)
-- EDIT `/Users/hakens/.openclaw/extensions/watchdog/dashboard-devtools.js` (`VIEW_MODES`, `renderViewTabs`, `getActiveView`)
+- EDIT `/Users/hakens/.openclaw/extensions/watchdog/lib/admin/change-sets/admin-change-set-history.js` (add `reverted`/`revert_failed` to `resolveDraftStatus`, ~:115-143；成文时位于 `lib/admin/` 根)
+- EDIT `dashboard-devtools` 页面脚本 (`VIEW_MODES`, `renderViewTabs`, `getActiveView`；该 dashboard 族已随 v233 整删)
 - EDIT `/Users/hakens/.openclaw/extensions/watchdog/devtools.html` (script inject)
 
 **Reuse-verbatim (do NOT modify):** `saveConfig` (`agent-admin-store.js:95`), `saveGraph` (`agent-graph-mutations.js:34`), `saveGraphLoopRegistry` (`graph-loop-registry.js:123`), `writeAutomationStore` (`automation-registry.js:180`), `executeAdminChangeSet` (`admin-change-set-executor.js:30`), `evaluateCommitVerificationGate` (`admin-change-set-commit-gate.js:28`), `atomicWriteFile`/`withLock` (`state-file-utils.js:13,121`).
