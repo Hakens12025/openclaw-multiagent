@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+// 仓内定位:以本文件为锚(tests/ → watchdog 根),不写死机器路径——CI/别机同样可解析。
+const wd = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 
 import { buildRuntimeSummary } from "../lib/operator/operator-snapshot-runtime.js";
 
@@ -21,12 +25,12 @@ test("buildRuntimeSummary no longer exposes pendingDispatches residue", () => {
 
 test("control-plane sources no longer mention pending dispatch residue", async () => {
   const fileChecks = [
-    ["state-collections", "/Users/hakens/.openclaw/extensions/watchdog/lib/state/state-collections.js"],
-    ["contract-flow-store", "/Users/hakens/.openclaw/extensions/watchdog/lib/store/contract-flow-store.js"],
-    ["runtime-admin", "/Users/hakens/.openclaw/extensions/watchdog/lib/admin/runtime-admin.js"],
-    ["operator-snapshot-runtime", "/Users/hakens/.openclaw/extensions/watchdog/lib/operator/operator-snapshot-runtime.js"],
-    ["operator-snapshot", "/Users/hakens/.openclaw/extensions/watchdog/lib/operator/operator-snapshot.js"],
-    ["routes-api", "/Users/hakens/.openclaw/extensions/watchdog/routes/api.js"],
+    ["state-collections", wd("lib/state/state-collections.js")],
+    ["contract-flow-store", wd("lib/store/contract-flow-store.js")],
+    ["runtime-admin", wd("lib/admin/runtime-admin.js")],
+    ["operator-snapshot-runtime", wd("lib/operator/operator-snapshot-runtime.js")],
+    ["operator-snapshot", wd("lib/operator/operator-snapshot.js")],
+    ["routes-api", wd("routes/api.js")],
   ];
 
   for (const [label, filePath] of fileChecks) {
