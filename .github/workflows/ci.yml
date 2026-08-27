@@ -38,6 +38,17 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
+      # 产品首跑冒烟兼测试前置:init 从 example 生成 openclaw.json(签发 token/建目录骨架)。
+      # 一石二鸟——①有测试直读 live 配置(如单前台三不变量守卫),全新 checkout 无此文件
+      # 会 ENOENT(2026-08-28 CI 首跑 57 红的主签名);②init 在 ubuntu/macos 每跑必证。
+      - name: Product smoke — openclawctl init + doctor
+        working-directory: home/.openclaw
+        env:
+          HOME: ${{ github.workspace }}/home
+        run: |
+          node openclawctl.js init
+          node openclawctl.js doctor || true
+
       - name: Run watchdog unit tests (offline)
         working-directory: home/.openclaw/extensions/watchdog
         env:
