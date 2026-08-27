@@ -4,7 +4,7 @@
 // 动机(§13 同族):rsync 会覆盖上次的脱敏成果——真 token/真 IP 曾被同步带回公开树,
 // 靠临场扫描抓回。结构修法=同步与脱敏与门禁一体化:扫描不过=拒绝走到 commit。
 //
-// 流程: ①rsync 7 目录(--delete,排 node_modules/research-lab/test-reports)
+// 流程: ①rsync 8 目录(--delete,排 node_modules/research-lab/test-reports)
 //       ②收集真密钥值(openclaw.json 密钥字段 + profiles/default.env 的远程主机)
 //       ③精确值自动脱敏 → REDACTED_FOR_PUBLIC(与历史公开版占位符一致)
 //       ④硬门A:精确真值复扫,任何命中 → exit 2
@@ -26,7 +26,11 @@ const BASELINE = join(OC, "scripts", "public-sync-baseline.txt");
 const SYNC_DIRS = [
   "extensions/watchdog", "extensions/qqbot",
   "skills", "wiki", "docs", "scripts", "profiles",
+  ".github", // CI 矩阵属产品面(watchdog 离线单测),公开仓要带;门A/门B 照常全扫 staging 含此目录
 ];
+// 顶层单文件同步清单(SYNC_DIRS 只覆盖目录):openclawctl.js 是产品运维唯一入口,
+// 公开 README/SETUP 全面指向它,不同步则 fresh clone 直接断头。门A/门B 照常全扫。
+const SYNC_FILES = ["openclawctl.js"];
 // .replay-cache=RAG 测试重放缓存(内嵌备忘录私有语料);__pycache__=二进制产物。都不公开。
 const EXCLUDES = ["node_modules", "research-lab", "test-reports", ".DS_Store", ".replay-cache", "__pycache__"];
 
@@ -42,6 +46,10 @@ for (const dir of SYNC_DIRS) {
   // --delete-excluded:排除物若已躺在 staging(历史手动 rsync 带进去的)也一并清走
   execFileSync("rsync", ["-a", "--delete", "--delete-excluded", ...exArgs, `${OC}/${dir}/`, `${STAGING}/${dir}/`]);
   console.log(`✓ rsync ${dir}`);
+}
+for (const file of SYNC_FILES) {
+  execFileSync("rsync", ["-a", `${OC}/${file}`, `${STAGING}/${file}`]);
+  console.log(`✓ rsync ${file}`);
 }
 
 // ── ② 真密钥值收集(属主=live 配置;字段级,不做全字符串猜测) ────────────────

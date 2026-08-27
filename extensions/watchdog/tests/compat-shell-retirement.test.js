@@ -127,21 +127,25 @@ test("runtime workspace projections are not checked into repository truth", asyn
   assert.deepEqual(trackedRuntimeWorkspaceFiles, []);
 });
 
-test("setup and cleanup surfaces use control-plane stores instead of controller workspace stores", async () => {
+test("setup and cleanup surfaces stay off controller workspace stores (ctl era)", async () => {
+  // 2026-08-28 产品化批2:setup.sh/clean.sh/clean-restart-gateway.sh 退役为转发壳,
+  // "setup 面"的真身移交 openclawctl(scripts/ctl/ctl-commands.js cmdInit)。守卫升级为:
+  // ①退役的 controller 工作区店在四个面 + 继任者身上都不复活;②壳确实转发 ctl,
+  // 不再自带任何删除/建店逻辑;③继任者 cmdInit 仍建 control-plane 骨架(职责未丢)。
   const files = {
     setupScript: await readFile(join(REPO_ROOT, "setup.sh"), "utf8"),
     cleanScript: await readFile(join(REPO_ROOT, "clean.sh"), "utf8"),
     cleanRestartScript: await readFile(join(REPO_ROOT, "scripts", "clean-restart-gateway.sh"), "utf8"),
     setupDoc: await readFile(join(REPO_ROOT, "SETUP.md"), "utf8"),
+    ctlCommands: await readFile(join(REPO_ROOT, "scripts", "ctl", "ctl-commands.js"), "utf8"),
   };
 
   for (const [label, content] of Object.entries(files)) {
     assert.doesNotMatch(content, /workspaces\/controller\/(?:contracts|output|deliveries)/u, `${label} still references controller-rooted runtime stores`);
   }
 
-  assert.match(files.setupScript, /control-plane\/contracts/u);
-  assert.match(files.cleanScript, /control-plane\/contracts/u);
-  assert.match(files.cleanScript, /control-plane\/output/u);
-  assert.match(files.setupDoc, /control-plane\/contracts/u);
-  assert.match(files.setupDoc, /control-plane\/output/u);
+  assert.match(files.setupScript, /openclawctl\.js/u, "setup.sh 应为 openclawctl 转发壳");
+  assert.match(files.cleanRestartScript, /openclawctl\.js/u, "clean-restart 应为 openclawctl 转发壳");
+  assert.doesNotMatch(files.cleanScript, /rm -rf|find .*-delete/u, "clean.sh 提示壳不得再执行删除");
+  assert.match(files.ctlCommands, /control-plane/u, "继任者 cmdInit 仍应建 control-plane 骨架");
 });

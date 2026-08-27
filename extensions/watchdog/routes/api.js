@@ -173,6 +173,11 @@ export function register(api, logger, deps) {
       }
       try {
         const result = await revealFileInFinder(path);
+        if (result.ok === false) {
+          // 平台不支持 reveal（非 darwin/linux/win32）→ 501 优雅降级，不当异常
+          sendJson(res, 501, { ok: false, error: result.reason });
+          return true;
+        }
         sendJson(res, 200, { ok: true, resolvedPath: result.resolvedPath });
       } catch (error) {
         // 白名单外 / .. 逃逸 → 403；其它（open 失败等）→ 400

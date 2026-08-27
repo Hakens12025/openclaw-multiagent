@@ -38,6 +38,20 @@ import {
 } from "../scripts/kb-longctx-probe.js";
 import { loadKnowledgeBaseIndex } from "../lib/knowledge/knowledge-base.js";
 import { searchWikiRagLexical } from "../lib/knowledge/wiki-rag-store.js";
+
+// ── 工件门:dry/score 两个端到端用例吃 wiki-rag 索引工件(control-plane/wiki-rag-index.json,
+// 运行产物、gitignore,建库需 ollama embed)。全新 checkout / 离线 CI 里工件缺席 → skip 带原因,
+// 不是绕过:脚本对空索引本来就硬报错(kb-longctx-probe.js:251),纯函数用例照常全跑。
+let wikiIndexChunks = 0;
+try {
+  const probeIndex = await loadKnowledgeBaseIndex("wiki");
+  wikiIndexChunks = Array.isArray(probeIndex?.chunks) ? probeIndex.chunks.length : 0;
+} catch {
+  wikiIndexChunks = 0;
+}
+const WIKI_INDEX_SKIP = wikiIndexChunks > 0
+  ? false
+  : "wiki-rag 索引工件缺席(全新环境未建库,建库需 ollama)";
 import { rrfFuse } from "../lib/knowledge/wiki-rag-search.js";
 import { evaluateWikiRagRecall } from "../lib/knowledge/wiki-rag-eval.js";
 
@@ -306,7 +320,7 @@ test("控制臂重放接上 evaluateWikiRagRecall 后召回落在生产量级(�
 
 // ── 端到端:fullwiki 臂本地装配(零网络、零 ollama、无需向量腿缓存)────────────
 
-test("dry --arms fullwiki:真装配整库材料,token 表落盘且量级与那笔账吻合", async () => {
+test("dry --arms fullwiki:真装配整库材料,token 表落盘且量级与那笔账吻合", { skip: WIKI_INDEX_SKIP }, async () => {
   const out = await mkdtemp(join(tmpdir(), "kb-longctx-"));
   try {
     const { stdout } = await execFileAsync(process.execPath, [SCRIPT, "dry", "--arms", "fullwiki", "--cases", "2", "--out", out], { maxBuffer: 64 * 1024 * 1024 });
@@ -334,7 +348,7 @@ test("dry --arms fullwiki:真装配整库材料,token 表落盘且量级与那�
 
 // score 是产出结论的那一步。用**手工编造的答案**跑通它,期望值全部手算 —— 这样它的错会在
 // 花掉任何 API 额度之前暴露,而不是在读结论时。
-test("score:聚合与配对统计全部对得上手算值,且 compare.md 不泄露臂名", async () => {
+test("score:聚合与配对统计全部对得上手算值,且 compare.md 不泄露臂名", { skip: WIKI_INDEX_SKIP }, async () => {
   const out = await mkdtemp(join(tmpdir(), "kb-longctx-score-"));
   try {
     await mkdir(join(out, "answers"), { recursive: true });

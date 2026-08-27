@@ -12,10 +12,10 @@ function entry(subsystem, meaning, hint) {
 
 export const ERROR_CODES = Object.freeze({
   // ── gateway / auth ──────────────────────────────────────────────────────────
-  "E-GW-001": entry("gateway", "gateway unreachable (refused/timeout on port 18789)", "start via `bash ~/.openclaw/start.sh` (or `openclaw gateway run`); confirm /tmp/openclaw-gateway.log contains '===== WATCHDOG V3 MODULAR FULLY INITIALIZED =====' (emitted by index.js gateway_start)"),
+  "E-GW-001": entry("gateway", "gateway unreachable (refused/timeout on port 18789)", "start via `node ~/.openclaw/openclawctl.js start` (or `openclaw gateway run`); confirm ~/.openclaw/logs/gateway.log contains '===== WATCHDOG V3 MODULAR FULLY INITIALIZED =====' (emitted by index.js gateway_start)"),
   "E-GW-002": entry("gateway", "request with the configured token was rejected (401)", "token mismatch: compare the client token with gateway.auth.token in ~/.openclaw/openclaw.json; auth guard lives in routes/api.js (~L36-42)"),
   "E-GW-003": entry("gateway", "request WITHOUT token was accepted (expected 401)", "auth gate hole: the token guard in routes/api.js (~L36-42) must cover every /watchdog/* route; treat as a security regression"),
-  "E-GW-004": entry("gateway", "boot marker missing from gateway log", "gateway_start hook did not complete: grep /tmp/openclaw-gateway.log for stack traces; the marker is written at the end of full init in index.js"),
+  "E-GW-004": entry("gateway", "boot marker missing from gateway log", "gateway_start hook did not complete: grep ~/.openclaw/logs/gateway.log for stack traces; the marker is written at the end of full init in index.js"),
   "E-GW-005": entry("gateway", "GET /watchdog/runtime payload malformed", "expected {trackingSessions,dispatchQueue,dispatchRuntime,...} built in routes/api.js (~L253-285); a missing field usually means a runtime-state refactor broke the projection"),
 
   // ── inspect 家族 ─────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ export const ERROR_CODES = Object.freeze({
   // ── runner 自身 ──────────────────────────────────────────────────────────────
   "E-RUNNER-001": entry("runner", "suite crashed with an unhandled exception", "see evidence for the stack; fix the suite module under lib/formal-runtime/checks/; a suite must add checks, never throw at top level"),
   "E-RUNNER-002": entry("runner", "suite or check exceeded its time budget", "check the runner's timeout policy (heritage: lib/formal-runtime/test-timeout-policy.js); long LLM cases need progress-leased budgets, not bigger constants"),
-  "E-RUNNER-003": entry("runner", "gateway unreachable — gateway-dependent checks blocked", "start the gateway (bash ~/.openclaw/start.sh, port 18789) and rerun; pure NODE checks still ran"),
+  "E-RUNNER-003": entry("runner", "gateway unreachable — gateway-dependent checks blocked", "start the gateway (node ~/.openclaw/openclawctl.js start, port 18789) and rerun; pure NODE checks still ran"),
   "E-RUNNER-004": entry("runner", "suite emitted an invalid CheckResult", "check-runner add-time validation failed (lib/formal-runtime/checks/check-runner.js): fail/blocked/skip need a code registered in lib/formal-runtime/error-codes.js; pass must omit code"),
   "E-RUNNER-005": entry("runner", "blocked: a prerequisite check failed earlier in this run", "see evidence for the failed prerequisite check id; fix that root cause first — these checks did not run"),
   "E-RUNNER-006": entry("runner", "live run created more contracts than the preset budget (runaway spawning)", "an agent is self-dispatching beyond the test plan (e.g. bridge re-dispatching on hook echoes); the run was aborted and active contracts abandoned via /watchdog/reset; inspect records.db contract_created rows past the run watermark to identify the spawner"),

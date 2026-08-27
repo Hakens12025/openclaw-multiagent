@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -72,6 +72,8 @@ test("admin change set preserves verification and execution history under concur
   const reportPath = join(TEST_REPORTS_DIR, `${draft.id}.json`);
 
   try {
+    // test-reports/ 是运行产物目录(gitignore),全新 checkout(CI)缺席 → 先保证存在。
+    await mkdir(TEST_REPORTS_DIR, { recursive: true });
     await writeFile(reportPath, JSON.stringify({
       id: `RUN-${draft.id}`,
       status: "completed",

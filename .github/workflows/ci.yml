@@ -1,0 +1,46 @@
+# CI — watchdog 单测矩阵(离线,零 LLM、零 ollama、零网关)。
+#
+# 布局同构:树内单测以 $HOME/.openclaw 为根(lib/state/state-paths.js 在 import 时
+# 固化 homedir()/.openclaw),所以 checkout 到 <workspace>/home/.openclaw 并在测试步把
+# HOME 指到 <workspace>/home —— 与生产布局逐字同构,含 .git(compat-shell-retirement
+# 有 git ls-files 断言)。
+#
+# 离线判据(2026-08-28 本机全新拷贝 + HOME 重定向 + 死端口 embed 实测):
+#   npm test 全绿,ollama/网关/API key 相关用例全部走既有 skip/degraded 门。
+# WIKI_RAG_EMBED_BASE_URL 指向死端口 = 把"CI 无 ollama"钉成确定事实(不赌 11434 恰好没人听)。
+#
+# node 版本地板:record-plane 用 node:sqlite,v22.13.0 起免 flag
+# (https://nodejs.org/api/sqlite.html History: "v23.4.0, v22.13.0 — SQLite is no longer
+# behind --experimental-sqlite");setup-node "22" 解析到最新 22.x ≥ 22.13。
+#
+# qqbot 不进 CI:有 npm 依赖与构建(dist/ 是构建产物),后置。
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  watchdog-tests:
+    name: watchdog tests (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["22", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: home/.openclaw
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run watchdog unit tests (offline)
+        working-directory: home/.openclaw/extensions/watchdog
+        env:
+          HOME: ${{ github.workspace }}/home
+          WIKI_RAG_EMBED_BASE_URL: http://127.0.0.1:9
+        run: npm test

@@ -132,7 +132,7 @@ export async function runKnowledgeSuite(run, context) {
     await runCheck(context, {
       ...KNOWLEDGE_CHECK_DESCRIPTORS[3],
       code: "E-KNOWLEDGE-002",
-      hint: "searchWiki degrades when embedText throws INSIDE the serving process; if a fresh `node` probe to localhost:11434 works but the gateway search stays degraded, the gateway process state is stale (e.g. cached embed dispatcher in lib/knowledge/wiki-rag-embed.js after an ollama restart) — restart the gateway (launchctl kickstart) and reindex via apply.wiki_reindex",
+      hint: "searchWiki degrades when embedText throws INSIDE the serving process; if a fresh `node` probe to localhost:11434 works but the gateway search stays degraded, the gateway process state is stale (e.g. cached embed dispatcher in lib/knowledge/wiki-rag-embed.js after an ollama restart) — restart the gateway (node openclawctl.js restart) and reindex via apply.wiki_reindex",
     }, async () => {
       if (!searchBody) {
         // 上一条 check 连响应都没拿到（网络层抛了）→ 本检查没验证到，blocked 而非二次 fail。

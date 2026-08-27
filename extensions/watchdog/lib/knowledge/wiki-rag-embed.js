@@ -16,7 +16,10 @@ import { OC } from "../state.js";
 // (~600MB);未拉则 embedText 抛 → hybrid 优雅退化成词法-only(不 break,仅 recall 降)。换模触发
 // existing.model!==model 全量重嵌(基础设施现成)。per-install 可经 openclaw.json watchdog.wikiRag.embedModel 覆盖。
 const DEFAULT_EMBED_MODEL = "qwen3-embedding:0.6b";
-const DEFAULT_EMBED_BASE_URL = "http://localhost:11434";
+// WIKI_RAG_EMBED_BASE_URL 环境覆盖(离线/CI 用:指向死端口 → embedText 立即
+// WIKI_RAG_EMBED_UNAVAILABLE,测试的 ollamaUp probe 走 skip/degraded 分支;
+// 生产不设该变量=行为不变)。与 wiki-rag-judge.js 的 WIKI_RAG_JUDGE_TIMEOUT_MS 同一约定。
+const DEFAULT_EMBED_BASE_URL = process.env.WIKI_RAG_EMBED_BASE_URL || "http://localhost:11434";
 const EMBED_TIMEOUT_MS = 60000;
 
 // Reuse llm-planner.js:11-24 dispatcher pattern: derive a long-timeout undici

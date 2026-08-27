@@ -13,31 +13,52 @@
   "models": {
     "mode": "merge",
     "providers": {
+      "kimi": {
+        "baseUrl": "https://api.kimi.com/coding/v1",
+        "apiKey": "YOUR_KIMI_API_KEY_HERE",
+        "api": "openai-completions",
+        "models": [
+          { "id": "kimi-for-coding", "name": "Kimi for Coding" },
+          { "id": "k3", "name": "Kimi K3" }
+        ]
+      },
+      "glm-bigmodel": {
+        "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+        "apiKey": "YOUR_GLM_API_KEY_HERE",
+        "api": "openai-completions",
+        "models": [
+          { "id": "glm-5.1", "name": "GLM-5.1 (BigModel)" }
+        ]
+      },
       "ark-openai": {
         "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
         "apiKey": "YOUR_ARK_API_KEY_HERE",
         "api": "openai-completions",
         "models": [
-          { "id": "minimax-m2.5", "name": "MiniMax M2.5 (ARK)" },
+          { "id": "kimi-k2.5", "name": "Kimi K2.5 (ARK)" },
           { "id": "glm-4.7", "name": "GLM-4.7 (ARK)" },
-          { "id": "deepseek-v3.2", "name": "DeepSeek V3.2 (ARK)" },
-          { "id": "kimi-k2.5", "name": "Kimi K2.5 (ARK)" }
+          { "id": "deepseek-v3.2", "name": "DeepSeek V3.2 (ARK)" }
         ]
       },
-      "ark-anthropic": {
-        "baseUrl": "https://ark.cn-beijing.volces.com/api/coding",
-        "apiKey": "YOUR_ARK_API_KEY_HERE",
-        "api": "anthropic-messages",
+      "ollama": {
+        "baseUrl": "http://localhost:11434",
+        "apiKey": "REDACTED_FOR_PUBLIC",
+        "api": "ollama",
         "models": [
-          { "id": "minimax-m2.5", "name": "MiniMax M2.5 (ARK)" },
-          { "id": "deepseek-v3.2", "name": "DeepSeek V3.2 (ARK)" }
+          { "id": "qwen3:8b", "name": "Qwen3 8B (local)" }
         ]
       }
     }
   },
   "agents": {
     "defaults": {
-      "model": { "primary": "ark-openai/minimax-m2.5" },
+      "model": {
+        "primary": "glm-bigmodel/glm-5.1",
+        "fallbacks": [
+          "kimi/kimi-for-coding",
+          "ark-openai/kimi-k2.5"
+        ]
+      },
       "memorySearch": { "enabled": false },
       "compaction": {
         "mode": "safeguard",
@@ -47,62 +68,102 @@
       "typingIntervalSeconds": 6,
       "typingMode": "thinking",
       "heartbeat": { "every": "30m", "lightContext": true },
+      "skipBootstrap": true,
       "maxConcurrent": 6,
       "subagents": { "maxConcurrent": 8, "runTimeoutSeconds": 1800 }
     },
     "list": [
       {
         "id": "controller",
-        "binding": { "skills": { "configured": ["system-action"] } },
         "role": "bridge",
         "workspace": "~/.openclaw/workspaces/controller",
-        "model": { "primary": "ark-openai/minimax-m2.5" },
         "heartbeat": { "every": "2h" },
-        "skills": ["system-action"],
-        "tools": { "allow": ["read", "write", "edit"] },
+        "skills": ["platform-map", "platform-tools", "error-avoidance", "system-action"],
+        "binding": {
+          "skills": {
+            "configured": ["platform-map", "platform-tools", "error-avoidance", "system-action"]
+          }
+        },
+        "tools": {
+          "allow": ["read", "write", "edit", "assign_task", "ls", "grep", "search_knowledge", "submit_output"]
+        },
         "gateway": true,
         "protected": true,
         "ingressSource": "webui"
       },
       {
-        "id": "agent-for-kksl",
-        "role": "bridge",
-        "workspace": "~/.openclaw/workspaces/kksl",
-        "model": { "primary": "ark-openai/minimax-m2.5" },
+        "id": "operator",
+        "role": "agent",
+        "workspace": "~/.openclaw/workspaces/operator",
         "heartbeat": { "every": "2h" },
-        "gateway": true,
-        "protected": true,
-        "ingressSource": "qq"
+        "skills": ["platform-map", "platform-tools", "error-avoidance", "system-action"],
+        "binding": {
+          "skills": {
+            "configured": ["platform-map", "platform-tools", "error-avoidance", "system-action"]
+          }
+        },
+        "tools": {
+          "allow": ["read", "write", "edit", "ls", "grep", "search_knowledge", "submit_output"]
+        },
+        "protected": true
+      },
+      {
+        "id": "viz-master",
+        "role": "agent",
+        "workspace": "~/.openclaw/workspaces/viz-master",
+        "heartbeat": { "every": "2h" },
+        "skills": ["platform-map", "platform-tools", "error-avoidance", "system-action", "chart-build"],
+        "binding": {
+          "skills": {
+            "configured": ["chart-build", "platform-tools", "error-avoidance", "system-action"]
+          }
+        },
+        "tools": {
+          "allow": ["read", "write", "edit", "ls", "grep", "search_knowledge", "submit_output"]
+        },
+        "protected": true
       },
       {
         "id": "worker",
         "role": "executor",
         "workspace": "~/.openclaw/workspaces/worker",
-        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+        "skills": ["platform-map", "platform-tools", "error-avoidance", "system-action"],
+        "binding": {
+          "skills": {
+            "configured": ["platform-map", "platform-tools", "error-avoidance", "system-action"]
+          }
+        },
+        "tools": {
+          "allow": ["read", "write", "edit", "web_search", "web_fetch", "ls", "grep", "search_knowledge", "submit_output"]
+        }
       },
       {
         "id": "planner",
         "role": "planner",
         "workspace": "~/.openclaw/workspaces/planner",
-        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+        "skills": ["platform-map", "platform-tools", "error-avoidance", "system-action"],
+        "binding": {
+          "skills": {
+            "configured": ["platform-map", "platform-tools", "error-avoidance", "system-action"]
+          }
+        },
+        "tools": {
+          "allow": ["read", "write", "edit", "assign_task", "ls", "grep", "search_knowledge", "submit_output"]
+        }
       },
       {
         "id": "worker2",
         "role": "executor",
         "workspace": "~/.openclaw/workspaces/worker2",
-        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
-      },
-      {
-        "id": "worker-3",
-        "role": "executor",
-        "workspace": "~/.openclaw/workspaces/worker-3",
-        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
-      },
-      {
-        "id": "worker-4",
-        "role": "executor",
-        "workspace": "~/.openclaw/workspaces/worker-4",
-        "model": { "primary": "ark-anthropic/deepseek-v3.2" }
+        "skills": ["platform-map", "platform-tools", "error-avoidance", "system-action"],
+        "binding": {
+          "skills": {
+            "configured": ["platform-map", "platform-tools", "error-avoidance", "system-action"]
+          }
+        },
+        "tools": {
+          "allow": ["read", "write", "edit", "web_search", "web_fetch", "ls", "grep", "search_knowledge", "submit_output"]
+        }
       }
     ]
   },
@@ -115,8 +176,8 @@
     "agentToAgent": { "enabled": true }
   },
   "bindings": [
-    { "agentId": "agent-for-kksl", "match": { "channel": "qqbot" } },
-    { "agentId": "agent-for-kksl", "match": { "channel": "feishu" } }
+    { "agentId": "controller", "match": { "channel": "qqbot" } },
+    { "agentId": "controller", "match": { "channel": "feishu" } }
   ],
   "messages": { "ackReactionScope": "group-mentions" },
   "commands": {
@@ -152,9 +213,10 @@
   "gateway": {
     "port": 18789,
     "mode": "local",
+    "controlUi": { "basePath": "/ui" },
     "auth": {
       "mode": "token",
-      "token": "GENERATE_A_RANDOM_TOKEN_HERE"
+      "token": "CHANGE_ME_RUN_INIT"
     }
   },
   "plugins": {

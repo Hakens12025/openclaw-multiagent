@@ -7,8 +7,8 @@
 本项目基于 @OpenClaw 2026.03.02 版本开发，后续未做上游适配，请注意
 
 [![status](https://img.shields.io/badge/status-WIP-orange)](https://github.com/Hakens12025/openclaw-multiagent)
-[![platform](https://img.shields.io/badge/platform-macOS-lightgrey)](https://github.com/Hakens12025/openclaw-multiagent)
-[![node](https://img.shields.io/badge/node-22%2B-green)](https://nodejs.org/)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20WSL2-lightgrey)](https://github.com/Hakens12025/openclaw-multiagent)
+[![node](https://img.shields.io/badge/node-22.13%2B-green)](https://nodejs.org/)
 
 [快速开始](#快速开始) · [它能做什么](#它能做什么) · [它怎么工作](#它怎么工作) · [Operator 控制面](#operator-控制面) · [文档](#文档)
 
@@ -25,14 +25,15 @@
 ```bash
 git clone https://github.com/Hakens12025/openclaw-multiagent.git ~/.openclaw
 cd ~/.openclaw
-cp openclaw.example.json openclaw.json   # 填模型 API key 和 gateway token
-bash setup.sh
-bash start.sh
+node openclawctl.js init     # 生成 openclaw.json + 自动签发 gateway token + 建目录骨架
+# 编辑 openclaw.json，填模型 API key（models.providers.*.apiKey）
+node openclawctl.js doctor   # 环境体检
+node openclawctl.js start    # 启动网关
 ```
 
-打开 `http://localhost:18789/watchdog/?token=<你的 token>` 就是前端（零构建 SPA：指挥台 / 透视 / 管理）。
+打开 `http://localhost:18789/watchdog/?token=<你的 token>` 就是前端（零构建 SPA：指挥台 / 透视 / 管理）；token 由 `init` 自动签发，`start` 结束时会打印完整前端地址。
 
-需要 Node 22+ 和 `openclaw` CLI（`npm install -g openclaw`）。
+平台支持：macOS / Linux 原生一等，Windows 经 WSL2。需要 Node 22.13+ 和 `openclaw` CLI（`npm install -g openclaw`）。
 
 ## 它能做什么
 

@@ -14,8 +14,7 @@
     "lib/",
     "hooks/",
     "routes/",
-    "dashboard/",
-    "*.html",
+    "ui/",
     "test-runner.js",
     "openclaw.plugin.json",
     "README.md"

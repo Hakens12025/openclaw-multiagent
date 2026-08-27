@@ -504,14 +504,14 @@ test("isPathWithinAllowedRoots：白名单内放行 / 外拒 / .. 逃逸拒", ()
   assert.equal(isPathWithinAllowedRoots(join(OC_ROOT, "workspaces-evil", "x")), false);
 });
 
-test("revealFileInFinder：白名单内放行（mock exec，不真跑 open）", async () => {
+test("revealFileInFinder：白名单内放行（mock exec，不真跑 open；platform 注入保证跨平台跑测定值）", async () => {
   let captured = null;
   const exec = (cmd, args, cb) => { captured = { cmd, args }; cb(null); };
   const target = join(OC_ROOT, "control-plane", "output", "x.md");
-  const result = await revealFileInFinder(target, { exec });
+  const result = await revealFileInFinder(target, { exec, platform: "darwin" });
   assert.deepEqual(result, { ok: true, resolvedPath: target });
   assert.equal(captured.cmd, "open");
-  assert.deepEqual(captured.args, ["-R", target], "应 execFile open -R <path>（无 shell）");
+  assert.deepEqual(captured.args, ["-R", target], "darwin 应 execFile open -R <path>（无 shell）");
 });
 
 test("revealFileInFinder：白名单外 / .. 逃逸被拒（exec 不被调用）", async () => {

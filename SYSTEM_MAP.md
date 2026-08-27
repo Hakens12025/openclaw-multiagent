@@ -7,7 +7,8 @@
 
 | 东西 | 位置 |
 |---|---|
-| 网关配置（agent 花名册 / graph / 模型 / 渠道） | `openclaw.json`（由 `openclaw.example.json` 复制） |
+| 运维唯一入口（init / doctor / start / stop / restart / status / logs） | `node openclawctl.js <命令>`（跨平台：macOS / Linux 原生，Windows 经 WSL2） |
+| 网关配置（agent 花名册 / graph / 模型 / 渠道） | `openclaw.json`（由 `node openclawctl.js init` 从 `openclaw.example.json` 生成） |
 | 主编排插件 | `extensions/watchdog/`（ingress 分流 · graph 调度 · 合约状态机 · 记录面） |
 | 前端（零构建 SPA：指挥台 / 透视 / 管理） | `extensions/watchdog/ui/` → `http://localhost:18789/watchdog/?token=<token>` |
 | 记账真值（run_event / trace_event 单表，全局序 + 因果边） | `control-plane/records.db`（代码在 `extensions/watchdog/lib/record-plane/`） |

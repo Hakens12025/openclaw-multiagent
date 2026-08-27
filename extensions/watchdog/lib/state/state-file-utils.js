@@ -1,6 +1,6 @@
 // lib/state/state-file-utils.js — File utilities, locking, and path safety
 import { mkdir, readFile, rm, writeFile, rename, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
 import { HOME } from "./state-paths.js";
@@ -12,6 +12,9 @@ const CROSS_PROCESS_LOCK_ROOT = join(tmpdir(), "openclaw-state-locks");
 
 export async function atomicWriteFile(filePath, data) {
   const tmp = filePath + `.tmp-${randomBytes(4).toString("hex")}`;
+  // 父目录先保证存在:运行时目录(control-plane/ 等)被 gitignore,全新 checkout(CI)里缺席,
+  // 原子写的临时文件与正本同目录,父缺席=ENOENT。属"原子写"契约的一部分,不是各调用方的事。
+  await mkdir(dirname(tmp), { recursive: true });
   await writeFile(tmp, data);
   await rename(tmp, filePath);
 }

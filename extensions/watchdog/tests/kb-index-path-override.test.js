@@ -19,6 +19,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { buildKbIndex } from "../lib/knowledge/knowledge-base.js";
 import { addKnowledgeBaseSource, removeKnowledgeBase } from "../lib/knowledge/knowledge-base-registry.js";
@@ -80,7 +81,9 @@ test(
   { skip: moduleMocksAvailable ? false : "需 --experimental-test-module-mocks(npm test 已带)" },
   async (t) => {
     const calls = [];
-    t.mock.module("/Users/hakens/.openclaw/extensions/watchdog/lib/knowledge/wiki-rag-store.js", {
+    // mock 特定符从本测试文件自身定位(import.meta.url),与 knowledge-base.js 的相对
+    // import 解析到同一份文件 —— 写死 /Users/<user> 在 CI/别机树下 mock 落空,真 build 被调。
+    t.mock.module(fileURLToPath(new URL("../lib/knowledge/wiki-rag-store.js", import.meta.url)), {
       namedExports: {
         loadWikiRagIndex: async () => ({ model: null, builtAt: null, chunks: [] }),
         buildWikiRagIndex: async (opts = {}) => { calls.push(opts); return { ok: true, chunkCount: 0 }; },
